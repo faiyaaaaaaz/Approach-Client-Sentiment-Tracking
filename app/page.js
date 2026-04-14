@@ -1,12 +1,108 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+
+function CalendarButton({ onClick, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      style={{
+        width: "42px",
+        height: "42px",
+        borderRadius: "12px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background:
+          "linear-gradient(180deg, rgba(15,22,43,0.95), rgba(8,12,26,0.98))",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        boxShadow: "0 8px 20px rgba(0,0,0,0.28)",
+        flexShrink: 0,
+      }}
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M8 2V5"
+          stroke="#DCE7FF"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M16 2V5"
+          stroke="#DCE7FF"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <path
+          d="M3.5 9H20.5"
+          stroke="#7FA2FF"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <rect
+          x="3.5"
+          y="4.5"
+          width="17"
+          height="16"
+          rx="3"
+          stroke="url(#calendarGradient)"
+          strokeWidth="1.5"
+        />
+        <circle cx="8.5" cy="13" r="1" fill="#8B5CF6" />
+        <circle cx="12" cy="13" r="1" fill="#2563EB" />
+        <circle cx="15.5" cy="13" r="1" fill="#DB2777" />
+        <circle cx="8.5" cy="16.5" r="1" fill="#2563EB" />
+        <circle cx="12" cy="16.5" r="1" fill="#06B6D4" />
+        <circle cx="15.5" cy="16.5" r="1" fill="#8B5CF6" />
+        <defs>
+          <linearGradient
+            id="calendarGradient"
+            x1="3.5"
+            y1="4.5"
+            x2="20.5"
+            y2="20.5"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop stopColor="#60A5FA" />
+            <stop offset="0.5" stopColor="#8B5CF6" />
+            <stop offset="1" stopColor="#EC4899" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </button>
+  );
+}
 
 export default function HomePage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
+
+  const startDateRef = useRef(null);
+  const endDateRef = useRef(null);
+
+  function openPicker(inputRef) {
+    const el = inputRef.current;
+    if (!el) return;
+
+    if (typeof el.showPicker === "function") {
+      el.showPicker();
+      return;
+    }
+
+    el.focus();
+    el.click();
+  }
 
   const statCards = [
     {
@@ -89,6 +185,10 @@ export default function HomePage() {
     fontSize: "15px",
     outline: "none",
     boxSizing: "border-box",
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
+    colorScheme: "dark",
   };
 
   return (
@@ -266,13 +366,27 @@ export default function HomePage() {
                 >
                   Start Date
                 </label>
-                <input
-                  id="start-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={inputBaseStyle}
-                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <input
+                    ref={startDateRef}
+                    id="start-date"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    onFocus={() => openPicker(startDateRef)}
+                    style={inputBaseStyle}
+                  />
+                  <CalendarButton
+                    onClick={() => openPicker(startDateRef)}
+                    label="Open start date picker"
+                  />
+                </div>
               </div>
 
               <div
@@ -296,13 +410,27 @@ export default function HomePage() {
                 >
                   End Date
                 </label>
-                <input
-                  id="end-date"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={inputBaseStyle}
-                />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                  }}
+                >
+                  <input
+                    ref={endDateRef}
+                    id="end-date"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    onFocus={() => openPicker(endDateRef)}
+                    style={inputBaseStyle}
+                  />
+                  <CalendarButton
+                    onClick={() => openPicker(endDateRef)}
+                    label="Open end date picker"
+                  />
+                </div>
               </div>
             </div>
 
