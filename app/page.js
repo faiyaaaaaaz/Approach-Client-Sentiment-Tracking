@@ -1,4 +1,13 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
 export default function HomePage() {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [limiterEnabled, setLimiterEnabled] = useState(true);
+  const [limitCount, setLimitCount] = useState("10");
+
   const statCards = [
     {
       label: "Authentication",
@@ -20,15 +29,6 @@ export default function HomePage() {
       value: "GPT API",
       subtext: "Editable prompt with structured audit output",
     },
-  ];
-
-  const runChecklist = [
-    "Choose a start date and end date",
-    "Turn limiter on or off",
-    "If limiter is on, enter how many conversations to run",
-    "Fetch Intercom conversations in the selected date range",
-    "Process approved items through GPT",
-    "Save all results and run history into Supabase",
   ];
 
   const controlCards = [
@@ -57,6 +57,39 @@ export default function HomePage() {
         "The active prompt will be stored in Supabase so you can update it later without changing code.",
     },
   ];
+
+  const summaryText = useMemo(() => {
+    if (!startDate && !endDate) {
+      return "Choose a start date and end date to prepare a controlled audit run.";
+    }
+
+    if (startDate && !endDate) {
+      return `Start date selected: ${startDate}. Now choose the end date.`;
+    }
+
+    if (!startDate && endDate) {
+      return `End date selected: ${endDate}. Now choose the start date.`;
+    }
+
+    if (limiterEnabled) {
+      return `Ready to run conversations from ${startDate} to ${endDate} with limiter enabled for ${limitCount || "0"} conversation(s).`;
+    }
+
+    return `Ready to run all eligible conversations from ${startDate} to ${endDate} with limiter turned off.`;
+  }, [startDate, endDate, limiterEnabled, limitCount]);
+
+  const inputBaseStyle = {
+    width: "100%",
+    height: "52px",
+    borderRadius: "14px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(5,8,18,0.92)",
+    color: "#e7ecff",
+    padding: "0 16px",
+    fontSize: "15px",
+    outline: "none",
+    boxSizing: "border-box",
+  };
 
   return (
     <main
@@ -209,7 +242,7 @@ export default function HomePage() {
                 display: "grid",
                 gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
                 gap: "14px",
-                marginBottom: "22px",
+                marginBottom: "14px",
               }}
             >
               <div
@@ -220,8 +253,10 @@ export default function HomePage() {
                   padding: "16px",
                 }}
               >
-                <div
+                <label
+                  htmlFor="start-date"
                   style={{
+                    display: "block",
                     fontSize: "12px",
                     color: "#8ea0d6",
                     textTransform: "uppercase",
@@ -230,22 +265,14 @@ export default function HomePage() {
                   }}
                 >
                   Start Date
-                </div>
-                <div
-                  style={{
-                    height: "52px",
-                    borderRadius: "14px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(5,8,18,0.9)",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "0 16px",
-                    color: "#dbe7ff",
-                    fontSize: "15px",
-                  }}
-                >
-                  Select start date
-                </div>
+                </label>
+                <input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={inputBaseStyle}
+                />
               </div>
 
               <div
@@ -256,8 +283,10 @@ export default function HomePage() {
                   padding: "16px",
                 }}
               >
-                <div
+                <label
+                  htmlFor="end-date"
                   style={{
+                    display: "block",
                     fontSize: "12px",
                     color: "#8ea0d6",
                     textTransform: "uppercase",
@@ -266,34 +295,139 @@ export default function HomePage() {
                   }}
                 >
                   End Date
-                </div>
-                <div
-                  style={{
-                    height: "52px",
-                    borderRadius: "14px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(5,8,18,0.9)",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "0 16px",
-                    color: "#dbe7ff",
-                    fontSize: "15px",
-                  }}
-                >
-                  Select end date
-                </div>
+                </label>
+                <input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={inputBaseStyle}
+                />
               </div>
             </div>
+
+            <div
+              style={{
+                borderRadius: "18px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.03)",
+                padding: "16px",
+                marginBottom: "14px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "16px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#8ea0d6",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Development Limiter
+                  </div>
+                  <div
+                    style={{
+                      color: "#e7ecff",
+                      fontSize: "16px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {limiterEnabled ? "Limiter is ON" : "Limiter is OFF"}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setLimiterEnabled((prev) => !prev)}
+                  style={{
+                    position: "relative",
+                    width: "72px",
+                    height: "40px",
+                    borderRadius: "999px",
+                    border: limiterEnabled
+                      ? "1px solid rgba(96,165,250,0.45)"
+                      : "1px solid rgba(255,255,255,0.12)",
+                    background: limiterEnabled
+                      ? "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(168,85,247,0.85))"
+                      : "rgba(255,255,255,0.08)",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: limiterEnabled ? "36px" : "4px",
+                      width: "30px",
+                      height: "30px",
+                      borderRadius: "999px",
+                      background: "#ffffff",
+                      boxShadow: "0 6px 14px rgba(0,0,0,0.35)",
+                      transition: "left 0.2s ease",
+                    }}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {limiterEnabled && (
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  padding: "16px",
+                  marginBottom: "20px",
+                }}
+              >
+                <label
+                  htmlFor="limit-count"
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    color: "#8ea0d6",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    marginBottom: "8px",
+                  }}
+                >
+                  Number of Conversations to Run
+                </label>
+                <input
+                  id="limit-count"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={limitCount}
+                  onChange={(e) => setLimitCount(e.target.value)}
+                  placeholder="Enter a number"
+                  style={inputBaseStyle}
+                />
+              </div>
+            )}
 
             <div
               style={{
                 display: "flex",
                 gap: "14px",
                 flexWrap: "wrap",
-                marginBottom: "26px",
+                marginBottom: "22px",
               }}
             >
               <button
+                type="button"
                 style={{
                   border: "none",
                   borderRadius: "16px",
@@ -311,6 +445,7 @@ export default function HomePage() {
               </button>
 
               <button
+                type="button"
                 style={{
                   borderRadius: "16px",
                   padding: "14px 20px",
@@ -342,43 +477,17 @@ export default function HomePage() {
                   marginBottom: "12px",
                 }}
               >
-                Core run flow
+                Current run summary
               </div>
 
-              <div style={{ display: "grid", gap: "10px" }}>
-                {runChecklist.map((item, index) => (
-                  <div
-                    key={item}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "12px",
-                      color: "#d8e2ff",
-                      fontSize: "15px",
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    <div
-                      style={{
-                        minWidth: "24px",
-                        height: "24px",
-                        borderRadius: "999px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background:
-                          "linear-gradient(135deg, rgba(37,99,235,0.25), rgba(168,85,247,0.25))",
-                        border: "1px solid rgba(96,165,250,0.18)",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        marginTop: "1px",
-                      }}
-                    >
-                      {index + 1}
-                    </div>
-                    <div>{item}</div>
-                  </div>
-                ))}
+              <div
+                style={{
+                  color: "#d8e2ff",
+                  fontSize: "15px",
+                  lineHeight: 1.7,
+                }}
+              >
+                {summaryText}
               </div>
             </div>
           </div>
