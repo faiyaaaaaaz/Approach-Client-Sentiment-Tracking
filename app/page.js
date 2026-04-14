@@ -68,22 +68,18 @@ function CalendarButton({ onClick, label }) {
   );
 }
 
-function buildEffectiveProfile(user, profileRow) {
+function buildFallbackProfile(user) {
   const email = user?.email?.toLowerCase() || "";
 
   if (email === "faiyaz@nextventures.io") {
     return {
       id: user.id,
       email,
-      full_name: user.user_metadata?.full_name || "Faiyaz",
+      full_name: user.user_metadata?.full_name || "Faiyaz Muhtasim Ahmed",
       role: "master_admin",
       can_run_tests: true,
       is_active: true,
     };
-  }
-
-  if (profileRow) {
-    return profileRow;
   }
 
   return null;
@@ -94,6 +90,7 @@ export default function HomePage() {
   const [endDate, setEndDate] = useState("");
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
+
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -115,129 +112,130 @@ export default function HomePage() {
     el.click();
   }
 
-  async function fetchProfileForUser(user) {
+  async function loadProfile(user) {
     const email = user?.email?.toLowerCase() || "";
     const domain = email.split("@")[1] || "";
 
     if (!user) {
-      return { sessionUser: null, effectiveProfile: null, message: "" };
+      return { profile: null, message: "" };
     }
 
     if (domain !== "nextventures.io") {
+      await supabase.auth.signOut();
       return {
-        sessionUser: null,
-        effectiveProfile: null,
+        profile: null,
         message: "Access blocked. Only nextventures.io Google accounts are allowed.",
       };
     }
 
-    let profileRow = null;
-    let profileError = null;
+    const fallbackProfile = buildFallbackProfile(user);
 
     try {
-      const result = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-      profileRow = result.data || null;
-      profileError = result.error || null;
-    } catch (error) {
-      profileError = error;
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, email, full_name, role, can_run_tests, is_active")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (data) {
+        return { profile: data, message: "" };
+      }
+
+      if (fallbackProfile) {
+        return { profile: fallbackProfile, message: "" };
+      }
+
+      return {
+        profile: null,
+        message: "Signed in, but no profile record is available yet.",
+      };
+    } catch (_error) {
+      if (fallbackProfile) {
+        return { profile: fallbackProfile, message: "" };
+      }
+
+      return {
+        profile: null,
+        message: "Signed in, but profile loading failed.",
+      };
     }
-
-    const effectiveProfile = buildEffectiveProfile(user, profileRow);
-
-    let message = "";
-    if (!effectiveProfile && profileError) {
-      message = "Signed in, but profile access is not ready yet. Master admin fallback is active only for faiyaz@nextventures.io.";
-    }
-
-    return {
-      sessionUser: user,
-      effectiveProfile,
-      message,
-    };
   }
 
   useEffect(() => {
-    let mounted = true;
+    let active = true;
 
-    async function loadAuth() {
-      setAuthLoading(true);
-      setAuthMessage("");
-
+    async function init() {
       try {
         const {
           data: { session: currentSession },
         } = await supabase.auth.getSession();
 
-        if (!mounted) return;
+        if (!active) return;
 
-        setSession(currentSession);
+        setSession(currentSession ?? null);
 
         if (!currentSession?.user) {
           setProfile(null);
-          return;
-        }
-
-        const result = await fetchProfileForUser(currentSession.user);
-
-        if (!mounted) return;
-
-        if (!result.sessionUser) {
-          await supabase.auth.signOut();
-          setSession(null);
-          setProfile(null);
-          setAuthMessage(result.message);
-          return;
-        }
-
-        setProfile(result.effectiveProfile);
-        setAuthMessage(result.message);
-      } finally {
-        if (mounted) {
+          setAuthMessage("");
           setAuthLoading(false);
+          return;
         }
+
+        const result = await loadProfile(currentSession.user);
+
+        if (!active) return;
+
+        setProfile(result.profile);
+        setAuthMessage(result.message);
+        setAuthLoading(false);
+      } catch (_error) {
+        if (!active) return;
+        setAuthMessage("Could not complete session check.");
+        setAuthLoading(false);
       }
     }
 
-    loadAuth();
+    init();
+
+    const timeoutId = setTimeout(() => {
+      if (!active) return;
+      setAuthLoading(false);
+      setAuthMessage((current) =>
+        current || "Session check took too long. Using current page state."
+      );
+    }, 4000);
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      if (!mounted) return;
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (!active) return;
 
-      setAuthLoading(true);
-      setAuthMessage("");
-      setSession(newSession);
+      setSession(newSession ?? null);
 
-      try {
-        if (!newSession?.user) {
-          setProfile(null);
-          return;
-        }
-
-        const result = await fetchProfileForUser(newSession.user);
-
-        if (!mounted) return;
-
-        if (!result.sessionUser) {
-          await supabase.auth.signOut();
-          setSession(null);
-          setProfile(null);
-          setAuthMessage(result.message);
-          return;
-        }
-
-        setProfile(result.effectiveProfile);
-        setAuthMessage(result.message);
-      } finally {
-        if (mounted) {
-          setAuthLoading(false);
-        }
+      if (!newSession?.user) {
+        setProfile(null);
+        setAuthMessage("");
+        setAuthLoading(false);
+        return;
       }
+
+      loadProfile(newSession.user)
+        .then((result) => {
+          if (!active) return;
+          setProfile(result.profile);
+          setAuthMessage(result.message);
+          setAuthLoading(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setAuthMessage("Could not complete profile check.");
+          setAuthLoading(false);
+        });
     });
 
     return () => {
-      mounted = false;
+      active = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
@@ -250,9 +248,7 @@ export default function HomePage() {
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: {
-        redirectTo,
-      },
+      options: { redirectTo },
     });
 
     if (error) {
@@ -261,10 +257,11 @@ export default function HomePage() {
   }
 
   async function handleLogout() {
-    setAuthMessage("");
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
+    setAuthMessage("");
+    setAuthLoading(false);
   }
 
   const canRunTests =
