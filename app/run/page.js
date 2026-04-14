@@ -197,14 +197,6 @@ export default function RunPage() {
 
     init();
 
-    const timeoutId = setTimeout(() => {
-      if (!active) return;
-      setAuthLoading(false);
-      setAuthMessage((current) =>
-        current || "Session check took too long. Using current page state."
-      );
-    }, 4000);
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
@@ -235,7 +227,6 @@ export default function RunPage() {
 
     return () => {
       active = false;
-      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
