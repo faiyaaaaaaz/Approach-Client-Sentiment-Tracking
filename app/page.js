@@ -31,24 +31,9 @@ function CalendarButton({ onClick, label }) {
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <path
-          d="M8 2V5"
-          stroke="#DCE7FF"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <path
-          d="M16 2V5"
-          stroke="#DCE7FF"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <path
-          d="M3.5 9H20.5"
-          stroke="#7FA2FF"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
+        <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
         <rect
           x="3.5"
           y="4.5"
@@ -83,6 +68,27 @@ function CalendarButton({ onClick, label }) {
   );
 }
 
+function buildEffectiveProfile(user, profileRow) {
+  const email = user?.email?.toLowerCase() || "";
+
+  if (email === "faiyaz@nextventures.io") {
+    return {
+      id: user.id,
+      email,
+      full_name: user.user_metadata?.full_name || "Faiyaz",
+      role: "master_admin",
+      can_run_tests: true,
+      is_active: true,
+    };
+  }
+
+  if (profileRow) {
+    return profileRow;
+  }
+
+  return null;
+}
+
 export default function HomePage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -109,46 +115,87 @@ export default function HomePage() {
     el.click();
   }
 
+  async function fetchProfileForUser(user) {
+    const email = user?.email?.toLowerCase() || "";
+    const domain = email.split("@")[1] || "";
+
+    if (!user) {
+      return { sessionUser: null, effectiveProfile: null, message: "" };
+    }
+
+    if (domain !== "nextventures.io") {
+      return {
+        sessionUser: null,
+        effectiveProfile: null,
+        message: "Access blocked. Only nextventures.io Google accounts are allowed.",
+      };
+    }
+
+    let profileRow = null;
+    let profileError = null;
+
+    try {
+      const result = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      profileRow = result.data || null;
+      profileError = result.error || null;
+    } catch (error) {
+      profileError = error;
+    }
+
+    const effectiveProfile = buildEffectiveProfile(user, profileRow);
+
+    let message = "";
+    if (!effectiveProfile && profileError) {
+      message = "Signed in, but profile access is not ready yet. Master admin fallback is active only for faiyaz@nextventures.io.";
+    }
+
+    return {
+      sessionUser: user,
+      effectiveProfile,
+      message,
+    };
+  }
+
   useEffect(() => {
     let mounted = true;
 
     async function loadAuth() {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
+      setAuthLoading(true);
+      setAuthMessage("");
 
-      if (!mounted) return;
+      try {
+        const {
+          data: { session: currentSession },
+        } = await supabase.auth.getSession();
 
-      setSession(currentSession);
+        if (!mounted) return;
 
-      if (!currentSession?.user) {
-        setProfile(null);
-        setAuthLoading(false);
-        return;
+        setSession(currentSession);
+
+        if (!currentSession?.user) {
+          setProfile(null);
+          return;
+        }
+
+        const result = await fetchProfileForUser(currentSession.user);
+
+        if (!mounted) return;
+
+        if (!result.sessionUser) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setProfile(null);
+          setAuthMessage(result.message);
+          return;
+        }
+
+        setProfile(result.effectiveProfile);
+        setAuthMessage(result.message);
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
-
-      const email = currentSession.user.email?.toLowerCase() || "";
-      const domain = email.split("@")[1] || "";
-
-      if (domain !== "nextventures.io") {
-        setAuthMessage("Access blocked. Only nextventures.io Google accounts are allowed.");
-        await supabase.auth.signOut();
-        setSession(null);
-        setProfile(null);
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", currentSession.user.id)
-        .single();
-
-      if (!mounted) return;
-
-      setProfile(profileRow || null);
-      setAuthLoading(false);
     }
 
     loadAuth();
@@ -158,36 +205,35 @@ export default function HomePage() {
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!mounted) return;
 
+      setAuthLoading(true);
+      setAuthMessage("");
       setSession(newSession);
 
-      if (!newSession?.user) {
-        setProfile(null);
-        setAuthLoading(false);
-        return;
+      try {
+        if (!newSession?.user) {
+          setProfile(null);
+          return;
+        }
+
+        const result = await fetchProfileForUser(newSession.user);
+
+        if (!mounted) return;
+
+        if (!result.sessionUser) {
+          await supabase.auth.signOut();
+          setSession(null);
+          setProfile(null);
+          setAuthMessage(result.message);
+          return;
+        }
+
+        setProfile(result.effectiveProfile);
+        setAuthMessage(result.message);
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
-
-      const email = newSession.user.email?.toLowerCase() || "";
-      const domain = email.split("@")[1] || "";
-
-      if (domain !== "nextventures.io") {
-        setAuthMessage("Access blocked. Only nextventures.io Google accounts are allowed.");
-        await supabase.auth.signOut();
-        setSession(null);
-        setProfile(null);
-        setAuthLoading(false);
-        return;
-      }
-
-      const { data: profileRow } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", newSession.user.id)
-        .single();
-
-      if (!mounted) return;
-
-      setProfile(profileRow || null);
-      setAuthLoading(false);
     });
 
     return () => {
@@ -505,7 +551,7 @@ export default function HomePage() {
                     Signed in as {session.user.email}
                   </div>
                   <div style={{ color: "#a9b4d0", fontSize: "14px" }}>
-                    Role: {profile?.role || "loading"} | Can run tests: {canRunTests ? "Yes" : "No"}
+                    Role: {profile?.role || "viewer"} | Can run tests: {canRunTests ? "Yes" : "No"}
                   </div>
                 </div>
               ) : (
