@@ -1,16 +1,17 @@
 {
-  "name": "csat-dashboard",
-  "version": "1.0.0",
+  "name": "review-approach-client-sentiment-tracking",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.2.3",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "@supabase/supabase-js": "^2.45.0"
+    "@supabase/supabase-js": "^2.49.8",
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18"
   }
 }
