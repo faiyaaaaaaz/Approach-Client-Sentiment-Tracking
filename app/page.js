@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 function CalendarButton({ onClick, label }) {
   return (
@@ -87,6 +88,10 @@ export default function HomePage() {
   const [endDate, setEndDate] = useState("");
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMessage, setAuthMessage] = useState("");
 
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
@@ -104,15 +109,135 @@ export default function HomePage() {
     el.click();
   }
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAuth() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      setSession(currentSession);
+
+      if (!currentSession?.user) {
+        setProfile(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const email = currentSession.user.email?.toLowerCase() || "";
+      const domain = email.split("@")[1] || "";
+
+      if (domain !== "nextventures.io") {
+        setAuthMessage("Access blocked. Only nextventures.io Google accounts are allowed.");
+        await supabase.auth.signOut();
+        setSession(null);
+        setProfile(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentSession.user.id)
+        .single();
+
+      if (!mounted) return;
+
+      setProfile(profileRow || null);
+      setAuthLoading(false);
+    }
+
+    loadAuth();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (!mounted) return;
+
+      setSession(newSession);
+
+      if (!newSession?.user) {
+        setProfile(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const email = newSession.user.email?.toLowerCase() || "";
+      const domain = email.split("@")[1] || "";
+
+      if (domain !== "nextventures.io") {
+        setAuthMessage("Access blocked. Only nextventures.io Google accounts are allowed.");
+        await supabase.auth.signOut();
+        setSession(null);
+        setProfile(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", newSession.user.id)
+        .single();
+
+      if (!mounted) return;
+
+      setProfile(profileRow || null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleGoogleLogin() {
+    setAuthMessage("");
+
+    const redirectTo =
+      typeof window !== "undefined" ? window.location.origin : undefined;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo,
+      },
+    });
+
+    if (error) {
+      setAuthMessage(error.message || "Google sign-in failed.");
+    }
+  }
+
+  async function handleLogout() {
+    setAuthMessage("");
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+  }
+
+  const canRunTests =
+    profile?.is_active === true &&
+    (profile?.role === "master_admin" ||
+      profile?.role === "admin" ||
+      profile?.can_run_tests === true);
+
+  const isMasterAdmin = profile?.role === "master_admin";
+
   const statCards = [
     {
       label: "Authentication",
-      value: "Google + Domain Gate",
+      value: session?.user ? "Google Connected" : "Google Login Required",
       subtext: "Only nextventures.io users can enter",
     },
     {
       label: "Access Control",
-      value: "Master Admin Locked",
+      value: isMasterAdmin ? "Master Admin Active" : "Permission Controlled",
       subtext: "faiyaz@nextventures.io stays permanent admin",
     },
     {
@@ -155,6 +280,18 @@ export default function HomePage() {
   ];
 
   const summaryText = useMemo(() => {
+    if (authLoading) {
+      return "Checking login and access status.";
+    }
+
+    if (!session?.user) {
+      return "Sign in with your Google account to continue.";
+    }
+
+    if (profile && !canRunTests) {
+      return "You are signed in, but test-run access is not enabled for this account yet.";
+    }
+
     if (!startDate && !endDate) {
       return "Choose a start date and end date to prepare a controlled audit run.";
     }
@@ -172,7 +309,7 @@ export default function HomePage() {
     }
 
     return `Ready to run all eligible conversations from ${startDate} to ${endDate} with limiter turned off.`;
-  }, [startDate, endDate, limiterEnabled, limitCount]);
+  }, [authLoading, session, profile, canRunTests, startDate, endDate, limiterEnabled, limitCount]);
 
   const inputBaseStyle = {
     width: "100%",
@@ -269,7 +406,7 @@ export default function HomePage() {
                 display: "inline-block",
               }}
             />
-            V1 Build in Progress
+            Auth + Access Stage
           </div>
         </div>
 
@@ -324,7 +461,7 @@ export default function HomePage() {
 
             <p
               style={{
-                margin: "0 0 28px",
+                margin: "0 0 20px",
                 color: "#a9b4d0",
                 fontSize: "18px",
                 lineHeight: 1.7,
@@ -336,6 +473,60 @@ export default function HomePage() {
               Intercom conversations with GPT, and store every result inside
               Supabase.
             </p>
+
+            <div
+              style={{
+                borderRadius: "18px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.03)",
+                padding: "16px",
+                marginBottom: "18px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "#8ea0d6",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  marginBottom: "8px",
+                }}
+              >
+                Login Status
+              </div>
+
+              {authLoading ? (
+                <div style={{ color: "#dbe7ff", fontSize: "15px" }}>
+                  Checking your session...
+                </div>
+              ) : session?.user ? (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ color: "#dbe7ff", fontSize: "15px", fontWeight: 600 }}>
+                    Signed in as {session.user.email}
+                  </div>
+                  <div style={{ color: "#a9b4d0", fontSize: "14px" }}>
+                    Role: {profile?.role || "loading"} | Can run tests: {canRunTests ? "Yes" : "No"}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: "#dbe7ff", fontSize: "15px" }}>
+                  You are not signed in yet.
+                </div>
+              )}
+
+              {authMessage ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    color: "#fda4af",
+                    fontSize: "14px",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {authMessage}
+                </div>
+              ) : null}
+            </div>
 
             <div
               style={{
@@ -490,7 +681,6 @@ export default function HomePage() {
                       ? "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(168,85,247,0.85))"
                       : "rgba(255,255,255,0.08)",
                     cursor: "pointer",
-                    transition: "all 0.2s ease",
                   }}
                 >
                   <span
@@ -503,7 +693,6 @@ export default function HomePage() {
                       borderRadius: "999px",
                       background: "#ffffff",
                       boxShadow: "0 6px 14px rgba(0,0,0,0.35)",
-                      transition: "left 0.2s ease",
                     }}
                   />
                 </button>
@@ -554,38 +743,62 @@ export default function HomePage() {
                 marginBottom: "22px",
               }}
             >
-              <button
-                type="button"
-                style={{
-                  border: "none",
-                  borderRadius: "16px",
-                  padding: "14px 20px",
-                  fontSize: "15px",
-                  fontWeight: 700,
-                  color: "#ffffff",
-                  cursor: "pointer",
-                  background:
-                    "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                  boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
-                }}
-              >
-                Run Audit
-              </button>
+              {!session?.user ? (
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  style={{
+                    border: "none",
+                    borderRadius: "16px",
+                    padding: "14px 20px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    background:
+                      "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+                    boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
+                  }}
+                >
+                  Sign in with Google
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    border: "none",
+                    borderRadius: "16px",
+                    padding: "14px 20px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    background:
+                      "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+                    boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
+                  }}
+                >
+                  Sign out
+                </button>
+              )}
 
               <button
                 type="button"
+                disabled={!canRunTests}
                 style={{
                   borderRadius: "16px",
                   padding: "14px 20px",
                   fontSize: "15px",
                   fontWeight: 700,
-                  color: "#e5ebff",
-                  cursor: "pointer",
+                  color: canRunTests ? "#e5ebff" : "rgba(229,235,255,0.45)",
+                  cursor: canRunTests ? "pointer" : "not-allowed",
                   background: "rgba(255,255,255,0.03)",
                   border: "1px solid rgba(255,255,255,0.1)",
+                  opacity: canRunTests ? 1 : 0.6,
                 }}
               >
-                Open Admin Panel
+                Run Audit
               </button>
             </div>
 
