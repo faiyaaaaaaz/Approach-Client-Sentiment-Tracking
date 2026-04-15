@@ -68,21 +68,23 @@ function canRunAudits(profile) {
   );
 }
 
-function toUnixRange(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00.000Z`);
-  const end = new Date(`${endDate}T23:59:59.999Z`);
+function toDhakaUnixRange(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00+06:00`);
+  const endExclusive = new Date(`${endDate}T00:00:00+06:00`);
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime())) {
     throw new Error("Invalid start or end date.");
   }
 
-  if (start > end) {
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+  if (start >= endExclusive) {
     throw new Error("Start date cannot be later than end date.");
   }
 
   return {
     sinceTs: Math.floor(start.getTime() / 1000),
-    untilTs: Math.floor(end.getTime() / 1000),
+    untilTs: Math.floor(endExclusive.getTime() / 1000),
   };
 }
 
@@ -183,20 +185,25 @@ async function fetchIntercomConversationIds({
         operator: "AND",
         value: [
           {
-            field: "created_at",
+            field: "conversation_rating.replied_at",
             operator: ">",
             value: sinceTs,
           },
           {
-            field: "created_at",
+            field: "conversation_rating.replied_at",
             operator: "<",
             value: untilTs,
+          },
+          {
+            field: "conversation_rating.score",
+            operator: "IN",
+            value: [3, 4, 5],
           },
         ],
       },
       sort: {
-        field: "created_at",
-        order: "descending",
+        field: "conversation_rating.replied_at",
+        order: "ascending",
       },
       pagination: {
         per_page: perPage,
@@ -232,7 +239,9 @@ async function fetchFullConversation(intercomApiKey, conversationId) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Intercom conversation fetch failed for ${conversationId}: ${response.status} ${text}`);
+    throw new Error(
+      `Intercom conversation fetch failed for ${conversationId}: ${response.status} ${text}`
+    );
   }
 
   return response.json();
@@ -429,7 +438,7 @@ export async function POST(request) {
       );
     }
 
-    const { sinceTs, untilTs } = toUnixRange(startDate, endDate);
+    const { sinceTs, untilTs } = toDhakaUnixRange(startDate, endDate);
 
     const limitCount = limiterEnabled
       ? Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 3, 10))
