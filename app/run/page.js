@@ -1901,40 +1901,58 @@ export default function RunPage() {
                             }}
                           >
                             <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                                gap: "10px",
-                                marginBottom: "10px",
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Page
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {page?.pageIndex ?? "-"}
-                                </div>
-                              </div>
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+    gap: "10px",
+    marginBottom: "10px",
+  }}
+>
+  <div>
+    <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+      Page
+    </div>
+    <div style={{ fontSize: "14px", fontWeight: 600 }}>
+      {page?.pageIndex ?? "-"}
+    </div>
+  </div>
 
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Returned Count
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {page?.returnedCount ?? 0}
-                                </div>
-                              </div>
+  <div>
+    <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+      HTTP Status
+    </div>
+    <div style={{ fontSize: "14px", fontWeight: 600 }}>
+      {page?.httpStatus ?? "-"}
+    </div>
+  </div>
 
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Next Cursor
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600, wordBreak: "break-all" }}>
-                                  {page?.nextCursor || "None"}
-                                </div>
-                              </div>
-                            </div>
+  <div>
+    <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+      OK
+    </div>
+    <div style={{ fontSize: "14px", fontWeight: 600 }}>
+      {String(page?.ok)}
+    </div>
+  </div>
+
+  <div>
+    <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+      Returned Count
+    </div>
+    <div style={{ fontSize: "14px", fontWeight: 600 }}>
+      {page?.returnedCount ?? 0}
+    </div>
+  </div>
+
+  <div>
+    <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+      Next Cursor
+    </div>
+    <div style={{ fontSize: "14px", fontWeight: 600, wordBreak: "break-all" }}>
+      {page?.nextCursor || "None"}
+    </div>
+  </div>
+</div>
 
                             <div
                               style={{
@@ -1952,6 +1970,24 @@ export default function RunPage() {
                                 ? page.sampleIds.join(", ")
                                 : "None"}
                             </div>
+
+                              <div
+  style={{
+    borderRadius: "12px",
+    background: "rgba(255,255,255,0.03)",
+    padding: "12px",
+    color: "#d8e2ff",
+    fontSize: "12px",
+    lineHeight: 1.7,
+    marginBottom: "10px",
+    wordBreak: "break-word",
+  }}
+>
+  <strong>Content-Type:</strong> {page?.contentType || "None"}
+  <br />
+  <strong>Response Excerpt:</strong>{" "}
+  {page?.responseExcerpt ? page.responseExcerpt : "None"}
+</div>
 
                             <details>
                               <summary
