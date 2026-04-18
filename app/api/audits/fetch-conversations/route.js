@@ -142,34 +142,34 @@ async function fetchIntercomSearchPage({
   startingAfter,
 }) {
   const body = {
-    query: {
-      operator: "AND",
-      value: [
-        {
-          field: "conversation_rating.replied_at",
-          operator: ">",
-          value: Number(sinceTs),
-        },
-        {
-          field: "conversation_rating.replied_at",
-          operator: "<",
-          value: Number(untilTs),
-        },
-                {
-          field: "conversation_rating.score",
-          operator: "IN",
-          value: [1, 2],
-        },
-      ],
-    },
-    sort: {
-      field: "conversation_rating.replied_at",
-      order: "ascending",
-    },
-    pagination: startingAfter
-      ? { per_page: INTERCOM_PER_PAGE, starting_after: startingAfter }
-      : { per_page: INTERCOM_PER_PAGE },
-  };
+  query: {
+    operator: "AND",
+    value: [
+      {
+        field: "created_at",
+        operator: ">",
+        value: Number(sinceTs),
+      },
+      {
+        field: "created_at",
+        operator: "<",
+        value: Number(untilTs),
+      },
+      {
+        field: "conversation_rating.score",
+        operator: "IN",
+        value: [1, 2],
+      },
+    ],
+  },
+  sort: {
+    field: "created_at",
+    order: "ascending",
+  },
+  pagination: startingAfter
+    ? { per_page: INTERCOM_PER_PAGE, starting_after: startingAfter }
+    : { per_page: INTERCOM_PER_PAGE },
+};
 
   const response = await fetch("https://api.intercom.io/conversations/search", {
     method: "POST",
