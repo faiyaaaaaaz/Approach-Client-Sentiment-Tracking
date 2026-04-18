@@ -184,20 +184,21 @@ async function fetchIntercomSearchPage({
   });
 
   const responseText = await response.text();
+  const contentType = response.headers.get("content-type") || "";
 
-  if (!response.ok) {
-    throw new Error(`Intercom search failed: ${response.status} ${responseText}`);
-  }
-
-  let data;
+  let data = null;
   try {
-    data = JSON.parse(responseText);
+    data = responseText ? JSON.parse(responseText) : null;
   } catch {
-    throw new Error("Intercom search returned invalid JSON.");
+    data = null;
   }
 
   return {
     body,
+    status: response.status,
+    ok: response.ok,
+    contentType,
+    responseExcerpt: responseText.slice(0, 1200),
     data,
   };
 }
@@ -218,26 +219,32 @@ async function fetchConversationsForDay({
   let pageCount = 0;
 
   while (pageCount < MAX_FETCH_PAGES_PER_DAY) {
-    const { body, data } = await fetchIntercomSearchPage({
-      intercomApiKey,
-      sinceTs,
-      untilTs,
-      startingAfter,
-    });
+    const pageResult = await fetchIntercomSearchPage({
+  intercomApiKey,
+  sinceTs,
+  untilTs,
+  startingAfter,
+});
 
-    const pageItems = Array.isArray(data?.conversations) ? data.conversations : [];
-    const nextCursor = data?.pages?.next?.starting_after ?? null;
+const pageItems = Array.isArray(pageResult?.data?.conversations)
+  ? pageResult.data.conversations
+  : [];
+const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
 
-    debugPages.push({
-      request: body,
-      pageIndex: pageCount + 1,
-      returnedCount: pageItems.length,
-      nextCursor,
-      sampleIds: pageItems
-        .map((item) => String(item?.id || "").trim())
-        .filter(Boolean)
-        .slice(0, 10),
-    });
+debugPages.push({
+  request: pageResult.body,
+  pageIndex: pageCount + 1,
+  httpStatus: pageResult.status,
+  ok: pageResult.ok,
+  contentType: pageResult.contentType,
+  returnedCount: pageItems.length,
+  nextCursor,
+  sampleIds: pageItems
+    .map((item) => String(item?.id || "").trim())
+    .filter(Boolean)
+    .slice(0, 10),
+  responseExcerpt: pageResult.responseExcerpt,
+});
 
     for (const conversation of pageItems) {
       const id = String(conversation?.id || "").trim();
