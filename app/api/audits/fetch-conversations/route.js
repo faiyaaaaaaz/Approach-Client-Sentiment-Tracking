@@ -22,6 +22,13 @@ function getEnv(name) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getKeyFingerprint(value) {
+  const cleaned = String(value || "").trim();
+  if (!cleaned) return "missing";
+  if (cleaned.length <= 8) return cleaned;
+  return `${cleaned.slice(0, 6)}...${cleaned.slice(-6)}`;
+}
+
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
@@ -449,6 +456,10 @@ export async function POST(request) {
             intercomPerPage: INTERCOM_PER_PAGE,
             maxFetchPagesPerDay: MAX_FETCH_PAGES_PER_DAY,
             lowCsatScores: LOW_CSAT_SCORES,
+            auth: {
+              tokenSource: "INTERCOM_API_KEY",
+              tokenFingerprint: getKeyFingerprint(intercomApiKey),
+            },
             dailySummary,
           }
         : undefined,
