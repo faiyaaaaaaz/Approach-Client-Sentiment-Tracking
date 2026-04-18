@@ -5,28 +5,7 @@ export const dynamic = "force-dynamic";
 
 const INTERCOM_PER_PAGE = 150;
 const MAX_FETCH_PAGES_PER_DAY = 50;
-const LOW_CSAT_SCORES = [1, 2];
-
-const SEARCH_STRATEGIES = [
-  {
-    key: "rating_created_at",
-    label: "Rating Created At",
-    dateField: "conversation_rating.created_at",
-    sortField: "conversation_rating.created_at",
-  },
-  {
-    key: "rating_replied_at",
-    label: "Rating Replied At",
-    dateField: "conversation_rating.replied_at",
-    sortField: "conversation_rating.replied_at",
-  },
-  {
-    key: "conversation_created_at",
-    label: "Conversation Created At",
-    dateField: "created_at",
-    sortField: "created_at",
-  },
-];
+const LOW_CSAT_SCORES = [3, 4, 5];
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -134,7 +113,6 @@ function extractConversationPreview(conversation) {
   return {
     conversationId: String(conversation?.id || "").trim(),
     repliedAt:
-      conversation?.conversation_rating?.created_at ||
       conversation?.conversation_rating?.replied_at ||
       conversation?.updated_at ||
       conversation?.created_at ||
@@ -158,18 +136,18 @@ function extractConversationPreview(conversation) {
   };
 }
 
-function buildSearchBody({ sinceTs, untilTs, startingAfter, strategy }) {
+function buildSearchBody({ sinceTs, untilTs, startingAfter }) {
   return {
     query: {
       operator: "AND",
       value: [
         {
-          field: strategy.dateField,
+          field: "conversation_rating.replied_at",
           operator: ">",
           value: Number(sinceTs),
         },
         {
-          field: strategy.dateField,
+          field: "conversation_rating.replied_at",
           operator: "<",
           value: Number(untilTs),
         },
@@ -181,7 +159,7 @@ function buildSearchBody({ sinceTs, untilTs, startingAfter, strategy }) {
       ],
     },
     sort: {
-      field: strategy.sortField,
+      field: "conversation_rating.replied_at",
       order: "ascending",
     },
     pagination: startingAfter
@@ -195,13 +173,11 @@ async function fetchIntercomSearchPage({
   sinceTs,
   untilTs,
   startingAfter,
-  strategy,
 }) {
   const body = buildSearchBody({
     sinceTs,
     untilTs,
     startingAfter,
-    strategy,
   });
 
   const response = await fetch("https://api.intercom.io/conversations/search", {
@@ -227,7 +203,6 @@ async function fetchIntercomSearchPage({
   }
 
   return {
-    strategy,
     requestBody: body,
     status: response.status,
     ok: response.ok,
@@ -237,15 +212,15 @@ async function fetchIntercomSearchPage({
   };
 }
 
-async function fetchStrategyForDay({
+async function fetchConversationsForDay({
   intercomApiKey,
-  sinceTs,
-  untilTs,
+  date,
   limiterEnabled,
   desiredCount,
   seenIds,
-  strategy,
 }) {
+  const { sinceTs, untilTs } = dhakaDayBounds(date);
+
   const conversations = [];
   const debugPages = [];
 
@@ -258,7 +233,6 @@ async function fetchStrategyForDay({
       sinceTs,
       untilTs,
       startingAfter,
-      strategy,
     });
 
     const pageItems = Array.isArray(pageResult?.data?.conversations)
@@ -267,13 +241,7 @@ async function fetchStrategyForDay({
     const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
 
     debugPages.push({
-      request: {
-        strategyKey: strategy.key,
-        strategyLabel: strategy.label,
-        dateField: strategy.dateField,
-        sortField: strategy.sortField,
-        ...pageResult.requestBody,
-      },
+      request: pageResult.requestBody,
       pageIndex: pageCount + 1,
       httpStatus: pageResult.status,
       ok: pageResult.ok,
@@ -296,9 +264,8 @@ async function fetchStrategyForDay({
 
       if (limiterEnabled && seenIds.size >= desiredCount) {
         return {
-          strategyKey: strategy.key,
-          strategyLabel: strategy.label,
-          strategyDateField: strategy.dateField,
+          sinceTs,
+          untilTs,
           conversations,
           debugPages,
         };
@@ -314,56 +281,10 @@ async function fetchStrategyForDay({
   }
 
   return {
-    strategyKey: strategy.key,
-    strategyLabel: strategy.label,
-    strategyDateField: strategy.dateField,
-    conversations,
-    debugPages,
-  };
-}
-
-async function fetchConversationsForDay({
-  intercomApiKey,
-  date,
-  limiterEnabled,
-  desiredCount,
-  seenIds,
-}) {
-  const { sinceTs, untilTs } = dhakaDayBounds(date);
-
-  const allDebugPages = [];
-  let matchedStrategy = null;
-  let matchedDateField = null;
-  let matchedConversations = [];
-
-  for (const strategy of SEARCH_STRATEGIES) {
-    const strategyResult = await fetchStrategyForDay({
-      intercomApiKey,
-      sinceTs,
-      untilTs,
-      limiterEnabled,
-      desiredCount,
-      seenIds,
-      strategy,
-    });
-
-    allDebugPages.push(...strategyResult.debugPages);
-
-    if (strategyResult.conversations.length > 0) {
-      matchedStrategy = strategyResult.strategyLabel;
-      matchedDateField = strategyResult.strategyDateField;
-      matchedConversations = strategyResult.conversations;
-      break;
-    }
-  }
-
-  return {
     sinceTs,
     untilTs,
-    conversations: matchedConversations,
-    debugPages: allDebugPages,
-    matchedStrategy,
-    matchedDateField,
+    conversations,
+    debugPages,
   };
 }
 
@@ -495,8 +416,6 @@ export async function POST(request) {
         sinceTs: dayResult.sinceTs,
         untilTs: dayResult.untilTs,
         fetchedCount: dayResult.conversations.length,
-        matchedStrategy: dayResult.matchedStrategy,
-        matchedDateField: dayResult.matchedDateField,
         pages: debug ? dayResult.debugPages : undefined,
       });
 
@@ -530,12 +449,6 @@ export async function POST(request) {
             intercomPerPage: INTERCOM_PER_PAGE,
             maxFetchPagesPerDay: MAX_FETCH_PAGES_PER_DAY,
             lowCsatScores: LOW_CSAT_SCORES,
-            searchStrategies: SEARCH_STRATEGIES.map((item) => ({
-              key: item.key,
-              label: item.label,
-              dateField: item.dateField,
-              sortField: item.sortField,
-            })),
             dailySummary,
           }
         : undefined,
