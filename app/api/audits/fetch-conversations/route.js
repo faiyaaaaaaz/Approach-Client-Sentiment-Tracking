@@ -5,6 +5,28 @@ export const dynamic = "force-dynamic";
 
 const INTERCOM_PER_PAGE = 150;
 const MAX_FETCH_PAGES_PER_DAY = 50;
+const LOW_CSAT_SCORES = [1, 2];
+
+const SEARCH_STRATEGIES = [
+  {
+    key: "rating_created_at",
+    label: "Rating Created At",
+    dateField: "conversation_rating.created_at",
+    sortField: "conversation_rating.created_at",
+  },
+  {
+    key: "rating_replied_at",
+    label: "Rating Replied At",
+    dateField: "conversation_rating.replied_at",
+    sortField: "conversation_rating.replied_at",
+  },
+  {
+    key: "conversation_created_at",
+    label: "Conversation Created At",
+    dateField: "created_at",
+    sortField: "created_at",
+  },
+];
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -112,6 +134,7 @@ function extractConversationPreview(conversation) {
   return {
     conversationId: String(conversation?.id || "").trim(),
     repliedAt:
+      conversation?.conversation_rating?.created_at ||
       conversation?.conversation_rating?.replied_at ||
       conversation?.updated_at ||
       conversation?.created_at ||
@@ -135,41 +158,51 @@ function extractConversationPreview(conversation) {
   };
 }
 
+function buildSearchBody({ sinceTs, untilTs, startingAfter, strategy }) {
+  return {
+    query: {
+      operator: "AND",
+      value: [
+        {
+          field: strategy.dateField,
+          operator: ">",
+          value: Number(sinceTs),
+        },
+        {
+          field: strategy.dateField,
+          operator: "<",
+          value: Number(untilTs),
+        },
+        {
+          field: "conversation_rating.score",
+          operator: "IN",
+          value: LOW_CSAT_SCORES,
+        },
+      ],
+    },
+    sort: {
+      field: strategy.sortField,
+      order: "ascending",
+    },
+    pagination: startingAfter
+      ? { per_page: INTERCOM_PER_PAGE, starting_after: startingAfter }
+      : { per_page: INTERCOM_PER_PAGE },
+  };
+}
+
 async function fetchIntercomSearchPage({
   intercomApiKey,
   sinceTs,
   untilTs,
   startingAfter,
+  strategy,
 }) {
-  const body = {
-  query: {
-    operator: "AND",
-    value: [
-      {
-        field: "created_at",
-        operator: ">",
-        value: Number(sinceTs),
-      },
-      {
-        field: "created_at",
-        operator: "<",
-        value: Number(untilTs),
-      },
-      {
-        field: "conversation_rating.score",
-        operator: "IN",
-        value: [1, 2],
-      },
-    ],
-  },
-  sort: {
-    field: "created_at",
-    order: "ascending",
-  },
-  pagination: startingAfter
-    ? { per_page: INTERCOM_PER_PAGE, starting_after: startingAfter }
-    : { per_page: INTERCOM_PER_PAGE },
-};
+  const body = buildSearchBody({
+    sinceTs,
+    untilTs,
+    startingAfter,
+    strategy,
+  });
 
   const response = await fetch("https://api.intercom.io/conversations/search", {
     method: "POST",
@@ -194,7 +227,8 @@ async function fetchIntercomSearchPage({
   }
 
   return {
-    body,
+    strategy,
+    requestBody: body,
     status: response.status,
     ok: response.ok,
     contentType,
@@ -203,15 +237,15 @@ async function fetchIntercomSearchPage({
   };
 }
 
-async function fetchConversationsForDay({
+async function fetchStrategyForDay({
   intercomApiKey,
-  date,
+  sinceTs,
+  untilTs,
   limiterEnabled,
   desiredCount,
   seenIds,
+  strategy,
 }) {
-  const { sinceTs, untilTs } = dhakaDayBounds(date);
-
   const conversations = [];
   const debugPages = [];
 
@@ -220,31 +254,38 @@ async function fetchConversationsForDay({
 
   while (pageCount < MAX_FETCH_PAGES_PER_DAY) {
     const pageResult = await fetchIntercomSearchPage({
-  intercomApiKey,
-  sinceTs,
-  untilTs,
-  startingAfter,
-});
+      intercomApiKey,
+      sinceTs,
+      untilTs,
+      startingAfter,
+      strategy,
+    });
 
-const pageItems = Array.isArray(pageResult?.data?.conversations)
-  ? pageResult.data.conversations
-  : [];
-const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
+    const pageItems = Array.isArray(pageResult?.data?.conversations)
+      ? pageResult.data.conversations
+      : [];
+    const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
 
-debugPages.push({
-  request: pageResult.body,
-  pageIndex: pageCount + 1,
-  httpStatus: pageResult.status,
-  ok: pageResult.ok,
-  contentType: pageResult.contentType,
-  returnedCount: pageItems.length,
-  nextCursor,
-  sampleIds: pageItems
-    .map((item) => String(item?.id || "").trim())
-    .filter(Boolean)
-    .slice(0, 10),
-  responseExcerpt: pageResult.responseExcerpt,
-});
+    debugPages.push({
+      request: {
+        strategyKey: strategy.key,
+        strategyLabel: strategy.label,
+        dateField: strategy.dateField,
+        sortField: strategy.sortField,
+        ...pageResult.requestBody,
+      },
+      pageIndex: pageCount + 1,
+      httpStatus: pageResult.status,
+      ok: pageResult.ok,
+      contentType: pageResult.contentType,
+      returnedCount: pageItems.length,
+      nextCursor,
+      sampleIds: pageItems
+        .map((item) => String(item?.id || "").trim())
+        .filter(Boolean)
+        .slice(0, 10),
+      responseExcerpt: pageResult.responseExcerpt,
+    });
 
     for (const conversation of pageItems) {
       const id = String(conversation?.id || "").trim();
@@ -255,8 +296,9 @@ debugPages.push({
 
       if (limiterEnabled && seenIds.size >= desiredCount) {
         return {
-          sinceTs,
-          untilTs,
+          strategyKey: strategy.key,
+          strategyLabel: strategy.label,
+          strategyDateField: strategy.dateField,
           conversations,
           debugPages,
         };
@@ -272,10 +314,56 @@ debugPages.push({
   }
 
   return {
-    sinceTs,
-    untilTs,
+    strategyKey: strategy.key,
+    strategyLabel: strategy.label,
+    strategyDateField: strategy.dateField,
     conversations,
     debugPages,
+  };
+}
+
+async function fetchConversationsForDay({
+  intercomApiKey,
+  date,
+  limiterEnabled,
+  desiredCount,
+  seenIds,
+}) {
+  const { sinceTs, untilTs } = dhakaDayBounds(date);
+
+  const allDebugPages = [];
+  let matchedStrategy = null;
+  let matchedDateField = null;
+  let matchedConversations = [];
+
+  for (const strategy of SEARCH_STRATEGIES) {
+    const strategyResult = await fetchStrategyForDay({
+      intercomApiKey,
+      sinceTs,
+      untilTs,
+      limiterEnabled,
+      desiredCount,
+      seenIds,
+      strategy,
+    });
+
+    allDebugPages.push(...strategyResult.debugPages);
+
+    if (strategyResult.conversations.length > 0) {
+      matchedStrategy = strategyResult.strategyLabel;
+      matchedDateField = strategyResult.strategyDateField;
+      matchedConversations = strategyResult.conversations;
+      break;
+    }
+  }
+
+  return {
+    sinceTs,
+    untilTs,
+    conversations: matchedConversations,
+    debugPages: allDebugPages,
+    matchedStrategy,
+    matchedDateField,
   };
 }
 
@@ -407,6 +495,8 @@ export async function POST(request) {
         sinceTs: dayResult.sinceTs,
         untilTs: dayResult.untilTs,
         fetchedCount: dayResult.conversations.length,
+        matchedStrategy: dayResult.matchedStrategy,
+        matchedDateField: dayResult.matchedDateField,
         pages: debug ? dayResult.debugPages : undefined,
       });
 
@@ -439,6 +529,13 @@ export async function POST(request) {
         ? {
             intercomPerPage: INTERCOM_PER_PAGE,
             maxFetchPagesPerDay: MAX_FETCH_PAGES_PER_DAY,
+            lowCsatScores: LOW_CSAT_SCORES,
+            searchStrategies: SEARCH_STRATEGIES.map((item) => ({
+              key: item.key,
+              label: item.label,
+              dateField: item.dateField,
+              sortField: item.sortField,
+            })),
             dailySummary,
           }
         : undefined,
