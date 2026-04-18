@@ -4,6 +4,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const OPENAI_MODEL = "gpt-4.1-mini";
+const INTERCOM_PER_PAGE = 150;
+const MAX_FETCH_PAGES_PER_DAY = 50;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -38,8 +40,7 @@ function isoFromUnix(unixSeconds) {
 function roleLabel(authorType) {
   if (authorType === "user") return "USER";
   if (["admin", "teammate", "team_member"].includes(authorType)) return "HUMAN_AGENT";
-  if (authorType === "bot") return "BOT";
-  return "SYSTEM";
+  return authorType === "bot" ? "BOT" : "SYSTEM";
 }
 
 function buildFallbackProfile(user) {
@@ -68,24 +69,62 @@ function canRunAudits(profile) {
   );
 }
 
-function toDhakaUnixRange(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00+06:00`);
-  const endExclusive = new Date(`${endDate}T00:00:00+06:00`);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime())) {
-    throw new Error("Invalid start or end date.");
+function parseDateInput(dateStr) {
+  const value = String(dateStr || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("Dates must be in YYYY-MM-DD format.");
   }
 
-  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  const [year, month, day] = value.split("-").map(Number);
+  const dt = new Date(Date.UTC(year, month - 1, day));
 
-  if (start >= endExclusive) {
-    throw new Error("Start date cannot be later than end date.");
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    throw new Error("Invalid date provided.");
   }
+
+  return { year, month, day };
+}
+
+function dhakaDayBounds(dateStr) {
+  const { year, month, day } = parseDateInput(dateStr);
+
+  const start = new Date(`${year.toString().padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+06:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
   return {
     sinceTs: Math.floor(start.getTime() / 1000),
-    untilTs: Math.floor(endExclusive.getTime() / 1000),
+    untilTs: Math.floor(end.getTime() / 1000),
   };
+}
+
+function enumerateDateRange(startDate, endDate) {
+  const start = parseDateInput(startDate);
+  const end = parseDateInput(endDate);
+
+  const startUtc = Date.UTC(start.year, start.month - 1, start.day);
+  const endUtc = Date.UTC(end.year, end.month - 1, end.day);
+
+  if (startUtc > endUtc) {
+    throw new Error("Start date cannot be later than end date.");
+  }
+
+  const result = [];
+  let current = new Date(startUtc);
+
+  while (current.getTime() <= endUtc) {
+    const y = current.getUTCFullYear();
+    const m = String(current.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(current.getUTCDate()).padStart(2, "0");
+    result.push(`${y}-${m}-${d}`);
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return result;
 }
 
 function extractConversationMeta(conversation) {
@@ -160,18 +199,46 @@ function buildTranscript(conversation) {
   const messages = [...sourceMessage, ...partMessages];
 
   return messages
-    .map((message) => {
-      return `[${message.when}] [${message.role}] (${message.name}): ${message.text}`;
-    })
+    .map((message) => `[${message.when}] [${message.role}] (${message.name}): ${message.text}`)
     .join("\n\n");
 }
 
-async function fetchIntercomConversationIds({
+async function fetchIntercomSearchPage({
   intercomApiKey,
   sinceTs,
   untilTs,
-  perPage,
+  startingAfter,
 }) {
+  const body = {
+    query: {
+      operator: "AND",
+      value: [
+        {
+          field: "conversation_rating.replied_at",
+          operator: ">",
+          value: Number(sinceTs),
+        },
+        {
+          field: "conversation_rating.replied_at",
+          operator: "<",
+          value: Number(untilTs),
+        },
+        {
+          field: "conversation_rating.score",
+          operator: "IN",
+          value: [3, 4, 5],
+        },
+      ],
+    },
+    sort: {
+      field: "conversation_rating.replied_at",
+      order: "ascending",
+    },
+    pagination: startingAfter
+      ? { per_page: INTERCOM_PER_PAGE, starting_after: startingAfter }
+      : { per_page: INTERCOM_PER_PAGE },
+  };
+
   const response = await fetch("https://api.intercom.io/conversations/search", {
     method: "POST",
     headers: {
@@ -180,35 +247,7 @@ async function fetchIntercomConversationIds({
       "Intercom-Version": "2.12",
       Authorization: `Bearer ${intercomApiKey}`,
     },
-    body: JSON.stringify({
-      query: {
-        operator: "AND",
-        value: [
-          {
-            field: "conversation_rating.replied_at",
-            operator: ">",
-            value: sinceTs,
-          },
-          {
-            field: "conversation_rating.replied_at",
-            operator: "<",
-            value: untilTs,
-          },
-          {
-            field: "conversation_rating.score",
-            operator: "IN",
-            value: [3, 4, 5],
-          },
-        ],
-      },
-      sort: {
-        field: "conversation_rating.replied_at",
-        order: "ascending",
-      },
-      pagination: {
-        per_page: perPage,
-      },
-    }),
+    body: JSON.stringify(body),
     cache: "no-store",
   });
 
@@ -217,12 +256,43 @@ async function fetchIntercomConversationIds({
     throw new Error(`Intercom search failed: ${response.status} ${text}`);
   }
 
-  const data = await response.json();
-  const conversations = Array.isArray(data?.conversations) ? data.conversations : [];
+  return response.json();
+}
 
-  return conversations
-    .map((conversation) => String(conversation?.id || "").trim())
-    .filter(Boolean);
+async function fetchIntercomConversationIdsForDay({
+  intercomApiKey,
+  sinceTs,
+  untilTs,
+}) {
+  const ids = [];
+  let startingAfter = null;
+  let pageCount = 0;
+
+  while (pageCount < MAX_FETCH_PAGES_PER_DAY) {
+    const data = await fetchIntercomSearchPage({
+      intercomApiKey,
+      sinceTs,
+      untilTs,
+      startingAfter,
+    });
+
+    const conversations = Array.isArray(data?.conversations) ? data.conversations : [];
+    ids.push(
+      ...conversations
+        .map((conversation) => String(conversation?.id || "").trim())
+        .filter(Boolean)
+    );
+
+    const nextCursor = data?.pages?.next?.starting_after ?? null;
+    if (!nextCursor) {
+      break;
+    }
+
+    startingAfter = nextCursor;
+    pageCount += 1;
+  }
+
+  return ids;
 }
 
 async function fetchFullConversation(intercomApiKey, conversationId) {
@@ -438,20 +508,38 @@ export async function POST(request) {
       );
     }
 
-    const { sinceTs, untilTs } = toDhakaUnixRange(startDate, endDate);
+    const dates = enumerateDateRange(startDate, endDate);
 
-    const limitCount = limiterEnabled
-      ? Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 3, 10))
-      : 10;
+    const desiredCount = limiterEnabled
+      ? Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, 50))
+      : 200;
 
-    const conversationIds = await fetchIntercomConversationIds({
-      intercomApiKey,
-      sinceTs,
-      untilTs,
-      perPage: limitCount,
-    });
+    const uniqueIds = [];
+    const seenIds = new Set();
 
-    if (conversationIds.length === 0) {
+    for (const day of dates) {
+      const { sinceTs, untilTs } = dhakaDayBounds(day);
+      const idsForDay = await fetchIntercomConversationIdsForDay({
+        intercomApiKey,
+        sinceTs,
+        untilTs,
+      });
+
+      for (const id of idsForDay) {
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          uniqueIds.push(id);
+        }
+      }
+
+      if (limiterEnabled && uniqueIds.length >= desiredCount) {
+        break;
+      }
+    }
+
+    const idsToProcess = limiterEnabled ? uniqueIds.slice(0, desiredCount) : uniqueIds;
+
+    if (idsToProcess.length === 0) {
       return json({
         ok: true,
         message: "No conversations found for the selected date range.",
@@ -459,8 +547,10 @@ export async function POST(request) {
           startDate,
           endDate,
           limiterEnabled,
-          limitCount,
+          limitCount: desiredCount,
           requestedBy: email,
+          searchedDates: dates,
+          processedCount: 0,
         },
         results: [],
       });
@@ -468,7 +558,7 @@ export async function POST(request) {
 
     const results = [];
 
-    for (const conversationId of conversationIds.slice(0, limitCount)) {
+    for (const conversationId of idsToProcess) {
       try {
         const conversation = await fetchFullConversation(intercomApiKey, conversationId);
         const transcript = buildTranscript(conversation);
@@ -505,8 +595,10 @@ export async function POST(request) {
         startDate,
         endDate,
         limiterEnabled,
-        limitCount,
+        limitCount: desiredCount,
         requestedBy: email,
+        searchedDates: dates,
+        fetchedConversationCount: uniqueIds.length,
         processedCount: results.length,
       },
       results,
