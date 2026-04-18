@@ -117,6 +117,15 @@ function statusPillStyles(value) {
   };
 }
 
+const FETCH_PROGRESS_MESSAGES = [
+  "Preparing low-CSAT conversation search...",
+  "Checking your access and server session...",
+  "Connecting to Intercom securely...",
+  "Searching selected date window...",
+  "Collecting eligible low-CSAT conversations...",
+  "Finalizing fetched conversation list...",
+];
+
 export default function RunPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -127,6 +136,12 @@ export default function RunPage() {
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMessage, setAuthMessage] = useState("");
+
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchMessageIndex, setFetchMessageIndex] = useState(0);
+  const [fetchError, setFetchError] = useState("");
+  const [fetchSuccess, setFetchSuccess] = useState("");
+  const [fetchData, setFetchData] = useState(null);
 
   const [runLoading, setRunLoading] = useState(false);
   const [runError, setRunError] = useState("");
@@ -268,6 +283,19 @@ export default function RunPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!fetchLoading) return undefined;
+
+    const interval = setInterval(() => {
+      setFetchMessageIndex((prev) => {
+        if (prev >= FETCH_PROGRESS_MESSAGES.length - 1) return prev;
+        return prev + 1;
+      });
+    }, 1400);
+
+    return () => clearInterval(interval);
+  }, [fetchLoading]);
+
   async function handleGoogleLogin() {
     setAuthMessage("");
 
@@ -290,15 +318,91 @@ export default function RunPage() {
     setProfile(null);
     setAuthMessage("");
     setAuthLoading(false);
+    setFetchData(null);
+    setFetchError("");
+    setFetchSuccess("");
     setRunData(null);
     setRunError("");
     setRunSuccess("");
+  }
+
+  async function handleFetchConversations() {
+    setFetchError("");
+    setFetchSuccess("");
+    setFetchData(null);
+    setRunData(null);
+    setRunError("");
+    setRunSuccess("");
+
+    if (!session?.access_token) {
+      setFetchError("Your login session is missing. Please sign in again.");
+      return;
+    }
+
+    if (!startDate || !endDate) {
+      setFetchError("Please choose both a start date and an end date.");
+      return;
+    }
+
+    if (limiterEnabled) {
+      const parsedLimit = Number(limitCount);
+      if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+        setFetchError("Please enter a valid limiter number greater than 0.");
+        return;
+      }
+    }
+
+    setFetchLoading(true);
+    setFetchMessageIndex(0);
+
+    try {
+      const response = await fetch("/api/audits/fetch-conversations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          startDate,
+          endDate,
+          limiterEnabled,
+          limitCount,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Conversation fetch failed.");
+      }
+
+      setFetchData(data);
+
+      if ((data?.meta?.fetchedCount || 0) > 0) {
+        setFetchSuccess(
+          `Intercom connection successful. ${data.meta.fetchedCount} low-CSAT conversation(s) fetched.`
+        );
+      } else {
+        setFetchSuccess(data?.message || "Fetch completed with no conversations found.");
+      }
+    } catch (error) {
+      setFetchError(
+        error instanceof Error ? error.message : "Conversation fetch failed."
+      );
+    } finally {
+      setFetchLoading(false);
+    }
   }
 
   async function handleRunAudit() {
     setRunError("");
     setRunSuccess("");
     setRunData(null);
+
+    if (!fetchData?.meta?.fetchedCount) {
+      setRunError("Please fetch conversations first.");
+      return;
+    }
 
     if (!session?.access_token) {
       setRunError("Your login session is missing. Please sign in again.");
@@ -308,14 +412,6 @@ export default function RunPage() {
     if (!startDate || !endDate) {
       setRunError("Please choose both a start date and an end date.");
       return;
-    }
-
-    if (limiterEnabled) {
-      const parsedLimit = Number(limitCount);
-      if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
-        setRunError("Please enter a valid limiter number greater than 0.");
-        return;
-      }
     }
 
     setRunLoading(true);
@@ -370,14 +466,18 @@ export default function RunPage() {
       subtext: "faiyaz@nextventures.io stays permanent admin",
     },
     {
-      label: "Storage",
-      value: "Supabase",
-      subtext: "Results, users, roles, settings, prompts",
+      label: "Intercom Fetch",
+      value: fetchData?.meta?.fetchedCount > 0 ? "Connection Confirmed" : "Awaiting Fetch",
+      subtext: fetchData?.meta?.fetchedCount
+        ? `${fetchData.meta.fetchedCount} low-CSAT conversation(s) fetched`
+        : "Use Fetch Conversations to verify retrieval",
     },
     {
       label: "AI Processing",
-      value: "GPT API",
-      subtext: "Editable prompt with structured audit output",
+      value: runData?.meta?.processedCount ? "Audit Completed" : "Awaiting Run",
+      subtext: runData?.meta?.processedCount
+        ? `${runData.meta.processedCount} conversation(s) processed`
+        : "Run Audit appears after a successful fetch",
     },
   ];
 
@@ -398,13 +498,13 @@ export default function RunPage() {
       eyebrow: "Development Limiter",
       title: "Run only the number you choose",
       description:
-        "When limiter is on, a number box will appear and GPT will process only that many conversations. When limiter is off, it will process all eligible conversations.",
+        "When limiter is on, the fetch step and audit step will only use that many conversations. When limiter is off, the system will fetch all eligible conversations in the selected date range.",
     },
     {
       eyebrow: "Prompt Control",
       title: "Edit the live GPT prompt from admin",
       description:
-        "The active prompt will be stored in Supabase so you can update it later without changing code.",
+        "Prompt logic should live in Admin/Supabase so future prompt updates do not require code changes.",
     },
   ];
 
@@ -425,27 +525,31 @@ export default function RunPage() {
       return "Choose a start date and end date to prepare a controlled audit run.";
     }
 
-    if (startDate && !endDate) {
-      return `Start date selected: ${startDate}. Now choose the end date.`;
+    if (fetchLoading) {
+      return FETCH_PROGRESS_MESSAGES[fetchMessageIndex];
     }
 
-    if (!startDate && endDate) {
-      return `End date selected: ${endDate}. Now choose the start date.`;
+    if (fetchData?.meta?.fetchedCount > 0 && !runData) {
+      return `Fetch completed. ${fetchData.meta.fetchedCount} low-CSAT conversation(s) are ready for audit from ${fetchData.meta.startDate} to ${fetchData.meta.endDate}.`;
     }
 
     if (runLoading) {
-      return `Running a limited audit from ${startDate} to ${endDate}. Please wait while the server fetches Intercom conversations and sends them to GPT.`;
+      return "Running GPT audit on the fetched conversations. Please wait.";
     }
 
     if (runData?.meta?.processedCount >= 0) {
       return `Latest run processed ${runData.meta.processedCount} conversation(s) for ${runData.meta.startDate} to ${runData.meta.endDate}.`;
     }
 
-    if (limiterEnabled) {
-      return `Ready to run conversations from ${startDate} to ${endDate} with limiter enabled for ${limitCount || "0"} conversation(s).`;
+    if (startDate && endDate && limiterEnabled) {
+      return `Ready to fetch low-CSAT conversations from ${startDate} to ${endDate} with limiter enabled for ${limitCount || "0"} conversation(s).`;
     }
 
-    return `Ready to run all eligible conversations from ${startDate} to ${endDate} with limiter turned off.`;
+    if (startDate && endDate) {
+      return `Ready to fetch all eligible low-CSAT conversations from ${startDate} to ${endDate}.`;
+    }
+
+    return "Choose a start date and end date to prepare a controlled audit run.";
   }, [
     authLoading,
     session,
@@ -455,6 +559,9 @@ export default function RunPage() {
     endDate,
     limiterEnabled,
     limitCount,
+    fetchLoading,
+    fetchMessageIndex,
+    fetchData,
     runLoading,
     runData,
   ]);
@@ -476,6 +583,9 @@ export default function RunPage() {
     colorScheme: "dark",
   };
 
+  const fetchedConversations = Array.isArray(fetchData?.conversations)
+    ? fetchData.conversations
+    : [];
   const results = Array.isArray(runData?.results) ? runData.results : [];
   const successCount = results.filter((item) => !item.error).length;
   const errorCount = results.filter((item) => item.error).length;
@@ -492,6 +602,102 @@ export default function RunPage() {
           "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
+      {fetchLoading && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(2,6,23,0.72)",
+            backdropFilter: "blur(8px)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "560px",
+              borderRadius: "28px",
+              border: "1px solid rgba(255,255,255,0.08)",
+              background:
+                "linear-gradient(180deg, rgba(10,16,34,0.96), rgba(7,11,24,0.98))",
+              boxShadow:
+                "0 30px 100px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
+              padding: "28px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "#8ea0d6",
+                marginBottom: "12px",
+              }}
+            >
+              Fetching Conversations
+            </div>
+
+            <div
+              style={{
+                fontSize: "32px",
+                lineHeight: 1.08,
+                letterSpacing: "-0.04em",
+                fontWeight: 700,
+                marginBottom: "14px",
+              }}
+            >
+              Please wait while the system checks Intercom.
+            </div>
+
+            <div
+              style={{
+                color: "#dbe7ff",
+                fontSize: "15px",
+                lineHeight: 1.7,
+                marginBottom: "20px",
+              }}
+            >
+              {FETCH_PROGRESS_MESSAGES[fetchMessageIndex]}
+            </div>
+
+            <div
+              style={{
+                height: "12px",
+                borderRadius: "999px",
+                background: "rgba(255,255,255,0.06)",
+                overflow: "hidden",
+                marginBottom: "16px",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${((fetchMessageIndex + 1) / FETCH_PROGRESS_MESSAGES.length) * 100}%`,
+                  borderRadius: "999px",
+                  background:
+                    "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+                  transition: "width 0.4s ease",
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                color: "#8ea0d6",
+                fontSize: "13px",
+                lineHeight: 1.6,
+              }}
+            >
+              Step {fetchMessageIndex + 1} of {FETCH_PROGRESS_MESSAGES.length}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ maxWidth: "1280px", margin: "0 auto" }}>
         <div
           style={{
@@ -553,12 +759,13 @@ export default function RunPage() {
                 width: "8px",
                 height: "8px",
                 borderRadius: "999px",
-                background: runLoading ? "#f59e0b" : "#34d399",
-                boxShadow: runLoading ? "0 0 12px #f59e0b" : "0 0 12px #34d399",
+                background: fetchLoading || runLoading ? "#f59e0b" : "#34d399",
+                boxShadow:
+                  fetchLoading || runLoading ? "0 0 12px #f59e0b" : "0 0 12px #34d399",
                 display: "inline-block",
               }}
             />
-            {runLoading ? "Running Audit" : "Run Analysis"}
+            {fetchLoading ? "Fetching Conversations" : runLoading ? "Running Audit" : "Run Analysis"}
           </div>
         </div>
 
@@ -620,10 +827,8 @@ export default function RunPage() {
                 maxWidth: "760px",
               }}
             >
-              This dashboard will let approved NEXT Ventures users sign in,
-              select a date range, control the development limiter, process
-              Intercom conversations with GPT, and store every result inside
-              Supabase.
+              First fetch eligible low-CSAT conversations, confirm the Intercom connection,
+              then run the GPT audit only after the fetch step completes successfully.
             </p>
 
             <div
@@ -721,7 +926,15 @@ export default function RunPage() {
                     id="start-date"
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      setFetchData(null);
+                      setFetchError("");
+                      setFetchSuccess("");
+                      setRunData(null);
+                      setRunError("");
+                      setRunSuccess("");
+                    }}
                     onFocus={() => openPicker(startDateRef)}
                     style={inputBaseStyle}
                   />
@@ -765,7 +978,15 @@ export default function RunPage() {
                     id="end-date"
                     type="date"
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    onChange={(e) => {
+                      setEndDate(e.target.value);
+                      setFetchData(null);
+                      setFetchError("");
+                      setFetchSuccess("");
+                      setRunData(null);
+                      setRunError("");
+                      setRunSuccess("");
+                    }}
                     onFocus={() => openPicker(endDateRef)}
                     style={inputBaseStyle}
                   />
@@ -820,7 +1041,15 @@ export default function RunPage() {
 
                 <button
                   type="button"
-                  onClick={() => setLimiterEnabled((prev) => !prev)}
+                  onClick={() => {
+                    setLimiterEnabled((prev) => !prev);
+                    setFetchData(null);
+                    setFetchError("");
+                    setFetchSuccess("");
+                    setRunData(null);
+                    setRunError("");
+                    setRunSuccess("");
+                  }}
                   style={{
                     position: "relative",
                     width: "72px",
@@ -872,7 +1101,7 @@ export default function RunPage() {
                     marginBottom: "8px",
                   }}
                 >
-                  Number of Conversations to Run
+                  Number of Conversations to Use
                 </label>
                 <input
                   id="limit-count"
@@ -880,7 +1109,15 @@ export default function RunPage() {
                   min="1"
                   step="1"
                   value={limitCount}
-                  onChange={(e) => setLimitCount(e.target.value)}
+                  onChange={(e) => {
+                    setLimitCount(e.target.value);
+                    setFetchData(null);
+                    setFetchError("");
+                    setFetchSuccess("");
+                    setRunData(null);
+                    setRunError("");
+                    setRunSuccess("");
+                  }}
                   placeholder="Enter a number"
                   style={inputBaseStyle}
                 />
@@ -937,12 +1174,13 @@ export default function RunPage() {
 
               <button
                 type="button"
-                onClick={handleRunAudit}
+                onClick={handleFetchConversations}
                 disabled={
                   !canRunTests ||
                   !session?.user ||
                   !startDate ||
                   !endDate ||
+                  fetchLoading ||
                   runLoading
                 }
                 style={{
@@ -951,24 +1189,73 @@ export default function RunPage() {
                   fontSize: "15px",
                   fontWeight: 700,
                   color:
-                    !canRunTests || !session?.user || !startDate || !endDate || runLoading
+                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
                       ? "rgba(229,235,255,0.45)"
-                      : "#e5ebff",
+                      : "#ffffff",
                   cursor:
-                    !canRunTests || !session?.user || !startDate || !endDate || runLoading
+                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
                       ? "not-allowed"
                       : "pointer",
-                  background: "rgba(255,255,255,0.03)",
+                  background:
+                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
+                      ? "rgba(255,255,255,0.03)"
+                      : "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
                   border: "1px solid rgba(255,255,255,0.1)",
                   opacity:
-                    !canRunTests || !session?.user || !startDate || !endDate || runLoading
+                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
                       ? 0.6
                       : 1,
+                  boxShadow:
+                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
+                      ? "none"
+                      : "0 14px 30px rgba(91,33,182,0.35)",
                 }}
               >
-                {runLoading ? "Running Audit..." : "Run Audit"}
+                {fetchLoading ? "Fetching..." : "Fetch Conversations"}
               </button>
+
+              {fetchData?.meta?.fetchedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRunAudit}
+                  disabled={runLoading || fetchLoading}
+                  style={{
+                    borderRadius: "16px",
+                    padding: "14px 20px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: runLoading ? "rgba(229,235,255,0.45)" : "#e5ebff",
+                    cursor: runLoading ? "not-allowed" : "pointer",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    opacity: runLoading ? 0.6 : 1,
+                  }}
+                >
+                  {runLoading ? "Running Audit..." : "Run Audit"}
+                </button>
+              )}
             </div>
+
+            {(fetchError || fetchSuccess) && (
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: fetchError
+                    ? "1px solid rgba(244,63,94,0.22)"
+                    : "1px solid rgba(16,185,129,0.22)",
+                  background: fetchError
+                    ? "rgba(244,63,94,0.08)"
+                    : "rgba(16,185,129,0.08)",
+                  padding: "14px 16px",
+                  marginBottom: "14px",
+                  color: fetchError ? "#fecdd3" : "#bbf7d0",
+                  fontSize: "14px",
+                  lineHeight: 1.6,
+                }}
+              >
+                {fetchError || fetchSuccess}
+              </div>
+            )}
 
             {(runError || runSuccess) && (
               <div
@@ -1123,6 +1410,330 @@ export default function RunPage() {
 
         <section
           style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
+            gap: "24px",
+            marginBottom: "24px",
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background:
+                "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
+              borderRadius: "28px",
+              padding: "28px",
+              boxShadow:
+                "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "#8ea0d6",
+                marginBottom: "10px",
+              }}
+            >
+              Fetched Conversations
+            </div>
+
+            <h2
+              style={{
+                margin: "0 0 18px",
+                fontSize: "34px",
+                lineHeight: 1.05,
+                letterSpacing: "-0.04em",
+              }}
+            >
+              Fetch stage output
+            </h2>
+
+            {!fetchData ? (
+              <div
+                style={{
+                  borderRadius: "22px",
+                  border: "1px dashed rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.02)",
+                  padding: "24px",
+                  color: "#a9b4d0",
+                  lineHeight: 1.7,
+                  fontSize: "15px",
+                }}
+              >
+                No fetch has been completed yet. Select your date range, choose the limiter if needed,
+                and click Fetch Conversations first.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "16px" }}>
+                <div
+                  style={{
+                    borderRadius: "20px",
+                    border: "1px solid rgba(16,185,129,0.18)",
+                    background: "rgba(16,185,129,0.08)",
+                    padding: "18px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                      color: "#86efac",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    Connection Status
+                  </div>
+                  <div style={{ fontSize: "22px", fontWeight: 700, color: "#dcfce7" }}>
+                    {fetchData?.meta?.fetchedCount > 0
+                      ? "Intercom connection successful"
+                      : "Fetch completed but no conversations returned"}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: "18px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "16px",
+                    }}
+                  >
+                    <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                      Fetched Count
+                    </div>
+                    <div style={{ fontSize: "30px", fontWeight: 700 }}>
+                      {fetchData?.meta?.fetchedCount || 0}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      borderRadius: "18px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "16px",
+                    }}
+                  >
+                    <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                      Date Window
+                    </div>
+                    <div style={{ fontSize: "16px", fontWeight: 700 }}>
+                      {fetchData?.meta?.startDate || "-"} to {fetchData?.meta?.endDate || "-"}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderRadius: "18px",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(255,255,255,0.03)",
+                    padding: "16px",
+                    color: "#d8e2ff",
+                    fontSize: "14px",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  <strong>Limiter:</strong>{" "}
+                  {fetchData?.meta?.limiterEnabled
+                    ? `ON (${fetchData?.meta?.limitCount})`
+                    : "OFF"}
+                  <br />
+                  <strong>Searched dates:</strong>{" "}
+                  {Array.isArray(fetchData?.meta?.searchedDates)
+                    ? fetchData.meta.searchedDates.join(", ")
+                    : "-"}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.08)",
+              background:
+                "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
+              borderRadius: "28px",
+              padding: "28px",
+              boxShadow:
+                "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "#8ea0d6",
+                marginBottom: "10px",
+              }}
+            >
+              Fetched Preview
+            </div>
+
+            <h2
+              style={{
+                margin: "0 0 18px",
+                fontSize: "34px",
+                lineHeight: 1.05,
+                letterSpacing: "-0.04em",
+              }}
+            >
+              Conversation preview list
+            </h2>
+
+            {fetchedConversations.length === 0 ? (
+              <div
+                style={{
+                  borderRadius: "22px",
+                  border: "1px dashed rgba(255,255,255,0.12)",
+                  background: "rgba(255,255,255,0.02)",
+                  padding: "24px",
+                  color: "#a9b4d0",
+                  lineHeight: 1.7,
+                  fontSize: "15px",
+                }}
+              >
+                Once conversations are fetched, a preview list will appear here before audit begins.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "14px", maxHeight: "640px", overflow: "auto", paddingRight: "4px" }}>
+                {fetchedConversations.map((item, index) => (
+                  <div
+                    key={item?.conversationId || `fetched-${index}`}
+                    style={{
+                      borderRadius: "18px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#8ea0d6",
+                            marginBottom: "6px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.12em",
+                          }}
+                        >
+                          Conversation
+                        </div>
+                        <div style={{ fontSize: "18px", fontWeight: 700 }}>
+                          {item?.conversationId || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          ...statusPillStyles("Pending"),
+                          borderRadius: "999px",
+                          padding: "9px 12px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          alignSelf: "flex-start",
+                        }}
+                      >
+                        Low CSAT Candidate
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                        gap: "10px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          background: "rgba(0,0,0,0.14)",
+                          padding: "12px",
+                        }}
+                      >
+                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
+                          Agent
+                        </div>
+                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                          {item?.agentName || "Unassigned"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          background: "rgba(0,0,0,0.14)",
+                          padding: "12px",
+                        }}
+                      >
+                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
+                          Client Email
+                        </div>
+                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                          {item?.clientEmail || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          background: "rgba(0,0,0,0.14)",
+                          padding: "12px",
+                        }}
+                      >
+                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
+                          CSAT Score
+                        </div>
+                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                          {item?.csatScore || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          background: "rgba(0,0,0,0.14)",
+                          padding: "12px",
+                        }}
+                      >
+                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
+                          Replied At
+                        </div>
+                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                          {item?.repliedAt || "-"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section
+          style={{
             border: "1px solid rgba(255,255,255,0.08)",
             background:
               "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
@@ -1151,7 +1762,7 @@ export default function RunPage() {
                   marginBottom: "10px",
                 }}
               >
-                Limited Audit Results Preview
+                Audit Output Preview
               </div>
               <h2
                 style={{
@@ -1161,7 +1772,7 @@ export default function RunPage() {
                   letterSpacing: "-0.04em",
                 }}
               >
-                Sample output from the live audit route
+                GPT result cards
               </h2>
             </div>
 
@@ -1235,8 +1846,7 @@ export default function RunPage() {
                 fontSize: "15px",
               }}
             >
-              No audit has been run yet in this session. Choose a date range, keep the limiter on,
-              and run a small test to preview how the results look.
+              Fetch conversations first. After a successful fetch, the Run Audit button will appear and GPT result cards will show here.
             </div>
           ) : (
             <div style={{ display: "grid", gap: "18px" }}>
