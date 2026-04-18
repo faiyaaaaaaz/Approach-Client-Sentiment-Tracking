@@ -155,10 +155,10 @@ async function fetchIntercomSearchPage({
           operator: "<",
           value: Number(untilTs),
         },
-        {
+                {
           field: "conversation_rating.score",
           operator: "IN",
-          value: [3, 4, 5],
+          value: [1, 2],
         },
       ],
     },
