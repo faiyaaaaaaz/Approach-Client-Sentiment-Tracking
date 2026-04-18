@@ -367,6 +367,7 @@ export default function RunPage() {
           endDate,
           limiterEnabled,
           limitCount,
+          debug: true,
         }),
       });
 
@@ -585,6 +586,9 @@ export default function RunPage() {
 
   const fetchedConversations = Array.isArray(fetchData?.conversations)
     ? fetchData.conversations
+    : [];
+  const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
+    ? fetchData.debug.dailySummary
     : [];
   const results = Array.isArray(runData?.results) ? runData.results : [];
   const successCount = results.filter((item) => !item.error).length;
@@ -1730,6 +1734,276 @@ export default function RunPage() {
               </div>
             )}
           </div>
+        </section>
+
+        <section
+          style={{
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
+            borderRadius: "28px",
+            padding: "28px",
+            boxShadow:
+              "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
+            marginBottom: "24px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "12px",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "#8ea0d6",
+              marginBottom: "10px",
+            }}
+          >
+            Debug Output
+          </div>
+
+          <h2
+            style={{
+              margin: "0 0 18px",
+              fontSize: "34px",
+              lineHeight: 1.05,
+              letterSpacing: "-0.04em",
+            }}
+          >
+            Raw Intercom fetch diagnostics
+          </h2>
+
+          {!fetchData ? (
+            <div
+              style={{
+                borderRadius: "22px",
+                border: "1px dashed rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.02)",
+                padding: "24px",
+                color: "#a9b4d0",
+                lineHeight: 1.7,
+                fontSize: "15px",
+              }}
+            >
+              Run Fetch Conversations first. This panel will then show the exact low-CSAT search diagnostics returned by the backend.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "16px" }}>
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  padding: "16px",
+                  color: "#d8e2ff",
+                  fontSize: "14px",
+                  lineHeight: 1.7,
+                }}
+              >
+                <strong>intercomPerPage:</strong> {fetchData?.debug?.intercomPerPage ?? "-"}
+                <br />
+                <strong>maxFetchPagesPerDay:</strong> {fetchData?.debug?.maxFetchPagesPerDay ?? "-"}
+                <br />
+                <strong>Fetched count:</strong> {fetchData?.meta?.fetchedCount ?? 0}
+              </div>
+
+              {dailySummary.length === 0 ? (
+                <div
+                  style={{
+                    borderRadius: "18px",
+                    border: "1px dashed rgba(255,255,255,0.12)",
+                    background: "rgba(255,255,255,0.02)",
+                    padding: "20px",
+                    color: "#a9b4d0",
+                    fontSize: "14px",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  No daily debug summary was returned.
+                </div>
+              ) : (
+                dailySummary.map((day, dayIndex) => (
+                  <div
+                    key={`${day?.date || "day"}-${dayIndex}`}
+                    style={{
+                      borderRadius: "20px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "18px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#8ea0d6",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.12em",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          Date
+                        </div>
+                        <div style={{ fontSize: "20px", fontWeight: 700 }}>
+                          {day?.date || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "999px",
+                          border: "1px solid rgba(96,165,250,0.22)",
+                          background: "rgba(96,165,250,0.1)",
+                          padding: "8px 12px",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          color: "#bfdbfe",
+                          alignSelf: "flex-start",
+                        }}
+                      >
+                        fetchedCount: {day?.fetchedCount ?? 0}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        borderRadius: "16px",
+                        background: "rgba(0,0,0,0.16)",
+                        padding: "14px",
+                        color: "#d8e2ff",
+                        fontSize: "13px",
+                        lineHeight: 1.7,
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <strong>sinceTs:</strong> {day?.sinceTs ?? "-"}
+                      <br />
+                      <strong>untilTs:</strong> {day?.untilTs ?? "-"}
+                    </div>
+
+                    {Array.isArray(day?.pages) && day.pages.length > 0 ? (
+                      <div style={{ display: "grid", gap: "12px" }}>
+                        {day.pages.map((page, pageIndex) => (
+                          <div
+                            key={`${day?.date || "page"}-${pageIndex}`}
+                            style={{
+                              borderRadius: "16px",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "rgba(0,0,0,0.14)",
+                              padding: "14px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                                gap: "10px",
+                                marginBottom: "10px",
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+                                  Page
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                                  {page?.pageIndex ?? "-"}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+                                  Returned Count
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                                  {page?.returnedCount ?? 0}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
+                                  Next Cursor
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: 600, wordBreak: "break-all" }}>
+                                  {page?.nextCursor || "None"}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                borderRadius: "12px",
+                                background: "rgba(255,255,255,0.03)",
+                                padding: "12px",
+                                color: "#d8e2ff",
+                                fontSize: "12px",
+                                lineHeight: 1.7,
+                                marginBottom: "10px",
+                              }}
+                            >
+                              <strong>Sample IDs:</strong>{" "}
+                              {Array.isArray(page?.sampleIds) && page.sampleIds.length > 0
+                                ? page.sampleIds.join(", ")
+                                : "None"}
+                            </div>
+
+                            <details>
+                              <summary
+                                style={{
+                                  cursor: "pointer",
+                                  color: "#c7d2fe",
+                                  fontSize: "13px",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                View request payload
+                              </summary>
+                              <pre
+                                style={{
+                                  marginTop: "10px",
+                                  whiteSpace: "pre-wrap",
+                                  wordBreak: "break-word",
+                                  fontSize: "12px",
+                                  lineHeight: 1.7,
+                                  color: "#dbe7ff",
+                                  background: "rgba(255,255,255,0.03)",
+                                  borderRadius: "12px",
+                                  padding: "12px",
+                                  overflowX: "auto",
+                                }}
+                              >
+                                {JSON.stringify(page?.request || {}, null, 2)}
+                              </pre>
+                            </details>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          border: "1px dashed rgba(255,255,255,0.12)",
+                          background: "rgba(255,255,255,0.02)",
+                          padding: "14px",
+                          color: "#a9b4d0",
+                          fontSize: "13px",
+                          lineHeight: 1.7,
+                        }}
+                      >
+                        No page-level debug entries were returned for this day.
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </section>
 
         <section
