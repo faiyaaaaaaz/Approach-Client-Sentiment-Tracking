@@ -400,18 +400,17 @@ export default function RunPage() {
     setRunSuccess("");
     setRunData(null);
 
-    if (!fetchData?.meta?.fetchedCount) {
+    const conversations = Array.isArray(fetchData?.conversations)
+      ? fetchData.conversations
+      : [];
+
+    if (!conversations.length) {
       setRunError("Please fetch conversations first.");
       return;
     }
 
     if (!session?.access_token) {
       setRunError("Your login session is missing. Please sign in again.");
-      return;
-    }
-
-    if (!startDate || !endDate) {
-      setRunError("Please choose both a start date and an end date.");
       return;
     }
 
@@ -425,8 +424,7 @@ export default function RunPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          startDate,
-          endDate,
+          conversations,
           limiterEnabled,
           limitCount,
         }),
@@ -455,6 +453,16 @@ export default function RunPage() {
 
   const isMasterAdmin = profile?.role === "master_admin";
 
+  const fetchedConversations = Array.isArray(fetchData?.conversations)
+    ? fetchData.conversations
+    : [];
+  const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
+    ? fetchData.debug.dailySummary
+    : [];
+  const results = Array.isArray(runData?.results) ? runData.results : [];
+  const successCount = results.length;
+  const errorCount = 0;
+
   const statCards = [
     {
       label: "Authentication",
@@ -475,9 +483,9 @@ export default function RunPage() {
     },
     {
       label: "AI Processing",
-      value: runData?.meta?.processedCount ? "Audit Completed" : "Awaiting Run",
-      subtext: runData?.meta?.processedCount
-        ? `${runData.meta.processedCount} conversation(s) processed`
+      value: runData?.meta?.auditedCount ? "Audit Prepared" : "Awaiting Run",
+      subtext: runData?.meta?.auditedCount
+        ? `${runData.meta.auditedCount} conversation(s) queued for preview audit`
         : "Run Audit appears after a successful fetch",
     },
   ];
@@ -538,8 +546,8 @@ export default function RunPage() {
       return "Running GPT audit on the fetched conversations. Please wait.";
     }
 
-    if (runData?.meta?.processedCount >= 0) {
-      return `Latest run processed ${runData.meta.processedCount} conversation(s) for ${runData.meta.startDate} to ${runData.meta.endDate}.`;
+    if (runData?.meta?.auditedCount >= 0) {
+      return `Latest run prepared ${runData.meta.auditedCount} conversation(s) for audit preview.`;
     }
 
     if (startDate && endDate && limiterEnabled) {
@@ -583,16 +591,6 @@ export default function RunPage() {
     MozAppearance: "none",
     colorScheme: "dark",
   };
-
-  const fetchedConversations = Array.isArray(fetchData?.conversations)
-    ? fetchData.conversations
-    : [];
-  const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
-    ? fetchData.debug.dailySummary
-    : [];
-  const results = Array.isArray(runData?.results) ? runData.results : [];
-  const successCount = results.filter((item) => !item.error).length;
-  const errorCount = results.filter((item) => item.error).length;
 
   return (
     <main
@@ -2082,7 +2080,7 @@ export default function RunPage() {
                   letterSpacing: "-0.04em",
                 }}
               >
-                GPT result cards
+                Audit result cards
               </h2>
             </div>
 
@@ -2103,10 +2101,10 @@ export default function RunPage() {
                 }}
               >
                 <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Processed
+                  Audited
                 </div>
                 <div style={{ fontSize: "26px", fontWeight: 700 }}>
-                  {runData?.meta?.processedCount ?? 0}
+                  {runData?.meta?.auditedCount ?? 0}
                 </div>
               </div>
 
@@ -2119,10 +2117,10 @@ export default function RunPage() {
                 }}
               >
                 <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Success
+                  Received
                 </div>
                 <div style={{ fontSize: "26px", fontWeight: 700, color: "#bbf7d0" }}>
-                  {successCount}
+                  {runData?.meta?.receivedCount ?? 0}
                 </div>
               </div>
 
@@ -2135,10 +2133,10 @@ export default function RunPage() {
                 }}
               >
                 <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Errors
+                  Preview Results
                 </div>
                 <div style={{ fontSize: "26px", fontWeight: 700, color: "#fecdd3" }}>
-                  {errorCount}
+                  {results.length}
                 </div>
               </div>
             </div>
@@ -2156,7 +2154,7 @@ export default function RunPage() {
                 fontSize: "15px",
               }}
             >
-              Fetch conversations first. After a successful fetch, the Run Audit button will appear and GPT result cards will show here.
+              Fetch conversations first. After a successful fetch, the Run Audit button will appear and audit preview cards will show here.
             </div>
           ) : (
             <div style={{ display: "grid", gap: "18px" }}>
@@ -2171,238 +2169,195 @@ export default function RunPage() {
                   lineHeight: 1.7,
                 }}
               >
-                <strong>Run window:</strong> {runData?.meta?.startDate || "-"} to{" "}
-                {runData?.meta?.endDate || "-"}
-                <br />
                 <strong>Requested by:</strong> {runData?.meta?.requestedBy || "-"}
                 <br />
                 <strong>Limiter:</strong>{" "}
                 {runData?.meta?.limiterEnabled ? `ON (${runData?.meta?.limitCount})` : "OFF"}
+                <br />
+                <strong>Mode:</strong> {runData?.meta?.auditMode || "-"}
+                <br />
+                <strong>Next step:</strong> {runData?.meta?.nextStep || "-"}
               </div>
 
-              {results.map((item, index) => {
-                const hasError = Boolean(item?.error);
-
-                return (
+              {results.map((item, index) => (
+                <div
+                  key={item?.conversationId || `result-${index}`}
+                  style={{
+                    borderRadius: "22px",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "linear-gradient(180deg, rgba(12,18,38,0.92), rgba(8,12,24,0.96))",
+                    padding: "20px",
+                  }}
+                >
                   <div
-                    key={item?.conversationId || `result-${index}`}
                     style={{
-                      borderRadius: "22px",
-                      border: hasError
-                        ? "1px solid rgba(244,63,94,0.18)"
-                        : "1px solid rgba(255,255,255,0.08)",
-                      background: hasError
-                        ? "linear-gradient(180deg, rgba(40,10,18,0.92), rgba(18,8,12,0.96))"
-                        : "linear-gradient(180deg, rgba(12,18,38,0.92), rgba(8,12,24,0.96))",
-                      padding: "20px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                      flexWrap: "wrap",
+                      marginBottom: "14px",
                     }}
                   >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "#8ea0d6",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.14em",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Conversation
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "22px",
+                          fontWeight: 700,
+                          letterSpacing: "-0.03em",
+                        }}
+                      >
+                        {item?.conversationId || "Unknown Conversation"}
+                      </div>
+                    </div>
+
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "16px",
-                        flexWrap: "wrap",
-                        marginBottom: "14px",
+                        ...statusPillStyles("Pending"),
+                        borderRadius: "999px",
+                        padding: "9px 12px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        alignSelf: "flex-start",
                       }}
                     >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.14em",
-                            marginBottom: "8px",
-                          }}
-                        >
-                          Conversation
+                      {item?.auditStatus || "pending_ai_review"}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: "16px" }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                        gap: "12px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          borderRadius: "16px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          padding: "14px",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                          Agent
                         </div>
-                        <div
-                          style={{
-                            fontSize: "22px",
-                            fontWeight: 700,
-                            letterSpacing: "-0.03em",
-                          }}
-                        >
-                          {item?.conversationId || "Unknown Conversation"}
+                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                          {item?.agentName || "Unassigned"}
                         </div>
                       </div>
 
-                      {!hasError && (
-                        <div
-                          style={{
-                            ...statusPillStyles(item?.resolutionStatus),
-                            borderRadius: "999px",
-                            padding: "9px 12px",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            alignSelf: "flex-start",
-                          }}
-                        >
-                          {item?.resolutionStatus || "Unclear"}
-                        </div>
-                      )}
-                    </div>
-
-                    {hasError ? (
                       <div
                         style={{
-                          color: "#fecdd3",
-                          fontSize: "14px",
+                          borderRadius: "16px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          padding: "14px",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                          Client Email
+                        </div>
+                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                          {item?.clientEmail || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "16px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          padding: "14px",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                          CSAT
+                        </div>
+                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                          {item?.csatScore || "-"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          borderRadius: "16px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          padding: "14px",
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                          Replied At
+                        </div>
+                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                          {item?.repliedAt || "-"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        borderRadius: "18px",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.03)",
+                        padding: "16px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "#8ea0d6",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.12em",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        Audit Summary
+                      </div>
+                      <div
+                        style={{
+                          color: "#e7ecff",
+                          fontSize: "15px",
                           lineHeight: 1.7,
                         }}
                       >
-                        {item.error}
+                        {item?.summary || "Queued for GPT audit."}
                       </div>
-                    ) : (
-                      <div style={{ display: "grid", gap: "16px" }}>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                            gap: "12px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              Agent
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.agentName || "Unassigned"}
-                            </div>
-                          </div>
+                    </div>
 
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              Client Email
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.clientEmail || "-"}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              CSAT
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.csatScore || "-"}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              Client Sentiment
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.clientSentiment || "-"}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            borderRadius: "18px",
-                            border: "1px solid rgba(255,255,255,0.08)",
-                            background: "rgba(255,255,255,0.03)",
-                            padding: "16px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              color: "#8ea0d6",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.12em",
-                              marginBottom: "10px",
-                            }}
-                          >
-                            AI Verdict
-                          </div>
-                          <div
-                            style={{
-                              color: "#e7ecff",
-                              fontSize: "15px",
-                              lineHeight: 1.7,
-                            }}
-                          >
-                            {item?.aiVerdict || "-"}
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                            gap: "12px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              Review Sentiment
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.reviewSentiment || "-"}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(255,255,255,0.03)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                              Resolution Status
-                            </div>
-                            <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                              {item?.resolutionStatus || "-"}
-                            </div>
-                          </div>
-                        </div>
+                    <div
+                      style={{
+                        borderRadius: "16px",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.03)",
+                        padding: "14px",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                        Findings
                       </div>
-                    )}
+                      <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                        {Array.isArray(item?.findings) && item.findings.length > 0
+                          ? item.findings.join(", ")
+                          : "No findings yet."}
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </section>
