@@ -126,6 +126,75 @@ const FETCH_PROGRESS_MESSAGES = [
   "Finalizing fetched conversation list...",
 ];
 
+const RUN_PROGRESS_MESSAGES = [
+  "Preparing the selected conversations for audit...",
+  "Loading the full Intercom conversation details...",
+  "Building transcripts for GPT review...",
+  "Sending conversations to GPT for analysis...",
+  "Collecting audit output and preparing the result cards...",
+];
+
+function formatRepliedAt(value) {
+  if (value === null || value === undefined || value === "") return "-";
+
+  const numericValue =
+    typeof value === "number" ? value : Number(String(value).trim());
+
+  let date = null;
+
+  if (Number.isFinite(numericValue) && numericValue > 0) {
+    if (numericValue > 1000000000000) {
+      date = new Date(numericValue);
+    } else if (numericValue > 1000000000) {
+      date = new Date(numericValue * 1000);
+    }
+  } else {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      date = parsed;
+    }
+  }
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getResultStatusLabel(item) {
+  if (item?.error) return "Error";
+  if (item?.resolutionStatus) return item.resolutionStatus;
+  return "Completed";
+}
+
+function getResultSummary(item) {
+  if (item?.error) return item.error;
+  if (item?.aiVerdict) return item.aiVerdict;
+  if (item?.summary) return item.summary;
+  return "Audit completed.";
+}
+
+function getFindingsList(item) {
+  const findings = [];
+
+  if (item?.reviewSentiment) findings.push(`Review Sentiment: ${item.reviewSentiment}`);
+  if (item?.clientSentiment) findings.push(`Client Sentiment: ${item.clientSentiment}`);
+  if (item?.resolutionStatus) findings.push(`Resolution Status: ${item.resolutionStatus}`);
+
+  if (Array.isArray(item?.findings) && item.findings.length > 0) {
+    findings.push(...item.findings);
+  }
+
+  return findings;
+}
+
 export default function RunPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -144,9 +213,13 @@ export default function RunPage() {
   const [fetchData, setFetchData] = useState(null);
 
   const [runLoading, setRunLoading] = useState(false);
+  const [runMessageIndex, setRunMessageIndex] = useState(0);
   const [runError, setRunError] = useState("");
   const [runSuccess, setRunSuccess] = useState("");
   const [runData, setRunData] = useState(null);
+
+  const [showAllResults, setShowAllResults] = useState(false);
+  const [showJumpTop, setShowJumpTop] = useState(false);
 
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
@@ -296,6 +369,29 @@ export default function RunPage() {
     return () => clearInterval(interval);
   }, [fetchLoading]);
 
+  useEffect(() => {
+    if (!runLoading) return undefined;
+
+    const interval = setInterval(() => {
+      setRunMessageIndex((prev) => {
+        if (prev >= RUN_PROGRESS_MESSAGES.length - 1) return prev;
+        return prev + 1;
+      });
+    }, 1800);
+
+    return () => clearInterval(interval);
+  }, [runLoading]);
+
+  useEffect(() => {
+    function handleScroll() {
+      setShowJumpTop(window.scrollY > 700);
+    }
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   async function handleGoogleLogin() {
     setAuthMessage("");
 
@@ -324,6 +420,7 @@ export default function RunPage() {
     setRunData(null);
     setRunError("");
     setRunSuccess("");
+    setShowAllResults(false);
   }
 
   async function handleFetchConversations() {
@@ -333,6 +430,7 @@ export default function RunPage() {
     setRunData(null);
     setRunError("");
     setRunSuccess("");
+    setShowAllResults(false);
 
     if (!session?.access_token) {
       setFetchError("Your login session is missing. Please sign in again.");
@@ -399,6 +497,8 @@ export default function RunPage() {
     setRunError("");
     setRunSuccess("");
     setRunData(null);
+    setRunMessageIndex(0);
+    setShowAllResults(false);
 
     const conversations = Array.isArray(fetchData?.conversations)
       ? fetchData.conversations
@@ -460,8 +560,9 @@ export default function RunPage() {
     ? fetchData.debug.dailySummary
     : [];
   const results = Array.isArray(runData?.results) ? runData.results : [];
-  const successCount = results.length;
-  const errorCount = 0;
+  const successCount = results.filter((item) => !item?.error).length;
+  const errorCount = results.filter((item) => item?.error).length;
+  const visibleResults = showAllResults ? results : results.slice(0, 3);
 
   const statCards = [
     {
@@ -483,9 +584,9 @@ export default function RunPage() {
     },
     {
       label: "AI Processing",
-      value: runData?.meta?.auditedCount ? "Audit Prepared" : "Awaiting Run",
+      value: runData?.meta?.auditedCount ? "Audit Completed" : "Awaiting Run",
       subtext: runData?.meta?.auditedCount
-        ? `${runData.meta.auditedCount} conversation(s) queued for preview audit`
+        ? `${runData.meta.auditedCount} conversation(s) processed`
         : "Run Audit appears after a successful fetch",
     },
   ];
@@ -538,16 +639,16 @@ export default function RunPage() {
       return FETCH_PROGRESS_MESSAGES[fetchMessageIndex];
     }
 
-    if (fetchData?.meta?.fetchedCount > 0 && !runData) {
-      return `Fetch completed. ${fetchData.meta.fetchedCount} low-CSAT conversation(s) are ready for audit from ${fetchData.meta.startDate} to ${fetchData.meta.endDate}.`;
-    }
-
     if (runLoading) {
-      return "Running GPT audit on the fetched conversations. Please wait.";
+      return RUN_PROGRESS_MESSAGES[runMessageIndex];
     }
 
     if (runData?.meta?.auditedCount >= 0) {
-      return `Latest run prepared ${runData.meta.auditedCount} conversation(s) for audit preview.`;
+      return `Latest run completed ${runData.meta.auditedCount} conversation(s).`;
+    }
+
+    if (fetchData?.meta?.fetchedCount > 0 && !runData) {
+      return `Fetch completed. ${fetchData.meta.fetchedCount} low-CSAT conversation(s) are ready for audit from ${fetchData.meta.startDate} to ${fetchData.meta.endDate}.`;
     }
 
     if (startDate && endDate && limiterEnabled) {
@@ -570,8 +671,9 @@ export default function RunPage() {
     limitCount,
     fetchLoading,
     fetchMessageIndex,
-    fetchData,
     runLoading,
+    runMessageIndex,
+    fetchData,
     runData,
   ]);
 
@@ -604,102 +706,6 @@ export default function RunPage() {
           "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      {fetchLoading && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(2,6,23,0.72)",
-            backdropFilter: "blur(8px)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              maxWidth: "560px",
-              borderRadius: "28px",
-              border: "1px solid rgba(255,255,255,0.08)",
-              background:
-                "linear-gradient(180deg, rgba(10,16,34,0.96), rgba(7,11,24,0.98))",
-              boxShadow:
-                "0 30px 100px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-              padding: "28px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "12px",
-              }}
-            >
-              Fetching Conversations
-            </div>
-
-            <div
-              style={{
-                fontSize: "32px",
-                lineHeight: 1.08,
-                letterSpacing: "-0.04em",
-                fontWeight: 700,
-                marginBottom: "14px",
-              }}
-            >
-              Please wait while the system checks Intercom.
-            </div>
-
-            <div
-              style={{
-                color: "#dbe7ff",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "20px",
-              }}
-            >
-              {FETCH_PROGRESS_MESSAGES[fetchMessageIndex]}
-            </div>
-
-            <div
-              style={{
-                height: "12px",
-                borderRadius: "999px",
-                background: "rgba(255,255,255,0.06)",
-                overflow: "hidden",
-                marginBottom: "16px",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  width: `${((fetchMessageIndex + 1) / FETCH_PROGRESS_MESSAGES.length) * 100}%`,
-                  borderRadius: "999px",
-                  background:
-                    "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                  transition: "width 0.4s ease",
-                }}
-              />
-            </div>
-
-            <div
-              style={{
-                color: "#8ea0d6",
-                fontSize: "13px",
-                lineHeight: 1.6,
-              }}
-            >
-              Step {fetchMessageIndex + 1} of {FETCH_PROGRESS_MESSAGES.length}
-            </div>
-          </div>
-        </div>
-      )}
-
       <div style={{ maxWidth: "1280px", margin: "0 auto" }}>
         <div
           style={{
@@ -767,7 +773,11 @@ export default function RunPage() {
                 display: "inline-block",
               }}
             />
-            {fetchLoading ? "Fetching Conversations" : runLoading ? "Running Audit" : "Run Analysis"}
+            {fetchLoading
+              ? "Fetching Conversations"
+              : runLoading
+              ? "Running Audit"
+              : "Run Analysis"}
           </div>
         </div>
 
@@ -936,6 +946,7 @@ export default function RunPage() {
                       setRunData(null);
                       setRunError("");
                       setRunSuccess("");
+                      setShowAllResults(false);
                     }}
                     onFocus={() => openPicker(startDateRef)}
                     style={inputBaseStyle}
@@ -988,6 +999,7 @@ export default function RunPage() {
                       setRunData(null);
                       setRunError("");
                       setRunSuccess("");
+                      setShowAllResults(false);
                     }}
                     onFocus={() => openPicker(endDateRef)}
                     style={inputBaseStyle}
@@ -1051,6 +1063,7 @@ export default function RunPage() {
                     setRunData(null);
                     setRunError("");
                     setRunSuccess("");
+                    setShowAllResults(false);
                   }}
                   style={{
                     position: "relative",
@@ -1119,6 +1132,7 @@ export default function RunPage() {
                     setRunData(null);
                     setRunError("");
                     setRunSuccess("");
+                    setShowAllResults(false);
                   }}
                   placeholder="Enter a number"
                   style={inputBaseStyle}
@@ -1259,6 +1273,66 @@ export default function RunPage() {
               </div>
             )}
 
+            {fetchLoading && (
+              <div
+                style={{
+                  borderRadius: "20px",
+                  border: "1px solid rgba(96,165,250,0.22)",
+                  background: "rgba(37,99,235,0.08)",
+                  padding: "18px",
+                  marginBottom: "14px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#93c5fd",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.14em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Fetch Progress
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 700,
+                    color: "#dbeafe",
+                    marginBottom: "10px",
+                  }}
+                >
+                  {FETCH_PROGRESS_MESSAGES[fetchMessageIndex]}
+                </div>
+
+                <div
+                  style={{
+                    height: "10px",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.06)",
+                    overflow: "hidden",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${((fetchMessageIndex + 1) / FETCH_PROGRESS_MESSAGES.length) * 100}%`,
+                      borderRadius: "999px",
+                      background:
+                        "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+                      transition: "width 0.4s ease",
+                    }}
+                  />
+                </div>
+
+                <div style={{ color: "#bfdbfe", fontSize: "13px", lineHeight: 1.6 }}>
+                  You can keep scrolling on this page while the fetch completes.
+                </div>
+              </div>
+            )}
+
             {(runError || runSuccess) && (
               <div
                 style={{
@@ -1270,13 +1344,73 @@ export default function RunPage() {
                     ? "rgba(244,63,94,0.08)"
                     : "rgba(16,185,129,0.08)",
                   padding: "14px 16px",
-                  marginBottom: "18px",
+                  marginBottom: "14px",
                   color: runError ? "#fecdd3" : "#bbf7d0",
                   fontSize: "14px",
                   lineHeight: 1.6,
                 }}
               >
                 {runError || runSuccess}
+              </div>
+            )}
+
+            {runLoading && (
+              <div
+                style={{
+                  borderRadius: "20px",
+                  border: "1px solid rgba(168,85,247,0.22)",
+                  background: "rgba(124,58,237,0.08)",
+                  padding: "18px",
+                  marginBottom: "18px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "#c4b5fd",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.14em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  Audit Progress
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 700,
+                    color: "#ede9fe",
+                    marginBottom: "10px",
+                  }}
+                >
+                  {RUN_PROGRESS_MESSAGES[runMessageIndex]}
+                </div>
+
+                <div
+                  style={{
+                    height: "10px",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.06)",
+                    overflow: "hidden",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${((runMessageIndex + 1) / RUN_PROGRESS_MESSAGES.length) * 100}%`,
+                      borderRadius: "999px",
+                      background:
+                        "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+                      transition: "width 0.4s ease",
+                    }}
+                  />
+                </div>
+
+                <div style={{ color: "#ddd6fe", fontSize: "13px", lineHeight: 1.6 }}>
+                  This audit is running inline on this page. Leaving the page may interrupt it until a background job system is built.
+                </div>
               </div>
             )}
 
@@ -1311,7 +1445,7 @@ export default function RunPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gap: "18px" }}>
+          <div style={{ display: "grid", gap: "18px", alignSelf: "start" }}>
             {controlCards.map((card) => (
               <div
                 key={card.title}
@@ -1609,7 +1743,15 @@ export default function RunPage() {
                 Once conversations are fetched, a preview list will appear here before audit begins.
               </div>
             ) : (
-              <div style={{ display: "grid", gap: "14px", maxHeight: "640px", overflow: "auto", paddingRight: "4px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "14px",
+                  maxHeight: "640px",
+                  overflow: "auto",
+                  paddingRight: "4px",
+                }}
+              >
                 {fetchedConversations.map((item, index) => (
                   <div
                     key={item?.conversationId || `fetched-${index}`}
@@ -1723,7 +1865,7 @@ export default function RunPage() {
                           Replied At
                         </div>
                         <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {item?.repliedAt || "-"}
+                          {formatRepliedAt(item?.repliedAt)}
                         </div>
                       </div>
                     </div>
@@ -2070,7 +2212,7 @@ export default function RunPage() {
                   marginBottom: "10px",
                 }}
               >
-                Audit Output Preview
+                Audit Output
               </div>
               <h2
                 style={{
@@ -2117,10 +2259,10 @@ export default function RunPage() {
                 }}
               >
                 <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Received
+                  Success
                 </div>
                 <div style={{ fontSize: "26px", fontWeight: 700, color: "#bbf7d0" }}>
-                  {runData?.meta?.receivedCount ?? 0}
+                  {successCount}
                 </div>
               </div>
 
@@ -2133,10 +2275,10 @@ export default function RunPage() {
                 }}
               >
                 <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Preview Results
+                  Errors
                 </div>
                 <div style={{ fontSize: "26px", fontWeight: 700, color: "#fecdd3" }}>
-                  {results.length}
+                  {errorCount}
                 </div>
               </div>
             </div>
@@ -2154,7 +2296,7 @@ export default function RunPage() {
                 fontSize: "15px",
               }}
             >
-              Fetch conversations first. After a successful fetch, the Run Audit button will appear and audit preview cards will show here.
+              Fetch conversations first. After a successful fetch, the Run Audit button will appear and audit result cards will show here.
             </div>
           ) : (
             <div style={{ display: "grid", gap: "18px" }}>
@@ -2179,189 +2321,343 @@ export default function RunPage() {
                 <strong>Next step:</strong> {runData?.meta?.nextStep || "-"}
               </div>
 
-              {results.map((item, index) => (
+              <div
+                style={{
+                  borderRadius: "24px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.02)",
+                  padding: "16px",
+                }}
+              >
                 <div
-                  key={item?.conversationId || `result-${index}`}
                   style={{
-                    borderRadius: "22px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "linear-gradient(180deg, rgba(12,18,38,0.92), rgba(8,12,24,0.96))",
-                    padding: "20px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    marginBottom: "14px",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "16px",
-                      flexWrap: "wrap",
-                      marginBottom: "14px",
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: "#8ea0d6",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.14em",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Conversation
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "22px",
-                          fontWeight: 700,
-                          letterSpacing: "-0.03em",
-                        }}
-                      >
-                        {item?.conversationId || "Unknown Conversation"}
-                      </div>
-                    </div>
+                  <div style={{ color: "#dbe7ff", fontSize: "15px", fontWeight: 700 }}>
+                    Showing {visibleResults.length} of {results.length} result card(s)
+                  </div>
 
-                    <div
+                  {results.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllResults((prev) => !prev)}
                       style={{
-                        ...statusPillStyles("Pending"),
-                        borderRadius: "999px",
-                        padding: "9px 12px",
-                        fontSize: "12px",
+                        borderRadius: "14px",
+                        padding: "10px 14px",
+                        fontSize: "14px",
                         fontWeight: 700,
-                        alignSelf: "flex-start",
-                      }}
-                    >
-                      {item?.auditStatus || "pending_ai_review"}
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gap: "16px" }}>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                        gap: "12px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          borderRadius: "16px",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(255,255,255,0.03)",
-                          padding: "14px",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                          Agent
-                        </div>
-                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                          {item?.agentName || "Unassigned"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "16px",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(255,255,255,0.03)",
-                          padding: "14px",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                          Client Email
-                        </div>
-                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                          {item?.clientEmail || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "16px",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(255,255,255,0.03)",
-                          padding: "14px",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                          CSAT
-                        </div>
-                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                          {item?.csatScore || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "16px",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(255,255,255,0.03)",
-                          padding: "14px",
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                          Replied At
-                        </div>
-                        <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                          {item?.repliedAt || "-"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        borderRadius: "18px",
-                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: "#e5ebff",
+                        cursor: "pointer",
                         background: "rgba(255,255,255,0.03)",
-                        padding: "16px",
+                        border: "1px solid rgba(255,255,255,0.1)",
                       }}
                     >
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: "#8ea0d6",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.12em",
-                          marginBottom: "10px",
-                        }}
-                      >
-                        Audit Summary
-                      </div>
-                      <div
-                        style={{
-                          color: "#e7ecff",
-                          fontSize: "15px",
-                          lineHeight: 1.7,
-                        }}
-                      >
-                        {item?.summary || "Queued for GPT audit."}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        borderRadius: "16px",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        background: "rgba(255,255,255,0.03)",
-                        padding: "14px",
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                        Findings
-                      </div>
-                      <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                        {Array.isArray(item?.findings) && item.findings.length > 0
-                          ? item.findings.join(", ")
-                          : "No findings yet."}
-                      </div>
-                    </div>
-                  </div>
+                      {showAllResults ? "Show Less" : "Show More"}
+                    </button>
+                  )}
                 </div>
-              ))}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "18px",
+                    maxHeight: "900px",
+                    overflowY: "auto",
+                    paddingRight: "6px",
+                  }}
+                >
+                  {visibleResults.map((item, index) => {
+                    const findings = getFindingsList(item);
+                    const hasError = Boolean(item?.error);
+                    const statusLabel = getResultStatusLabel(item);
+
+                    return (
+                      <div
+                        key={item?.conversationId || `result-${index}`}
+                        style={{
+                          borderRadius: "22px",
+                          border: hasError
+                            ? "1px solid rgba(244,63,94,0.18)"
+                            : "1px solid rgba(255,255,255,0.08)",
+                          background: hasError
+                            ? "linear-gradient(180deg, rgba(40,10,18,0.92), rgba(18,8,12,0.96))"
+                            : "linear-gradient(180deg, rgba(12,18,38,0.92), rgba(8,12,24,0.96))",
+                          padding: "20px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "16px",
+                            flexWrap: "wrap",
+                            marginBottom: "14px",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                color: "#8ea0d6",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.14em",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              Conversation
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "22px",
+                                fontWeight: 700,
+                                letterSpacing: "-0.03em",
+                              }}
+                            >
+                              {item?.conversationId || "Unknown Conversation"}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              ...statusPillStyles(statusLabel),
+                              borderRadius: "999px",
+                              padding: "9px 12px",
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              alignSelf: "flex-start",
+                            }}
+                          >
+                            {statusLabel}
+                          </div>
+                        </div>
+
+                        {hasError ? (
+                          <div
+                            style={{
+                              color: "#fecdd3",
+                              fontSize: "14px",
+                              lineHeight: 1.7,
+                            }}
+                          >
+                            {item.error}
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: "16px" }}>
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                                gap: "12px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Agent
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.agentName || "Unassigned"}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Client Email
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.clientEmail || "-"}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  CSAT
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.csatScore || "-"}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Replied At
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {formatRepliedAt(item?.repliedAt)}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                borderRadius: "18px",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                background: "rgba(255,255,255,0.03)",
+                                padding: "16px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  color: "#8ea0d6",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.12em",
+                                  marginBottom: "10px",
+                                }}
+                              >
+                                AI Verdict
+                              </div>
+                              <div
+                                style={{
+                                  color: "#e7ecff",
+                                  fontSize: "15px",
+                                  lineHeight: 1.7,
+                                }}
+                              >
+                                {getResultSummary(item)}
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                                gap: "12px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Review Sentiment
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.reviewSentiment || "-"}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Client Sentiment
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.clientSentiment || "-"}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  borderRadius: "16px",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  background: "rgba(255,255,255,0.03)",
+                                  padding: "14px",
+                                }}
+                              >
+                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                  Resolution Status
+                                </div>
+                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
+                                  {item?.resolutionStatus || "-"}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                borderRadius: "16px",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                background: "rgba(255,255,255,0.03)",
+                                padding: "14px",
+                              }}
+                            >
+                              <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
+                                Findings
+                              </div>
+                              <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.7 }}>
+                                {findings.length > 0 ? findings.join(" | ") : "No additional findings."}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </section>
       </div>
+
+      {showJumpTop && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          style={{
+            position: "fixed",
+            right: "24px",
+            bottom: "24px",
+            zIndex: 1100,
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: "999px",
+            padding: "14px 16px",
+            color: "#ffffff",
+            fontWeight: 700,
+            fontSize: "14px",
+            cursor: "pointer",
+            background:
+              "linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88))",
+            boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
+          }}
+        >
+          Jump to Top
+        </button>
+      )}
     </main>
   );
 }
