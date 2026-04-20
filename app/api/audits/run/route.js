@@ -79,41 +79,62 @@ function normalizeConversation(item) {
   };
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function extractConversationMeta(conversation, fallbackConversation = {}) {
-  const parts = conversation?.conversation_parts?.conversation_parts || [];
+  const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
+    ? conversation.conversation_parts.conversation_parts
+    : [];
 
-  const clientEmail =
-    conversation?.contacts?.contacts?.[0]?.email ||
-    conversation?.source?.author?.email ||
-    conversation?.author?.email ||
-    fallbackConversation?.clientEmail ||
-    "";
+  const clientEmail = firstNonEmpty(
+    conversation?.contacts?.contacts?.[0]?.email,
+    conversation?.source?.author?.email,
+    conversation?.author?.email,
+    conversation?.user?.email,
+    conversation?.customer?.email,
+    fallbackConversation?.clientEmail
+  );
 
-  let agentName =
-    conversation?.assignee?.name ||
-    conversation?.admin_assignee?.name ||
-    conversation?.teammate_assignee?.name ||
-    conversation?.conversation_rating?.teammate?.name ||
-    fallbackConversation?.agentName ||
-    "";
+  let agentName = firstNonEmpty(
+    conversation?.assignee?.name,
+    conversation?.admin_assignee?.name,
+    conversation?.teammate_assignee?.name,
+    conversation?.conversation_rating?.teammate?.name
+  );
 
-  if (!agentName && Array.isArray(parts)) {
+  if (!agentName && parts.length) {
     const adminParts = parts
-      .filter((part) => ["admin", "teammate", "team_member"].includes(part?.author?.type))
+      .filter((part) =>
+        ["admin", "teammate", "team_member"].includes(part?.author?.type)
+      )
       .sort((a, b) => (b?.created_at || 0) - (a?.created_at || 0));
 
-    agentName =
-      adminParts?.[0]?.author?.name ||
-      adminParts?.[0]?.author?.email ||
-      fallbackConversation?.agentName ||
-      "";
+    agentName = firstNonEmpty(
+      adminParts?.[0]?.author?.name,
+      adminParts?.[0]?.author?.email
+    );
+  }
+
+  if (!agentName) {
+    const fallbackAgentName = String(fallbackConversation?.agentName || "").trim();
+    if (fallbackAgentName && fallbackAgentName !== "Unassigned") {
+      agentName = fallbackAgentName;
+    }
   }
 
   return {
-    conversationId:
-      String(conversation?.id || fallbackConversation?.conversationId || "").trim(),
-    clientEmail: String(clientEmail || "").trim(),
-    agentName: String(agentName || "Unassigned").trim(),
+    conversationId: firstNonEmpty(
+      conversation?.id,
+      fallbackConversation?.conversationId
+    ),
+    clientEmail,
+    agentName: agentName || "Unassigned",
     csatScore:
       conversation?.conversation_rating?.score ??
       conversation?.conversation_rating?.rating ??
