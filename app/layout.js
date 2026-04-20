@@ -46,7 +46,6 @@ const globalStyles = `
   .app-shell {
     position: relative;
     min-height: 100vh;
-    overflow: hidden;
   }
 
   .app-bg {
@@ -115,10 +114,14 @@ const globalStyles = `
     display: grid;
     grid-template-columns: 290px minmax(0, 1fr);
     min-height: 100vh;
+    align-items: start;
   }
 
   .sidebar {
-    position: relative;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -130,6 +133,22 @@ const globalStyles = `
     box-shadow:
       inset -1px 0 0 rgba(255, 255, 255, 0.03),
       20px 0 80px rgba(2, 6, 23, 0.28);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.6) rgba(255, 255, 255, 0.06);
+  }
+
+  .sidebar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .sidebar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 999px;
+  }
+
+  .sidebar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(96, 165, 250, 0.9), rgba(139, 92, 246, 0.9));
+    border-radius: 999px;
   }
 
   .brand-wrap {
@@ -327,6 +346,7 @@ const globalStyles = `
 
   .content-shell {
     min-width: 0;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     padding: 18px 18px 24px;
@@ -394,6 +414,10 @@ const globalStyles = `
     }
 
     .sidebar {
+      position: relative;
+      top: auto;
+      height: auto;
+      overflow: visible;
       gap: 18px;
       border-right: none;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
