@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const DATE_PRESET_OPTIONS = [
@@ -15,10 +15,10 @@ const DATE_PRESET_OPTIONS = [
 ];
 
 const RESULT_TYPE_OPTIONS = [
-  { value: "all", label: "All Result Types" },
+  { value: "all", label: "All Results" },
   { value: "success_only", label: "Successful Only" },
   { value: "errors_only", label: "Errors Only" },
-  { value: "opportunity_cases", label: "Opportunity Cases" },
+  { value: "opportunity_cases", label: "Missed Opportunities" },
   { value: "positive_signals", label: "Positive Signals" },
   { value: "negative_risk", label: "Negative Risk" },
 ];
@@ -76,10 +76,7 @@ function getPresetRange(key) {
 
   switch (key) {
     case "today":
-      return {
-        startDate: formatDateInput(today),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(today), endDate: formatDateInput(today) };
     case "yesterday": {
       const yesterday = shiftDays(today, -1);
       return {
@@ -112,6 +109,11 @@ function getPresetRange(key) {
   }
 }
 
+function safeText(value, fallback = "-") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -136,81 +138,6 @@ function formatShortDate(value) {
     month: "short",
     day: "2-digit",
   });
-}
-
-function safeText(value, fallback = "-") {
-  const text = String(value ?? "").trim();
-  return text || fallback;
-}
-
-function getResultType(item) {
-  if (item?.error) return "error";
-  if (
-    item?.reviewSentiment === "Missed Opportunity" &&
-    item?.clientSentiment === "Very Positive"
-  ) {
-    return "opportunity_case";
-  }
-  if (
-    item?.reviewSentiment === "Likely Positive Review" ||
-    item?.reviewSentiment === "Highly Likely Positive Review"
-  ) {
-    return "positive_signal";
-  }
-  if (
-    item?.reviewSentiment === "Likely Negative Review" ||
-    item?.reviewSentiment === "Highly Likely Negative Review" ||
-    item?.reviewSentiment === "Negative Outcome - No Review Request"
-  ) {
-    return "negative_risk";
-  }
-  return "success";
-}
-
-function matchesResultType(item, value) {
-  if (value === "all") return true;
-  if (value === "success_only") return !item?.error;
-  if (value === "errors_only") return Boolean(item?.error);
-  if (value === "opportunity_cases") return getResultType(item) === "opportunity_case";
-  if (value === "positive_signals") return getResultType(item) === "positive_signal";
-  if (value === "negative_risk") return getResultType(item) === "negative_risk";
-  return true;
-}
-
-function pillClasses(value) {
-  if (
-    value === "Resolved" ||
-    value === "Healthy" ||
-    value === "positive_signal"
-  ) {
-    return "border-emerald-400/20 bg-emerald-500/10 text-emerald-200";
-  }
-
-  if (
-    value === "Pending" ||
-    value === "Watch" ||
-    value === "opportunity_case"
-  ) {
-    return "border-cyan-400/20 bg-cyan-500/10 text-cyan-200";
-  }
-
-  if (
-    value === "Missed Opportunity" ||
-    value === "Opportunity"
-  ) {
-    return "border-amber-300/20 bg-amber-400/10 text-amber-100";
-  }
-
-  if (
-    value === "Unresolved" ||
-    value === "error" ||
-    value === "negative_risk" ||
-    value === "Risk"
-  ) {
-    return "border-rose-400/20 bg-rose-500/10 text-rose-200";
-  }
-
-  return "border-violet-400/20 bg-violet-500/10 text-violet-200";
 }
 
 function buildFallbackProfile(user) {
@@ -239,25 +166,61 @@ function canManageResults(profile) {
   );
 }
 
+function getResultType(item) {
+  if (item?.error) return "error";
+
+  if (
+    safeText(item?.review_sentiment, "") === "Missed Opportunity" &&
+    safeText(item?.client_sentiment, "") === "Very Positive"
+  ) {
+    return "opportunity_case";
+  }
+
+  if (
+    safeText(item?.review_sentiment, "") === "Likely Positive Review" ||
+    safeText(item?.review_sentiment, "") === "Highly Likely Positive Review"
+  ) {
+    return "positive_signal";
+  }
+
+  if (
+    safeText(item?.review_sentiment, "") === "Likely Negative Review" ||
+    safeText(item?.review_sentiment, "") === "Highly Likely Negative Review" ||
+    safeText(item?.review_sentiment, "") === "Negative Outcome - No Review Request"
+  ) {
+    return "negative_risk";
+  }
+
+  return "success";
+}
+
+function matchesResultType(item, value) {
+  if (value === "all") return true;
+  if (value === "success_only") return !item?.error;
+  if (value === "errors_only") return Boolean(item?.error);
+  if (value === "opportunity_cases") return getResultType(item) === "opportunity_case";
+  if (value === "positive_signals") return getResultType(item) === "positive_signal";
+  if (value === "negative_risk") return getResultType(item) === "negative_risk";
+  return true;
+}
+
 function downloadCsv(filename, rows) {
-  const csvText = rows
+  const csv = rows
     .map((row) =>
       row
         .map((cell) => {
           const value = String(cell ?? "");
-          const escaped = value.replace(/"/g, '""');
-          return `"${escaped}"`;
+          return `"${value.replace(/"/g, '""')}"`;
         })
         .join(",")
     )
     .join("\n");
 
-  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-
   const link = document.createElement("a");
   link.href = url;
-  link.setAttribute("download", filename);
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -302,6 +265,22 @@ function PresetCalendarIcon() {
       </defs>
     </svg>
   );
+}
+
+function statusToneClasses(kind) {
+  if (kind === "resolved" || kind === "positive_signal") {
+    return "border-emerald-400/20 bg-emerald-500/10 text-emerald-200";
+  }
+
+  if (kind === "opportunity_case" || kind === "pending") {
+    return "border-amber-300/20 bg-amber-400/10 text-amber-100";
+  }
+
+  if (kind === "negative_risk" || kind === "unresolved" || kind === "error") {
+    return "border-rose-400/20 bg-rose-500/10 text-rose-200";
+  }
+
+  return "border-cyan-400/20 bg-cyan-500/10 text-cyan-200";
 }
 
 export default function ResultsPage() {
@@ -393,11 +372,7 @@ export default function ResultsPage() {
 
     try {
       const [runsResponse, resultsResponse] = await Promise.all([
-        supabase
-          .from("audit_runs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(500),
+        supabase.from("audit_runs").select("*").order("created_at", { ascending: false }).limit(500),
         supabase
           .from("audit_results")
           .select("*")
@@ -407,11 +382,11 @@ export default function ResultsPage() {
       ]);
 
       if (runsResponse.error) {
-        throw new Error(runsResponse.error.message || "Could not load audit runs.");
+        throw new Error(runsResponse.error.message || "Could not load stored runs.");
       }
 
       if (resultsResponse.error) {
-        throw new Error(resultsResponse.error.message || "Could not load audit results.");
+        throw new Error(resultsResponse.error.message || "Could not load stored results.");
       }
 
       setRuns(Array.isArray(runsResponse.data) ? runsResponse.data : []);
@@ -449,12 +424,12 @@ export default function ResultsPage() {
           return;
         }
 
-        const result = await loadProfile(currentSession.user);
+        const profileResult = await loadProfile(currentSession.user);
 
         if (!active) return;
 
-        setProfile(result.profile);
-        setAuthMessage(result.message);
+        setProfile(profileResult.profile);
+        setAuthMessage(profileResult.message);
         setAuthLoading(false);
 
         await loadStoredResults();
@@ -483,11 +458,11 @@ export default function ResultsPage() {
         return;
       }
 
-      const result = await loadProfile(newSession.user);
+      const profileResult = await loadProfile(newSession.user);
       if (!active) return;
 
-      setProfile(result.profile);
-      setAuthMessage(result.message);
+      setProfile(profileResult.profile);
+      setAuthMessage(profileResult.message);
       setAuthLoading(false);
 
       await loadStoredResults();
@@ -520,6 +495,7 @@ export default function ResultsPage() {
     }
 
     const range = getPresetRange(presetKey);
+
     if (!range) {
       setShowPresetMenu(false);
       return;
@@ -532,7 +508,6 @@ export default function ResultsPage() {
 
   async function handleGoogleLogin() {
     setAuthMessage("");
-
     const redirectTo =
       typeof window !== "undefined" ? `${window.location.origin}/results` : undefined;
 
@@ -558,49 +533,40 @@ export default function ResultsPage() {
     const map = new Map();
 
     for (const run of runs) {
-      if (!run?.id) continue;
-      map.set(run.id, run);
+      if (run?.id) {
+        map.set(run.id, run);
+      }
     }
 
     return map;
   }, [runs]);
 
   const decoratedResults = useMemo(() => {
-    return results.map((item) => {
-      const run = item?.run_id ? runsById.get(item.run_id) : null;
-      return {
-        ...item,
-        runMeta: run || null,
-      };
-    });
+    return results.map((item) => ({
+      ...item,
+      runMeta: item?.run_id ? runsById.get(item.run_id) || null : null,
+    }));
   }, [results, runsById]);
 
   const agentOptions = useMemo(() => {
-    const unique = Array.from(
+    return Array.from(
       new Set(
         decoratedResults
           .map((item) => safeText(item.agent_name, "Unassigned"))
           .filter(Boolean)
       )
     ).sort((a, b) => a.localeCompare(b));
-
-    return unique;
   }, [decoratedResults]);
 
   const filteredResults = useMemo(() => {
     return decoratedResults.filter((item) => {
-      const repliedSource = item?.replied_at || item?.created_at || null;
-      const repliedDateOnly = repliedSource
-        ? formatDateInput(new Date(repliedSource))
-        : "";
+      const sourceDate = item?.replied_at || item?.created_at || null;
+      const sourceDateOnly = sourceDate ? formatDateInput(new Date(sourceDate)) : "";
 
-      if (startDate && repliedDateOnly && repliedDateOnly < startDate) return false;
-      if (endDate && repliedDateOnly && repliedDateOnly > endDate) return false;
+      if (startDate && sourceDateOnly && sourceDateOnly < startDate) return false;
+      if (endDate && sourceDateOnly && sourceDateOnly > endDate) return false;
 
-      if (
-        agentFilter !== "all" &&
-        safeText(item.agent_name, "Unassigned") !== agentFilter
-      ) {
+      if (agentFilter !== "all" && safeText(item.agent_name, "Unassigned") !== agentFilter) {
         return false;
       }
 
@@ -662,21 +628,16 @@ export default function ResultsPage() {
   ]);
 
   const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 50);
-
   const allVisibleIds = visibleResults.map((item) => item.id).filter(Boolean);
   const allFilteredIds = filteredResults.map((item) => item.id).filter(Boolean);
-
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
-  const totalRunsInRange = useMemo(() => {
-    const uniqueRunIds = new Set(
-      filteredResults.map((item) => item.run_id).filter(Boolean)
-    );
-    return uniqueRunIds.size;
+  const totalStoredRuns = useMemo(() => {
+    return new Set(filteredResults.map((item) => item.run_id).filter(Boolean)).size;
   }, [filteredResults]);
 
-  const totalErrorsInRange = filteredResults.filter((item) => item?.error).length;
-  const totalSuccessInRange = filteredResults.length - totalErrorsInRange;
+  const totalErrors = filteredResults.filter((item) => item?.error).length;
+  const totalSuccess = filteredResults.length - totalErrors;
 
   const positiveResolutionRate = useMemo(() => {
     if (!filteredResults.length) return 0;
@@ -686,11 +647,9 @@ export default function ResultsPage() {
     return (positiveCount / filteredResults.length) * 100;
   }, [filteredResults]);
 
-  const approachOpportunities = useMemo(() => {
+  const totalMissedOpportunities = useMemo(() => {
     return filteredResults.filter(
-      (item) =>
-        safeText(item.review_sentiment, "") === "Missed Opportunity" &&
-        safeText(item.client_sentiment, "") === "Very Positive"
+      (item) => safeText(item.review_sentiment, "") === "Missed Opportunity"
     ).length;
   }, [filteredResults]);
 
@@ -700,19 +659,13 @@ export default function ResultsPage() {
   }, [decoratedResults]);
 
   function toggleSingle(id) {
-    setSelectedIds((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((item) => item !== id);
-      }
-      return [...prev, id];
-    });
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
   }
 
   function selectAllVisible() {
-    setSelectedIds((prev) => {
-      const merged = new Set([...prev, ...allVisibleIds]);
-      return Array.from(merged);
-    });
+    setSelectedIds((prev) => Array.from(new Set([...prev, ...allVisibleIds])));
   }
 
   function selectAllFiltered() {
@@ -752,13 +705,13 @@ export default function ResultsPage() {
         .map((item) => item.run_id)
         .filter(Boolean);
 
-      const { error: deleteError } = await supabase
+      const { error: deleteResultsError } = await supabase
         .from("audit_results")
         .delete()
         .in("id", selectedIds);
 
-      if (deleteError) {
-        throw new Error(deleteError.message || "Could not delete selected results.");
+      if (deleteResultsError) {
+        throw new Error(deleteResultsError.message || "Could not delete selected results.");
       }
 
       if (targetRunIds.length) {
@@ -770,7 +723,7 @@ export default function ResultsPage() {
           .in("run_id", uniqueRunIds);
 
         if (remainingError) {
-          throw new Error(remainingError.message || "Could not verify remaining run rows.");
+          throw new Error(remainingError.message || "Could not verify remaining run records.");
         }
 
         const remainingRunSet = new Set(
@@ -791,8 +744,8 @@ export default function ResultsPage() {
         }
       }
 
-      setPageSuccess(`${selectedIds.length} stored result(s) deleted successfully.`);
       setSelectedIds([]);
+      setPageSuccess(`${selectedIds.length} stored result(s) deleted successfully.`);
       await loadStoredResults();
     } catch (error) {
       setPageError(
@@ -846,7 +799,7 @@ export default function ResultsPage() {
     ];
 
     downloadCsv(
-      `stored-audit-results-${startDate || "start"}-to-${endDate || "end"}.csv`,
+      `stored-results-${startDate || "start"}-to-${endDate || "end"}.csv`,
       rows
     );
 
@@ -858,75 +811,59 @@ export default function ResultsPage() {
     {
       label: "Stored Results",
       value: filteredResults.length.toLocaleString(),
-      helper: "Visible in the current filtered range",
+      helper: "Real stored result rows in the current filtered view",
       tone: "violet",
     },
     {
       label: "Stored Runs",
-      value: totalRunsInRange.toLocaleString(),
-      helper: "Unique audit batches in the filtered range",
-      tone: "blue",
+      value: totalStoredRuns.toLocaleString(),
+      helper: "Unique saved audit batches in the filtered range",
+      tone: "cyan",
     },
     {
-      label: "Approach Opportunities",
-      value: approachOpportunities.toLocaleString(),
-      helper: "Missed Opportunity + Very Positive cases",
-      tone: "gold",
+      label: "Missed Opportunities",
+      value: totalMissedOpportunities.toLocaleString(),
+      helper: "Stored rows where a review opportunity was missed",
+      tone: "amber",
     },
     {
       label: "Positive Resolution Rate",
       value: `${positiveResolutionRate.toFixed(1)}%`,
-      helper: "Resolved conversations in the filtered range",
+      helper: "Resolved rows in the filtered range",
       tone: "emerald",
     },
   ];
 
-  function statToneClasses(tone) {
-    const map = {
-      violet:
-        "border-violet-400/20 bg-violet-500/10 text-violet-200 shadow-[0_0_30px_rgba(139,92,246,0.18)]",
-      blue:
-        "border-cyan-400/20 bg-cyan-500/10 text-cyan-200 shadow-[0_0_30px_rgba(34,211,238,0.14)]",
-      gold:
-        "border-amber-300/20 bg-amber-400/10 text-amber-100 shadow-[0_0_30px_rgba(251,191,36,0.14)]",
-      emerald:
-        "border-emerald-400/20 bg-emerald-500/10 text-emerald-200 shadow-[0_0_30px_rgba(16,185,129,0.14)]",
-    };
-
-    return map[tone] || map.violet;
-  }
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#030614] text-white">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[-10%] top-[-15%] h-[26rem] w-[26rem] rounded-full bg-violet-600/18 blur-3xl" />
-        <div className="absolute right-[-8%] top-[8%] h-[24rem] w-[24rem] rounded-full bg-cyan-500/12 blur-3xl" />
-        <div className="absolute bottom-[-10%] left-[20%] h-[28rem] w-[28rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(91,33,182,0.14),transparent_28%),radial-gradient(circle_at_80%_20%,rgba(6,182,212,0.10),transparent_22%),linear-gradient(180deg,#050816_0%,#030614_48%,#02030a_100%)]" />
+        <div className="absolute left-[-10%] top-[-15%] h-[28rem] w-[28rem] rounded-full bg-violet-600/18 blur-3xl" />
+        <div className="absolute right-[-8%] top-[8%] h-[26rem] w-[26rem] rounded-full bg-cyan-500/12 blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[18%] h-[30rem] w-[30rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(91,33,182,0.16),transparent_28%),radial-gradient(circle_at_80%_20%,rgba(6,182,212,0.11),transparent_22%),linear-gradient(180deg,#050816_0%,#030614_48%,#02030A_100%)]" />
       </div>
 
       <div className="relative mx-auto max-w-7xl px-6 py-8 md:px-8 lg:px-10">
-        <section className="mb-8 overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_30px_120px_rgba(2,6,23,0.65)] backdrop-blur-2xl">
-          <div className="grid gap-8 px-6 py-7 md:px-8 lg:grid-cols-[1.25fr_0.95fr] lg:px-10 lg:py-10">
+        <section className="mb-8 overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_30px_120px_rgba(2,6,23,0.68)] backdrop-blur-2xl">
+          <div className="grid gap-8 px-6 py-7 md:px-8 lg:grid-cols-[1.3fr_0.9fr] lg:px-10 lg:py-10">
             <div>
               <div className="mb-4 inline-flex items-center rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">
                 Premium Results Archive
               </div>
 
-              <h1 className="max-w-3xl text-3xl font-semibold leading-tight tracking-tight text-white md:text-5xl">
-                Stored audit results, organized for clean review, filtering, export, and deletion.
+              <h1 className="max-w-4xl text-3xl font-semibold leading-tight tracking-tight text-white md:text-5xl">
+                Stored audit results, designed as a premium management archive instead of a fake dashboard.
               </h1>
 
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
-                This page is the permanent storage and management layer for completed audit runs.
-                Results stay here until you delete them. Dashboard will become the separate
-                executive analytics layer afterward.
+                This page is now only for real stored results. No dummy charts. No fake employee blocks.
+                No placeholder weekly trend sections. Results stay here until you delete them.
               </p>
 
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link
                   href="/run"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(96,165,250,0.95),rgba(168,85,247,0.95),rgba(236,72,153,0.95))] px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(147,51,234,0.28)] transition hover:scale-[1.01]"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(96,165,250,0.96),rgba(168,85,247,0.95),rgba(236,72,153,0.95))] px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(147,51,234,0.28)] transition hover:scale-[1.01]"
                 >
                   Run New Audit
                 </Link>
@@ -962,13 +899,13 @@ export default function ResultsPage() {
             <div className="rounded-[24px] border border-white/10 bg-[#081121]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.32)]">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-white">Stored archive status</p>
+                  <p className="text-sm font-medium text-white">Archive status</p>
                   <p className="mt-1 text-xs text-slate-400">
                     Latest stored result: {latestStoredAt}
                   </p>
                 </div>
                 <div className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-                  Permanent until deleted
+                  Real Supabase data
                 </div>
               </div>
 
@@ -986,8 +923,8 @@ export default function ResultsPage() {
                     <span className="inline-flex items-center gap-3">
                       <PresetCalendarIcon />
                       <span className="font-medium">
-                        {DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)
-                          ?.label || "Custom"}
+                        {DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label ||
+                          "Custom"}
                       </span>
                       <span className="text-xs text-slate-400">
                         {startDate} - {endDate}
@@ -996,7 +933,7 @@ export default function ResultsPage() {
                     <span className="text-slate-400">{showPresetMenu ? "▲" : "▼"}</span>
                   </button>
 
-                  {showPresetMenu && (
+                  {showPresetMenu ? (
                     <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#081120] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
                       {DATE_PRESET_OPTIONS.map((option) => (
                         <button
@@ -1016,7 +953,7 @@ export default function ResultsPage() {
                         </button>
                       ))}
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1031,7 +968,7 @@ export default function ResultsPage() {
                         setSelectedDatePreset("custom");
                         setStartDate(e.target.value);
                       }}
-                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
+                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
                     />
                   </div>
 
@@ -1046,13 +983,13 @@ export default function ResultsPage() {
                         setSelectedDatePreset("custom");
                         setEndDate(e.target.value);
                       }}
-                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
+                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
                     />
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-100">
-                  Results tab = permanent storage, filtering, bulk selection, export, and delete.
+                  Results tab = storage, filtering, export, selection, and delete. Dashboard will handle charts later.
                 </div>
               </div>
             </div>
@@ -1066,11 +1003,17 @@ export default function ResultsPage() {
               className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] p-5 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur-xl"
             >
               <div
-                className={`mb-4 inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${statToneClasses(
-                  stat.tone
-                )}`}
+                className={`mb-4 inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                  stat.tone === "violet"
+                    ? "border-violet-400/20 bg-violet-500/10 text-violet-200"
+                    : stat.tone === "cyan"
+                    ? "border-cyan-400/20 bg-cyan-500/10 text-cyan-200"
+                    : stat.tone === "amber"
+                    ? "border-amber-300/20 bg-amber-400/10 text-amber-100"
+                    : "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                }`}
               >
-                Live stored data
+                Stored
               </div>
               <p className="text-sm text-slate-400">{stat.label}</p>
               <p className="mt-3 text-3xl font-semibold tracking-tight text-white">
@@ -1081,7 +1024,7 @@ export default function ResultsPage() {
           ))}
         </section>
 
-        {(authMessage || pageError || pageSuccess) && (
+        {(authMessage || pageError || pageSuccess) ? (
           <section className="mb-8 space-y-3">
             {authMessage ? (
               <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
@@ -1101,7 +1044,7 @@ export default function ResultsPage() {
               </div>
             ) : null}
           </section>
-        )}
+        ) : null}
 
         <section className="mb-8 rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-[0_20px_80px_rgba(2,6,23,0.45)] backdrop-blur-xl">
           <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -1109,9 +1052,8 @@ export default function ResultsPage() {
               <h2 className="text-2xl font-semibold tracking-tight text-white">
                 Stored result controls
               </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                Filter by date range, agent, review sentiment, client sentiment,
-                resolution status, and result type. Then select one, many, or all.
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                Filter real stored audit results only. Search, narrow down, select rows, export, or delete selected rows.
               </p>
             </div>
 
@@ -1167,7 +1109,7 @@ export default function ResultsPage() {
               type="text"
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search conversation ID, agent, client email, verdict, or requester"
+              placeholder="Search conversation, agent, client email, verdict, or requester"
               className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
             />
 
@@ -1241,11 +1183,10 @@ export default function ResultsPage() {
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-white">
-                Conversation-Level Stored Results
+                Real Stored Results Table
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                This is the live stored archive. Use the checkboxes for one, many, or all filtered rows.
-                These records stay here until you deliberately delete them.
+                This is the live table for stored audit results. No dummy employee cards. No fake review distribution blocks. Just real rows you can manage.
               </p>
             </div>
 
@@ -1264,12 +1205,12 @@ export default function ResultsPage() {
               No stored results match the current filters.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[22px] border border-white/10">
+            <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[#06101f]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
               <div className="max-h-[900px] overflow-auto">
-                <table className="min-w-full border-collapse">
-                  <thead className="sticky top-0 z-10 bg-[#0a1324]/95 backdrop-blur-xl">
-                    <tr className="text-left">
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <table className="min-w-[1280px] w-full border-collapse">
+                  <thead className="sticky top-0 z-10 bg-[rgba(10,18,34,0.94)] backdrop-blur-xl">
+                    <tr className="border-b border-white/10">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         <input
                           type="checkbox"
                           checked={
@@ -1288,26 +1229,29 @@ export default function ResultsPage() {
                           className="h-4 w-4 rounded border-white/20 bg-[#07101f] text-violet-500 focus:ring-violet-500/30"
                         />
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Conversation
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Agent
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Review Sentiment
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Client Sentiment
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Resolution
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                        Verdict / Error
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Replied At
                       </th>
-                      <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Run
+                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                        Run Info
                       </th>
                     </tr>
                   </thead>
@@ -1315,13 +1259,14 @@ export default function ResultsPage() {
                   <tbody>
                     {visibleResults.map((item, index) => {
                       const resultType = getResultType(item);
+                      const resolution = safeText(item.resolution_status, "");
+                      const rowTone =
+                        index % 2 === 0 ? "bg-white/[0.025]" : "bg-transparent";
 
                       return (
                         <tr
                           key={item.id}
-                          className={`border-t border-white/10 transition hover:bg-white/[0.04] ${
-                            index % 2 === 0 ? "bg-white/[0.02]" : "bg-transparent"
-                          }`}
+                          className={`${rowTone} border-b border-white/8 transition hover:bg-white/[0.045]`}
                         >
                           <td className="px-4 py-4 align-top">
                             <input
@@ -1334,100 +1279,129 @@ export default function ResultsPage() {
 
                           <td className="px-4 py-4 align-top">
                             <div className="space-y-1">
-                              <p className="text-sm font-semibold text-white">
+                              <div className="text-sm font-semibold text-white">
                                 {safeText(item.conversation_id, "Unknown Conversation")}
-                              </p>
-                              <p className="text-xs text-slate-400">
+                              </div>
+                              <div className="text-xs text-slate-400">
                                 Client: {safeText(item.client_email)}
-                              </p>
-                              <p className="text-xs text-slate-500">
+                              </div>
+                              <div className="text-xs text-slate-500">
                                 CSAT: {safeText(item.csat_score)}
-                              </p>
+                              </div>
                             </div>
                           </td>
 
                           <td className="px-4 py-4 align-top">
                             <div className="space-y-2">
-                              <p className="text-sm font-medium text-slate-200">
+                              <div className="text-sm font-medium text-slate-100">
                                 {safeText(item.agent_name, "Unassigned")}
-                              </p>
+                              </div>
                               <span
-                                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${pillClasses(
-                                  resultType
-                                )}`}
+                                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                  resultType === "error"
+                                    ? statusToneClasses("error")
+                                    : resultType === "opportunity_case"
+                                    ? statusToneClasses("opportunity_case")
+                                    : resultType === "positive_signal"
+                                    ? statusToneClasses("positive_signal")
+                                    : resultType === "negative_risk"
+                                    ? statusToneClasses("negative_risk")
+                                    : statusToneClasses("pending")
+                                }`}
                               >
                                 {resultType === "error"
                                   ? "Error"
                                   : resultType === "opportunity_case"
-                                  ? "Opportunity Case"
+                                  ? "Opportunity"
                                   : resultType === "positive_signal"
-                                  ? "Positive Signal"
+                                  ? "Positive"
                                   : resultType === "negative_risk"
-                                  ? "Negative Risk"
-                                  : "Successful"}
+                                  ? "Risk"
+                                  : "Stored"}
                               </span>
                             </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="space-y-2">
-                              <span
-                                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${pillClasses(
-                                  safeText(item.review_sentiment, "Other")
-                                )}`}
-                              >
-                                {safeText(item.review_sentiment)}
-                              </span>
-                              {item.error ? (
-                                <p className="max-w-[320px] text-xs leading-5 text-rose-200">
-                                  {safeText(item.error)}
-                                </p>
-                              ) : (
-                                <p className="max-w-[320px] text-xs leading-5 text-slate-400">
-                                  {safeText(item.ai_verdict)}
-                                </p>
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <p className="text-sm text-slate-200">
-                              {safeText(item.client_sentiment)}
-                            </p>
                           </td>
 
                           <td className="px-4 py-4 align-top">
                             <span
-                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${pillClasses(
-                                safeText(item.resolution_status, "Other")
-                              )}`}
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                safeText(item.review_sentiment, "") === "Missed Opportunity"
+                                  ? statusToneClasses("opportunity_case")
+                                  : safeText(item.review_sentiment, "") ===
+                                      "Likely Positive Review" ||
+                                    safeText(item.review_sentiment, "") ===
+                                      "Highly Likely Positive Review"
+                                  ? statusToneClasses("positive_signal")
+                                  : safeText(item.review_sentiment, "") ===
+                                      "Likely Negative Review" ||
+                                    safeText(item.review_sentiment, "") ===
+                                      "Highly Likely Negative Review" ||
+                                    safeText(item.review_sentiment, "") ===
+                                      "Negative Outcome - No Review Request"
+                                  ? statusToneClasses("negative_risk")
+                                  : statusToneClasses("pending")
+                              }`}
+                            >
+                              {safeText(item.review_sentiment)}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-4 align-top">
+                            <div className="text-sm text-slate-200">
+                              {safeText(item.client_sentiment)}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-4 align-top">
+                            <span
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                resolution === "Resolved"
+                                  ? statusToneClasses("resolved")
+                                  : resolution === "Pending"
+                                  ? statusToneClasses("pending")
+                                  : resolution === "Unresolved"
+                                  ? statusToneClasses("unresolved")
+                                  : statusToneClasses("pending")
+                              }`}
                             >
                               {safeText(item.resolution_status)}
                             </span>
                           </td>
 
                           <td className="px-4 py-4 align-top">
+                            {item.error ? (
+                              <div className="max-w-[320px] rounded-2xl border border-rose-400/15 bg-rose-500/8 px-3 py-2 text-xs leading-5 text-rose-100">
+                                {safeText(item.error)}
+                              </div>
+                            ) : (
+                              <div className="max-w-[360px] text-sm leading-6 text-slate-200">
+                                {safeText(item.ai_verdict)}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 align-top">
                             <div className="space-y-1">
-                              <p className="text-sm text-slate-200">
+                              <div className="text-sm text-slate-100">
                                 {formatDateTime(item.replied_at || item.created_at)}
-                              </p>
-                              <p className="text-xs text-slate-500">
+                              </div>
+                              <div className="text-xs text-slate-500">
                                 {formatShortDate(item.replied_at || item.created_at)}
-                              </p>
+                              </div>
                             </div>
                           </td>
 
                           <td className="px-4 py-4 align-top">
                             <div className="space-y-1">
-                              <p className="text-sm text-slate-200">
+                              <div className="text-sm text-slate-100">
                                 {safeText(item.runMeta?.requested_by_email)}
-                              </p>
-                              <p className="text-xs text-slate-400">
+                              </div>
+                              <div className="text-xs text-slate-400">
                                 {safeText(item.runMeta?.audit_mode, "live_gpt")}
-                              </p>
-                              <p className="text-xs text-slate-500">
+                              </div>
+                              <div className="text-xs text-slate-500">
                                 {formatShortDate(item.runMeta?.created_at)}
-                              </p>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -1452,6 +1426,14 @@ export default function ResultsPage() {
               </button>
             </div>
           ) : null}
+
+          <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>Successful: {totalSuccess}</span>
+            <span>•</span>
+            <span>Errors: {totalErrors}</span>
+            <span>•</span>
+            <span>Selected: {selectedIds.length}</span>
+          </div>
         </section>
       </div>
     </main>
