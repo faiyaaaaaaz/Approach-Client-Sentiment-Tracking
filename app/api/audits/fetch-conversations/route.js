@@ -116,7 +116,39 @@ function dhakaDayBounds(dateStr) {
   };
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function extractConversationPreview(conversation) {
+  const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
+    ? conversation.conversation_parts.conversation_parts
+    : [];
+
+  let agentName = firstNonEmpty(
+    conversation?.assignee?.name,
+    conversation?.admin_assignee?.name,
+    conversation?.teammate_assignee?.name,
+    conversation?.conversation_rating?.teammate?.name
+  );
+
+  if (!agentName && parts.length) {
+    const adminParts = parts
+      .filter((part) =>
+        ["admin", "teammate", "team_member"].includes(part?.author?.type)
+      )
+      .sort((a, b) => (b?.created_at || 0) - (a?.created_at || 0));
+
+    agentName = firstNonEmpty(
+      adminParts?.[0]?.author?.name,
+      adminParts?.[0]?.author?.email
+    );
+  }
+
   return {
     conversationId: String(conversation?.id || "").trim(),
     repliedAt:
@@ -129,17 +161,14 @@ function extractConversationPreview(conversation) {
       conversation?.conversation_rating?.rating ??
       conversation?.conversation_rating?.value ??
       "",
-    clientEmail:
-      conversation?.contacts?.contacts?.[0]?.email ||
-      conversation?.source?.author?.email ||
-      conversation?.author?.email ||
-      "",
-    agentName:
-      conversation?.assignee?.name ||
-      conversation?.admin_assignee?.name ||
-      conversation?.teammate_assignee?.name ||
-      conversation?.conversation_rating?.teammate?.name ||
-      "Unassigned",
+    clientEmail: firstNonEmpty(
+      conversation?.contacts?.contacts?.[0]?.email,
+      conversation?.source?.author?.email,
+      conversation?.author?.email,
+      conversation?.user?.email,
+      conversation?.customer?.email
+    ),
+    agentName: agentName || "Unassigned",
   };
 }
 
