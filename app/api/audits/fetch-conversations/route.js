@@ -248,6 +248,43 @@ async function fetchIntercomSearchPage({
   };
 }
 
+async function fetchFullConversation(intercomApiKey, conversationId) {
+  const response = await fetch(`https://api.intercom.io/conversations/${conversationId}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Intercom-Version": "2.12",
+      Authorization: `Bearer ${intercomApiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Intercom conversation fetch failed for ${conversationId}: ${response.status} ${text}`
+    );
+  }
+
+  return response.json();
+}
+
+async function hydrateConversationPreview(intercomApiKey, searchConversation) {
+  const conversationId = String(searchConversation?.id || "").trim();
+
+  if (!conversationId) {
+    return extractConversationPreview(searchConversation);
+  }
+
+  try {
+    const fullConversation = await fetchFullConversation(intercomApiKey, conversationId);
+    return extractConversationPreview(fullConversation);
+  } catch {
+    return extractConversationPreview(searchConversation);
+  }
+}
+
 async function fetchConversationsForDay({
   intercomApiKey,
   date,
@@ -296,7 +333,13 @@ async function fetchConversationsForDay({
       if (!id || seenIds.has(id)) continue;
 
       seenIds.add(id);
-      conversations.push(extractConversationPreview(conversation));
+
+      const hydratedPreview = await hydrateConversationPreview(
+        intercomApiKey,
+        conversation
+      );
+
+      conversations.push(hydratedPreview);
 
       if (limiterEnabled && seenIds.size >= desiredCount) {
         return {
