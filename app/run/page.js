@@ -134,6 +134,19 @@ const RUN_PROGRESS_MESSAGES = [
   "Collecting audit output and preparing the result cards...",
 ];
 
+const DATE_PRESET_OPTIONS = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "past_week", label: "Past week" },
+  { key: "month_to_date", label: "Month to date" },
+  { key: "past_4_weeks", label: "Past 4 weeks" },
+  { key: "past_12_weeks", label: "Past 12 weeks" },
+  { key: "year_to_date", label: "Year to date" },
+  { key: "past_6_months", label: "Past 6 months" },
+  { key: "past_12_months", label: "Past 12 months" },
+  { key: "custom", label: "Custom" },
+];
+
 function formatRepliedAt(value) {
   if (value === null || value === undefined || value === "") return "-";
 
@@ -195,9 +208,140 @@ function getFindingsList(item) {
   return findings;
 }
 
+function normalizeToStartOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDateInput(date) {
+  const local = normalizeToStartOfDay(date);
+  const year = local.getFullYear();
+  const month = String(local.getMonth() + 1).padStart(2, "0");
+  const day = String(local.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return normalizeToStartOfDay(next);
+}
+
+function shiftMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return normalizeToStartOfDay(next);
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfYear(date) {
+  return new Date(date.getFullYear(), 0, 1);
+}
+
+function getPresetRange(key) {
+  const today = normalizeToStartOfDay(new Date());
+
+  switch (key) {
+    case "today":
+      return {
+        startDate: formatDateInput(today),
+        endDate: formatDateInput(today),
+      };
+    case "yesterday": {
+      const yesterday = shiftDays(today, -1);
+      return {
+        startDate: formatDateInput(yesterday),
+        endDate: formatDateInput(yesterday),
+      };
+    }
+    case "past_week":
+      return {
+        startDate: formatDateInput(shiftDays(today, -6)),
+        endDate: formatDateInput(today),
+      };
+    case "month_to_date":
+      return {
+        startDate: formatDateInput(startOfMonth(today)),
+        endDate: formatDateInput(today),
+      };
+    case "past_4_weeks":
+      return {
+        startDate: formatDateInput(shiftDays(today, -27)),
+        endDate: formatDateInput(today),
+      };
+    case "past_12_weeks":
+      return {
+        startDate: formatDateInput(shiftDays(today, -83)),
+        endDate: formatDateInput(today),
+      };
+    case "year_to_date":
+      return {
+        startDate: formatDateInput(startOfYear(today)),
+        endDate: formatDateInput(today),
+      };
+    case "past_6_months":
+      return {
+        startDate: formatDateInput(shiftMonths(today, -6)),
+        endDate: formatDateInput(today),
+      };
+    case "past_12_months":
+      return {
+        startDate: formatDateInput(shiftMonths(today, -12)),
+        endDate: formatDateInput(today),
+      };
+    default:
+      return null;
+  }
+}
+
+function PresetCalendarIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
+      <rect
+        x="3.5"
+        y="4.5"
+        width="17"
+        height="16"
+        rx="3"
+        stroke="url(#presetCalendarGradient)"
+        strokeWidth="1.5"
+      />
+      <defs>
+        <linearGradient
+          id="presetCalendarGradient"
+          x1="3.5"
+          y1="4.5"
+          x2="20.5"
+          y2="20.5"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#60A5FA" />
+          <stop offset="0.5" stopColor="#8B5CF6" />
+          <stop offset="1" stopColor="#EC4899" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 export default function RunPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [selectedDatePreset, setSelectedDatePreset] = useState("custom");
+  const [showPresetMenu, setShowPresetMenu] = useState(false);
+
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
 
@@ -223,6 +367,17 @@ export default function RunPage() {
 
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
+  const presetMenuRef = useRef(null);
+
+  function resetRunStateForInputChange() {
+    setFetchData(null);
+    setFetchError("");
+    setFetchSuccess("");
+    setRunData(null);
+    setRunError("");
+    setRunSuccess("");
+    setShowAllResults(false);
+  }
 
   function openPicker(inputRef) {
     const el = inputRef.current;
@@ -235,6 +390,26 @@ export default function RunPage() {
 
     el.focus();
     el.click();
+  }
+
+  function applyDatePreset(presetKey) {
+    setSelectedDatePreset(presetKey);
+
+    if (presetKey === "custom") {
+      setShowPresetMenu(false);
+      return;
+    }
+
+    const range = getPresetRange(presetKey);
+    if (!range) {
+      setShowPresetMenu(false);
+      return;
+    }
+
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+    resetRunStateForInputChange();
+    setShowPresetMenu(false);
   }
 
   async function loadProfile(user) {
@@ -390,6 +565,18 @@ export default function RunPage() {
     handleScroll();
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (!presetMenuRef.current) return;
+      if (!presetMenuRef.current.contains(event.target)) {
+        setShowPresetMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   async function handleGoogleLogin() {
@@ -563,6 +750,8 @@ export default function RunPage() {
   const successCount = results.filter((item) => !item?.error).length;
   const errorCount = results.filter((item) => item?.error).length;
   const visibleResults = showAllResults ? results : results.slice(0, 3);
+  const selectedPresetLabel =
+    DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
 
   const statCards = [
     {
@@ -632,7 +821,7 @@ export default function RunPage() {
     }
 
     if (!startDate && !endDate) {
-      return "Choose a start date and end date to prepare a controlled audit run.";
+      return "Choose a preset or set a custom start date and end date to prepare a controlled audit run.";
     }
 
     if (fetchLoading) {
@@ -659,7 +848,7 @@ export default function RunPage() {
       return `Ready to fetch all eligible low-CSAT conversations from ${startDate} to ${endDate}.`;
     }
 
-    return "Choose a start date and end date to prepare a controlled audit run.";
+    return "Choose a preset or set a custom start date and end date to prepare a controlled audit run.";
   }, [
     authLoading,
     session,
@@ -898,6 +1087,148 @@ export default function RunPage() {
             </div>
 
             <div
+              ref={presetMenuRef}
+              style={{
+                position: "relative",
+                borderRadius: "18px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.03)",
+                padding: "16px",
+                marginBottom: "14px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "#8ea0d6",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  marginBottom: "8px",
+                }}
+              >
+                Date Range Presets
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPresetMenu((prev) => !prev)}
+                style={{
+                  width: "100%",
+                  minHeight: "54px",
+                  borderRadius: "16px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background:
+                    "linear-gradient(180deg, rgba(5,8,18,0.94), rgba(9,13,26,0.98))",
+                  color: "#e7ecff",
+                  padding: "0 16px",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  boxShadow: "0 10px 24px rgba(0,0,0,0.24)",
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    minWidth: 0,
+                  }}
+                >
+                  <PresetCalendarIcon />
+                  <span style={{ fontWeight: 600 }}>{selectedPresetLabel}</span>
+                  {startDate && endDate ? (
+                    <span
+                      style={{
+                        color: "#9fb0d6",
+                        fontSize: "13px",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {startDate} - {endDate}
+                    </span>
+                  ) : null}
+                </span>
+
+                <span
+                  style={{
+                    color: "#9fb0d6",
+                    fontSize: "14px",
+                    transform: showPresetMenu ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.18s ease",
+                  }}
+                >
+                  ▼
+                </span>
+              </button>
+
+              {showPresetMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "16px",
+                    right: "16px",
+                    top: "calc(100% - 2px)",
+                    marginTop: "8px",
+                    zIndex: 50,
+                    borderRadius: "18px",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background:
+                      "linear-gradient(180deg, rgba(10,15,32,0.98), rgba(6,9,20,0.99))",
+                    boxShadow:
+                      "0 26px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
+                    overflow: "hidden",
+                  }}
+                >
+                  {DATE_PRESET_OPTIONS.map((item, index) => {
+                    const active = item.key === selectedDatePreset;
+                    const isLast = index === DATE_PRESET_OPTIONS.length - 1;
+
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => applyDatePreset(item.key)}
+                        style={{
+                          width: "100%",
+                          minHeight: "46px",
+                          border: "none",
+                          borderBottom: isLast
+                            ? "none"
+                            : "1px solid rgba(255,255,255,0.05)",
+                          background: active
+                            ? "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(168,85,247,0.16))"
+                            : "transparent",
+                          color: active ? "#ffffff" : "#dbe7ff",
+                          cursor: "pointer",
+                          padding: "0 16px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          textAlign: "left",
+                        }}
+                      >
+                        <span style={{ fontSize: "14px", fontWeight: active ? 700 : 500 }}>
+                          {item.label}
+                        </span>
+                        {active && (
+                          <span style={{ color: "#34d399", fontSize: "13px", fontWeight: 700 }}>
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -940,13 +1271,8 @@ export default function RunPage() {
                     value={startDate}
                     onChange={(e) => {
                       setStartDate(e.target.value);
-                      setFetchData(null);
-                      setFetchError("");
-                      setFetchSuccess("");
-                      setRunData(null);
-                      setRunError("");
-                      setRunSuccess("");
-                      setShowAllResults(false);
+                      setSelectedDatePreset("custom");
+                      resetRunStateForInputChange();
                     }}
                     onFocus={() => openPicker(startDateRef)}
                     style={inputBaseStyle}
@@ -993,13 +1319,8 @@ export default function RunPage() {
                     value={endDate}
                     onChange={(e) => {
                       setEndDate(e.target.value);
-                      setFetchData(null);
-                      setFetchError("");
-                      setFetchSuccess("");
-                      setRunData(null);
-                      setRunError("");
-                      setRunSuccess("");
-                      setShowAllResults(false);
+                      setSelectedDatePreset("custom");
+                      resetRunStateForInputChange();
                     }}
                     onFocus={() => openPicker(endDateRef)}
                     style={inputBaseStyle}
@@ -1057,13 +1378,7 @@ export default function RunPage() {
                   type="button"
                   onClick={() => {
                     setLimiterEnabled((prev) => !prev);
-                    setFetchData(null);
-                    setFetchError("");
-                    setFetchSuccess("");
-                    setRunData(null);
-                    setRunError("");
-                    setRunSuccess("");
-                    setShowAllResults(false);
+                    resetRunStateForInputChange();
                   }}
                   style={{
                     position: "relative",
@@ -1126,13 +1441,7 @@ export default function RunPage() {
                   value={limitCount}
                   onChange={(e) => {
                     setLimitCount(e.target.value);
-                    setFetchData(null);
-                    setFetchError("");
-                    setFetchSuccess("");
-                    setRunData(null);
-                    setRunError("");
-                    setRunSuccess("");
-                    setShowAllResults(false);
+                    resetRunStateForInputChange();
                   }}
                   placeholder="Enter a number"
                   style={inputBaseStyle}
