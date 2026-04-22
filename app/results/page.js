@@ -169,10 +169,7 @@ function canManageResults(profile) {
 function getResultType(item) {
   if (item?.error) return "error";
 
-  if (
-    safeText(item?.review_sentiment, "") === "Missed Opportunity" &&
-    safeText(item?.client_sentiment, "") === "Very Positive"
-  ) {
+  if (safeText(item?.review_sentiment, "") === "Missed Opportunity") {
     return "opportunity_case";
   }
 
@@ -227,16 +224,62 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+function getPillStyle(kind) {
+  const base = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "7px 12px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+    border: "1px solid rgba(255,255,255,0.08)",
+    whiteSpace: "nowrap",
+  };
+
+  if (kind === "resolved" || kind === "positive_signal") {
+    return {
+      ...base,
+      background: "rgba(16,185,129,0.12)",
+      border: "1px solid rgba(52,211,153,0.18)",
+      color: "#d1fae5",
+      boxShadow: "0 0 0 1px rgba(16,185,129,0.03), 0 0 24px rgba(16,185,129,0.08)",
+    };
+  }
+
+  if (kind === "opportunity_case" || kind === "pending") {
+    return {
+      ...base,
+      background: "rgba(245,158,11,0.12)",
+      border: "1px solid rgba(251,191,36,0.18)",
+      color: "#fef3c7",
+      boxShadow: "0 0 0 1px rgba(245,158,11,0.03), 0 0 24px rgba(245,158,11,0.08)",
+    };
+  }
+
+  if (kind === "negative_risk" || kind === "unresolved" || kind === "error") {
+    return {
+      ...base,
+      background: "rgba(244,63,94,0.12)",
+      border: "1px solid rgba(251,113,133,0.18)",
+      color: "#ffe4e6",
+      boxShadow: "0 0 0 1px rgba(244,63,94,0.03), 0 0 24px rgba(244,63,94,0.08)",
+    };
+  }
+
+  return {
+    ...base,
+    background: "rgba(59,130,246,0.12)",
+    border: "1px solid rgba(96,165,250,0.18)",
+    color: "#dbeafe",
+    boxShadow: "0 0 0 1px rgba(59,130,246,0.03), 0 0 24px rgba(59,130,246,0.08)",
+  };
+}
+
 function PresetCalendarIcon() {
   return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ flexShrink: 0 }}
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
       <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
@@ -250,14 +293,7 @@ function PresetCalendarIcon() {
         strokeWidth="1.5"
       />
       <defs>
-        <linearGradient
-          id="resultsCalendarGradient"
-          x1="3.5"
-          y1="4.5"
-          x2="20.5"
-          y2="20.5"
-          gradientUnits="userSpaceOnUse"
-        >
+        <linearGradient id="resultsCalendarGradient" x1="3.5" y1="4.5" x2="20.5" y2="20.5">
           <stop stopColor="#60A5FA" />
           <stop offset="0.5" stopColor="#8B5CF6" />
           <stop offset="1" stopColor="#EC4899" />
@@ -265,22 +301,6 @@ function PresetCalendarIcon() {
       </defs>
     </svg>
   );
-}
-
-function statusToneClasses(kind) {
-  if (kind === "resolved" || kind === "positive_signal") {
-    return "border-emerald-400/20 bg-emerald-500/10 text-emerald-200";
-  }
-
-  if (kind === "opportunity_case" || kind === "pending") {
-    return "border-amber-300/20 bg-amber-400/10 text-amber-100";
-  }
-
-  if (kind === "negative_risk" || kind === "unresolved" || kind === "error") {
-    return "border-rose-400/20 bg-rose-500/10 text-rose-200";
-  }
-
-  return "border-cyan-400/20 bg-cyan-500/10 text-cyan-200";
 }
 
 export default function ResultsPage() {
@@ -312,6 +332,7 @@ export default function ResultsPage() {
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
+  const [expandedRows, setExpandedRows] = useState({});
   const [showAllRows, setShowAllRows] = useState(false);
 
   const presetMenuRef = useRef(null);
@@ -365,32 +386,37 @@ export default function ResultsPage() {
     }
   }
 
-  async function loadStoredResults() {
+  async function loadStoredResults(activeSession = session) {
     setLoading(true);
     setPageError("");
     setPageSuccess("");
 
     try {
-      const [runsResponse, resultsResponse] = await Promise.all([
-        supabase.from("audit_runs").select("*").order("created_at", { ascending: false }).limit(500),
-        supabase
-          .from("audit_results")
-          .select("*")
-          .order("replied_at", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(5000),
-      ]);
-
-      if (runsResponse.error) {
-        throw new Error(runsResponse.error.message || "Could not load stored runs.");
+      if (!activeSession?.access_token) {
+        setRuns([]);
+        setResults([]);
+        setSelectedIds([]);
+        setLoading(false);
+        return;
       }
 
-      if (resultsResponse.error) {
-        throw new Error(resultsResponse.error.message || "Could not load stored results.");
+      const response = await fetch("/api/results", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeSession.access_token}`,
+        },
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load stored results.");
       }
 
-      setRuns(Array.isArray(runsResponse.data) ? runsResponse.data : []);
-      setResults(Array.isArray(resultsResponse.data) ? resultsResponse.data : []);
+      setRuns(Array.isArray(data?.runs) ? data.runs : []);
+      setResults(Array.isArray(data?.results) ? data.results : []);
       setSelectedIds([]);
     } catch (error) {
       setPageError(
@@ -420,7 +446,7 @@ export default function ResultsPage() {
         if (!currentSession?.user) {
           setProfile(null);
           setAuthLoading(false);
-          await loadStoredResults();
+          setLoading(false);
           return;
         }
 
@@ -432,12 +458,12 @@ export default function ResultsPage() {
         setAuthMessage(profileResult.message);
         setAuthLoading(false);
 
-        await loadStoredResults();
+        await loadStoredResults(currentSession);
       } catch (_error) {
         if (!active) return;
         setAuthMessage("Could not complete session check.");
         setAuthLoading(false);
-        await loadStoredResults();
+        setLoading(false);
       }
     }
 
@@ -454,7 +480,9 @@ export default function ResultsPage() {
         setProfile(null);
         setAuthMessage("");
         setAuthLoading(false);
-        await loadStoredResults();
+        setRuns([]);
+        setResults([]);
+        setLoading(false);
         return;
       }
 
@@ -465,7 +493,7 @@ export default function ResultsPage() {
       setAuthMessage(profileResult.message);
       setAuthLoading(false);
 
-      await loadStoredResults();
+      await loadStoredResults(newSession);
     });
 
     return () => {
@@ -495,7 +523,6 @@ export default function ResultsPage() {
     }
 
     const range = getPresetRange(presetKey);
-
     if (!range) {
       setShowPresetMenu(false);
       return;
@@ -527,6 +554,8 @@ export default function ResultsPage() {
     setProfile(null);
     setAuthMessage("");
     setAuthLoading(false);
+    setRuns([]);
+    setResults([]);
   }
 
   const runsById = useMemo(() => {
@@ -627,7 +656,7 @@ export default function ResultsPage() {
     searchText,
   ]);
 
-  const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 50);
+  const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 20);
   const allVisibleIds = visibleResults.map((item) => item.id).filter(Boolean);
   const allFilteredIds = filteredResults.map((item) => item.id).filter(Boolean);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -674,6 +703,13 @@ export default function ResultsPage() {
 
   function clearSelection() {
     setSelectedIds([]);
+  }
+
+  function toggleRowExpanded(id) {
+    setExpandedRows((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
   }
 
   async function handleDeleteSelected() {
@@ -811,629 +847,982 @@ export default function ResultsPage() {
     {
       label: "Stored Results",
       value: filteredResults.length.toLocaleString(),
-      helper: "Real stored result rows in the current filtered view",
-      tone: "violet",
+      helper: "Live stored audit rows in the current filtered view",
     },
     {
       label: "Stored Runs",
       value: totalStoredRuns.toLocaleString(),
       helper: "Unique saved audit batches in the filtered range",
-      tone: "cyan",
     },
     {
       label: "Missed Opportunities",
       value: totalMissedOpportunities.toLocaleString(),
-      helper: "Stored rows where a review opportunity was missed",
-      tone: "amber",
+      helper: "Review opportunities that were not used",
     },
     {
       label: "Positive Resolution Rate",
       value: `${positiveResolutionRate.toFixed(1)}%`,
-      helper: "Resolved rows in the filtered range",
-      tone: "emerald",
+      helper: "Resolved conversations in the current filtered range",
     },
   ];
 
-  return (
-    <main className="relative min-h-screen overflow-hidden bg-[#030614] text-white">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[-10%] top-[-15%] h-[28rem] w-[28rem] rounded-full bg-violet-600/18 blur-3xl" />
-        <div className="absolute right-[-8%] top-[8%] h-[26rem] w-[26rem] rounded-full bg-cyan-500/12 blur-3xl" />
-        <div className="absolute bottom-[-10%] left-[18%] h-[30rem] w-[30rem] rounded-full bg-fuchsia-500/10 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(91,33,182,0.16),transparent_28%),radial-gradient(circle_at_80%_20%,rgba(6,182,212,0.11),transparent_22%),linear-gradient(180deg,#050816_0%,#030614_48%,#02030A_100%)]" />
-      </div>
+  const pageStyle = {
+    minHeight: "100vh",
+    background:
+      "radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 20%), radial-gradient(circle at top right, rgba(168,85,247,0.14), transparent 22%), radial-gradient(circle at bottom center, rgba(236,72,153,0.08), transparent 20%), linear-gradient(180deg, #040714 0%, #060b1d 45%, #04060d 100%)",
+    color: "#f5f7ff",
+    padding: "32px 20px 60px",
+    fontFamily:
+      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  };
 
-      <div className="relative mx-auto max-w-7xl px-6 py-8 md:px-8 lg:px-10">
-        <section className="mb-8 overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_30px_120px_rgba(2,6,23,0.68)] backdrop-blur-2xl">
-          <div className="grid gap-8 px-6 py-7 md:px-8 lg:grid-cols-[1.3fr_0.9fr] lg:px-10 lg:py-10">
+  const shellStyle = {
+    width: "min(1520px, 100%)",
+    margin: "0 auto",
+  };
+
+  const panelStyle = {
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "linear-gradient(180deg, rgba(15,22,43,0.88), rgba(7,10,24,0.96))",
+    borderRadius: "28px",
+    padding: "28px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
+  };
+
+  const subPanelStyle = {
+    borderRadius: "20px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    padding: "18px",
+  };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: "12px",
+    color: "#8ea0d6",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "8px",
+    fontWeight: 600,
+  };
+
+  const inputStyle = {
+    width: "100%",
+    height: "52px",
+    borderRadius: "14px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(5,8,18,0.92)",
+    color: "#e7ecff",
+    padding: "0 16px",
+    fontSize: "15px",
+    outline: "none",
+    boxSizing: "border-box",
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
+    colorScheme: "dark",
+  };
+
+  const actionButtonStyle = {
+    height: "42px",
+    borderRadius: "14px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.04)",
+    color: "#f5f7ff",
+    padding: "0 14px",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+  };
+
+  const primaryActionStyle = {
+    ...actionButtonStyle,
+    border: "1px solid rgba(168,85,247,0.22)",
+    background:
+      "linear-gradient(135deg, rgba(59,130,246,0.92), rgba(139,92,246,0.96), rgba(236,72,153,0.92))",
+    boxShadow: "0 14px 40px rgba(139,92,246,0.24)",
+  };
+
+  const tableHeadCellStyle = {
+    padding: "16px 14px",
+    textAlign: "left",
+    fontSize: "12px",
+    color: "#8ea0d6",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    fontWeight: 700,
+    position: "sticky",
+    top: 0,
+    background: "rgba(10,18,34,0.96)",
+    backdropFilter: "blur(18px)",
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+    zIndex: 2,
+    whiteSpace: "nowrap",
+  };
+
+  const tableCellStyle = {
+    padding: "16px 14px",
+    verticalAlign: "top",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    fontSize: "14px",
+    color: "#dbe7ff",
+  };
+
+  return (
+    <main style={pageStyle}>
+      <div style={shellStyle}>
+        <section style={{ ...panelStyle, marginBottom: "24px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.15fr) minmax(320px, 0.85fr)",
+              gap: "24px",
+              alignItems: "start",
+            }}
+          >
             <div>
-              <div className="mb-4 inline-flex items-center rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "8px 12px",
+                  borderRadius: "999px",
+                  background: "rgba(99,102,241,0.14)",
+                  border: "1px solid rgba(129,140,248,0.2)",
+                  color: "#cdd7ff",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  marginBottom: "18px",
+                }}
+              >
                 Premium Results Archive
               </div>
 
-              <h1 className="max-w-4xl text-3xl font-semibold leading-tight tracking-tight text-white md:text-5xl">
-                Stored audit results, designed as a premium management archive instead of a fake dashboard.
+              <h1
+                style={{
+                  fontSize: "52px",
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.05em",
+                  margin: "0 0 16px",
+                  maxWidth: "900px",
+                }}
+              >
+                Stored audit results with a clean premium archive layout.
               </h1>
 
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
-                This page is now only for real stored results. No dummy charts. No fake employee blocks.
-                No placeholder weekly trend sections. Results stay here until you delete them.
+              <p
+                style={{
+                  margin: "0 0 22px",
+                  color: "#a9b4d0",
+                  fontSize: "17px",
+                  lineHeight: 1.75,
+                  maxWidth: "900px",
+                }}
+              >
+                This page is now focused on real stored results only. The table is the main product
+                here. Dashboard will later handle the visual analytics and world-class charts.
               </p>
 
-              <div className="mt-6 flex flex-wrap gap-3">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginBottom: "12px" }}>
                 <Link
                   href="/run"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(96,165,250,0.96),rgba(168,85,247,0.95),rgba(236,72,153,0.95))] px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(147,51,234,0.28)] transition hover:scale-[1.01]"
+                  style={{
+                    ...primaryActionStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textDecoration: "none",
+                  }}
                 >
                   Run New Audit
                 </Link>
 
-                <button
-                  type="button"
-                  onClick={handleExportFiltered}
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
-                >
+                <button type="button" onClick={handleExportFiltered} style={actionButtonStyle}>
                   Export Filtered CSV
                 </button>
 
+                <button type="button" onClick={() => loadStoredResults()} style={actionButtonStyle}>
+                  Reload Results
+                </button>
+
                 {!session?.user ? (
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    className="inline-flex items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-5 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15"
-                  >
+                  <button type="button" onClick={handleGoogleLogin} style={actionButtonStyle}>
                     Sign in with Google
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
-                  >
+                  <button type="button" onClick={handleLogout} style={actionButtonStyle}>
                     Sign out
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-white/10 bg-[#081121]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_60px_rgba(0,0,0,0.32)]">
-              <div className="mb-4 flex items-center justify-between">
+            <div style={subPanelStyle}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  marginBottom: "16px",
+                }}
+              >
                 <div>
-                  <p className="text-sm font-medium text-white">Archive status</p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#f5f7ff" }}>
+                    Archive status
+                  </div>
+                  <div style={{ marginTop: "6px", fontSize: "13px", color: "#a9b4d0" }}>
                     Latest stored result: {latestStoredAt}
-                  </p>
+                  </div>
                 </div>
-                <div className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-                  Real Supabase data
+
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    background: "rgba(34,211,238,0.12)",
+                    border: "1px solid rgba(34,211,238,0.18)",
+                    color: "#cffafe",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                  }}
+                >
+                  Real Supabase Data
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div ref={presetMenuRef} className="relative">
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    Quick Range
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPresetMenu((prev) => !prev)}
-                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-left text-sm text-white outline-none transition hover:bg-[#0b1426]"
-                  >
-                    <span className="inline-flex items-center gap-3">
-                      <PresetCalendarIcon />
-                      <span className="font-medium">
-                        {DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label ||
-                          "Custom"}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {startDate} - {endDate}
-                      </span>
+              <div ref={presetMenuRef} style={{ position: "relative", marginBottom: "14px" }}>
+                <label style={labelStyle}>Quick Range</label>
+                <button
+                  type="button"
+                  onClick={() => setShowPresetMenu((prev) => !prev)}
+                  style={{
+                    ...inputStyle,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    paddingRight: "14px",
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}>
+                    <PresetCalendarIcon />
+                    <span style={{ fontWeight: 600, color: "#f5f7ff" }}>
+                      {DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label ||
+                        "Custom"}
                     </span>
-                    <span className="text-slate-400">{showPresetMenu ? "▲" : "▼"}</span>
-                  </button>
+                    <span style={{ fontSize: "12px", color: "#8ea0d6" }}>
+                      {startDate} - {endDate}
+                    </span>
+                  </span>
+                  <span style={{ color: "#8ea0d6" }}>{showPresetMenu ? "▲" : "▼"}</span>
+                </button>
 
-                  {showPresetMenu ? (
-                    <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#081120] shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
-                      {DATE_PRESET_OPTIONS.map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          onClick={() => applyDatePreset(option.key)}
-                          className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition ${
+                {showPresetMenu ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: "calc(100% + 8px)",
+                      borderRadius: "18px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(7,10,24,0.98)",
+                      boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
+                      overflow: "hidden",
+                      zIndex: 10,
+                    }}
+                  >
+                    {DATE_PRESET_OPTIONS.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => applyDatePreset(option.key)}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "12px 16px",
+                          background:
                             selectedDatePreset === option.key
-                              ? "bg-violet-500/15 text-violet-100"
-                              : "text-slate-200 hover:bg-white/5"
-                          }`}
-                        >
-                          <span>{option.label}</span>
-                          {selectedDatePreset === option.key ? (
-                            <span className="text-emerald-300">✓</span>
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      Start Date
-                    </label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => {
-                        setSelectedDatePreset("custom");
-                        setStartDate(e.target.value);
-                      }}
-                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-                    />
+                              ? "rgba(139,92,246,0.14)"
+                              : "transparent",
+                          color: selectedDatePreset === option.key ? "#f5f3ff" : "#dbe7ff",
+                          border: "none",
+                          borderBottom: "1px solid rgba(255,255,255,0.04)",
+                          cursor: "pointer",
+                          fontSize: "14px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
                   </div>
+                ) : null}
+              </div>
 
-                  <div>
-                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      End Date
-                    </label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => {
-                        setSelectedDatePreset("custom");
-                        setEndDate(e.target.value);
-                      }}
-                      className="w-full rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-                    />
-                  </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={labelStyle}>Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setSelectedDatePreset("custom");
+                      setStartDate(e.target.value);
+                    }}
+                    style={inputStyle}
+                  />
                 </div>
 
-                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-100">
-                  Results tab = storage, filtering, export, selection, and delete. Dashboard will handle charts later.
+                <div>
+                  <label style={labelStyle}>End Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setSelectedDatePreset("custom");
+                      setEndDate(e.target.value);
+                    }}
+                    style={inputStyle}
+                  />
                 </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: "14px",
+                  fontSize: "14px",
+                  lineHeight: 1.65,
+                  color: "#a9b4d0",
+                }}
+              >
+                Results = storage, filtering, export, selection, expansion, and delete.
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] p-5 shadow-[0_20px_60px_rgba(2,6,23,0.45)] backdrop-blur-xl"
-            >
-              <div
-                className={`mb-4 inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                  stat.tone === "violet"
-                    ? "border-violet-400/20 bg-violet-500/10 text-violet-200"
-                    : stat.tone === "cyan"
-                    ? "border-cyan-400/20 bg-cyan-500/10 text-cyan-200"
-                    : stat.tone === "amber"
-                    ? "border-amber-300/20 bg-amber-400/10 text-amber-100"
-                    : "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
-                }`}
-              >
-                Stored
-              </div>
-              <p className="text-sm text-slate-400">{stat.label}</p>
-              <p className="mt-3 text-3xl font-semibold tracking-tight text-white">
-                {stat.value}
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-400">{stat.helper}</p>
-            </div>
-          ))}
-        </section>
-
         {(authMessage || pageError || pageSuccess) ? (
-          <section className="mb-8 space-y-3">
+          <section style={{ marginBottom: "24px", display: "grid", gap: "10px" }}>
             {authMessage ? (
-              <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              <div
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(251,113,133,0.18)",
+                  background: "rgba(244,63,94,0.10)",
+                  color: "#ffe4e6",
+                  padding: "14px 16px",
+                  fontSize: "14px",
+                }}
+              >
                 {authMessage}
               </div>
             ) : null}
 
             {pageError ? (
-              <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              <div
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(251,113,133,0.18)",
+                  background: "rgba(244,63,94,0.10)",
+                  color: "#ffe4e6",
+                  padding: "14px 16px",
+                  fontSize: "14px",
+                }}
+              >
                 {pageError}
               </div>
             ) : null}
 
             {pageSuccess ? (
-              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+              <div
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(52,211,153,0.18)",
+                  background: "rgba(16,185,129,0.10)",
+                  color: "#d1fae5",
+                  padding: "14px 16px",
+                  fontSize: "14px",
+                }}
+              >
                 {pageSuccess}
               </div>
             ) : null}
           </section>
         ) : null}
 
-        <section className="mb-8 rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-[0_20px_80px_rgba(2,6,23,0.45)] backdrop-blur-xl">
-          <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: "16px",
+            marginBottom: "24px",
+          }}
+        >
+          {stats.map((stat, index) => (
+            <div
+              key={stat.label}
+              style={{
+                ...subPanelStyle,
+                background:
+                  index === 0
+                    ? "linear-gradient(180deg, rgba(99,102,241,0.14), rgba(255,255,255,0.03))"
+                    : index === 1
+                    ? "linear-gradient(180deg, rgba(34,211,238,0.12), rgba(255,255,255,0.03))"
+                    : index === 2
+                    ? "linear-gradient(180deg, rgba(245,158,11,0.12), rgba(255,255,255,0.03))"
+                    : "linear-gradient(180deg, rgba(16,185,129,0.12), rgba(255,255,255,0.03))",
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-flex",
+                  padding: "7px 11px",
+                  borderRadius: "999px",
+                  marginBottom: "14px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color:
+                    index === 0
+                      ? "#ddd6fe"
+                      : index === 1
+                      ? "#cffafe"
+                      : index === 2
+                      ? "#fde68a"
+                      : "#d1fae5",
+                  border:
+                    index === 0
+                      ? "1px solid rgba(196,181,253,0.18)"
+                      : index === 1
+                      ? "1px solid rgba(103,232,249,0.18)"
+                      : index === 2
+                      ? "1px solid rgba(253,224,71,0.18)"
+                      : "1px solid rgba(110,231,183,0.18)",
+                }}
+              >
+                Stored
+              </div>
+
+              <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "10px" }}>
+                {stat.label}
+              </div>
+              <div
+                style={{
+                  fontSize: "34px",
+                  fontWeight: 800,
+                  letterSpacing: "-0.04em",
+                  color: "#f5f7ff",
+                  marginBottom: "8px",
+                }}
+              >
+                {stat.value}
+              </div>
+              <div style={{ color: "#a9b4d0", fontSize: "13px", lineHeight: 1.6 }}>
+                {stat.helper}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <section style={{ ...panelStyle, marginBottom: "24px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.4fr 1fr 1fr",
+              gap: "14px",
+              marginBottom: "18px",
+            }}
+          >
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-white">
-                Stored result controls
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                Filter real stored audit results only. Search, narrow down, select rows, export, or delete selected rows.
-              </p>
+              <label style={labelStyle}>Search</label>
+              <input
+                type="text"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Conversation ID, agent, client email, verdict, requester"
+                style={inputStyle}
+              />
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={loadStoredResults}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
+            <div>
+              <label style={labelStyle}>Agent</label>
+              <select
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                style={inputStyle}
               >
-                Reload Results
-              </button>
+                <option value="all">All Agents</option>
+                {agentOptions.map((agent) => (
+                  <option key={agent} value={agent}>
+                    {agent}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <button
-                type="button"
-                onClick={selectAllVisible}
-                disabled={!allVisibleIds.length}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            <div>
+              <label style={labelStyle}>Result Type</label>
+              <select
+                value={resultTypeFilter}
+                onChange={(e) => setResultTypeFilter(e.target.value)}
+                style={inputStyle}
               >
+                {RESULT_TYPE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: "14px",
+              marginBottom: "20px",
+            }}
+          >
+            <div>
+              <label style={labelStyle}>Review Sentiment</label>
+              <select
+                value={reviewSentimentFilter}
+                onChange={(e) => setReviewSentimentFilter(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="all">All Review Sentiments</option>
+                {REVIEW_SENTIMENT_OPTIONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Client Sentiment</label>
+              <select
+                value={clientSentimentFilter}
+                onChange={(e) => setClientSentimentFilter(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="all">All Client Sentiments</option>
+                {CLIENT_SENTIMENT_OPTIONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Resolution Status</label>
+              <select
+                value={resolutionStatusFilter}
+                onChange={(e) => setResolutionStatusFilter(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="all">All Resolution Statuses</option>
+                {RESOLUTION_STATUS_OPTIONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "10px",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+              <button type="button" onClick={selectAllVisible} style={actionButtonStyle}>
                 Select Visible
               </button>
-
-              <button
-                type="button"
-                onClick={selectAllFiltered}
-                disabled={!allFilteredIds.length}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <button type="button" onClick={selectAllFiltered} style={actionButtonStyle}>
                 Select All Filtered
               </button>
-
-              <button
-                type="button"
-                onClick={clearSelection}
-                disabled={!selectedIds.length}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+              <button type="button" onClick={clearSelection} style={actionButtonStyle}>
                 Clear Selection
               </button>
-
               <button
                 type="button"
                 onClick={handleDeleteSelected}
                 disabled={!selectedIds.length || deleting}
-                className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-100 transition hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  ...actionButtonStyle,
+                  opacity: !selectedIds.length || deleting ? 0.55 : 1,
+                  cursor: !selectedIds.length || deleting ? "not-allowed" : "pointer",
+                  border: "1px solid rgba(251,113,133,0.18)",
+                  background: "rgba(244,63,94,0.10)",
+                  color: "#ffe4e6",
+                }}
               >
                 {deleting ? "Deleting..." : `Delete Selected (${selectedIds.length})`}
               </button>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search conversation, agent, client email, verdict, or requester"
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-            />
-
-            <select
-              value={agentFilter}
-              onChange={(e) => setAgentFilter(e.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
+            <div
+              style={{
+                color: "#a9b4d0",
+                fontSize: "13px",
+              }}
             >
-              <option value="all">All Agents</option>
-              {agentOptions.map((agent) => (
-                <option key={agent} value={agent}>
-                  {agent}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={resultTypeFilter}
-              onChange={(e) => setResultTypeFilter(e.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-            >
-              {RESULT_TYPE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={reviewSentimentFilter}
-              onChange={(e) => setReviewSentimentFilter(e.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-            >
-              <option value="all">All Review Sentiments</option>
-              {REVIEW_SENTIMENT_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={clientSentimentFilter}
-              onChange={(e) => setClientSentimentFilter(e.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-            >
-              <option value="all">All Client Sentiments</option>
-              {CLIENT_SENTIMENT_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={resolutionStatusFilter}
-              onChange={(e) => setResolutionStatusFilter(e.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#07101f] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/40 focus:ring-2 focus:ring-violet-500/20"
-            >
-              <option value="all">All Resolution Statuses</option>
-              {RESOLUTION_STATUS_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+              Showing {visibleResults.length} of {filteredResults.length} filtered result(s)
+            </div>
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-[0_20px_80px_rgba(2,6,23,0.45)] backdrop-blur-xl">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <section style={panelStyle}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "end",
+              justifyContent: "space-between",
+              gap: "12px",
+              marginBottom: "18px",
+            }}
+          >
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-white">
-                Real Stored Results Table
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: "28px",
+                  letterSpacing: "-0.03em",
+                  color: "#f5f7ff",
+                }}
+              >
+                Stored Results Table
               </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                This is the live table for stored audit results. No dummy employee cards. No fake review distribution blocks. Just real rows you can manage.
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  color: "#a9b4d0",
+                  fontSize: "14px",
+                  lineHeight: 1.7,
+                  maxWidth: "880px",
+                }}
+              >
+                Agent names now stand cleanly on their own. Result state, review sentiment,
+                client sentiment, and resolution all have separate columns.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#081120] px-4 py-3 text-sm text-slate-300">
-              Showing <span className="font-semibold text-white">{visibleResults.length}</span> of{" "}
-              <span className="font-semibold text-white">{filteredResults.length}</span> filtered result(s)
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>
+                Successful: {totalSuccess}
+              </div>
+              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>•</div>
+              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>Errors: {totalErrors}</div>
+              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>•</div>
+              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>
+                Selected: {selectedIds.length}
+              </div>
             </div>
           </div>
 
           {loading || authLoading ? (
-            <div className="rounded-2xl border border-white/10 bg-[#081120] px-5 py-10 text-center text-sm text-slate-300">
+            <div
+              style={{
+                ...subPanelStyle,
+                textAlign: "center",
+                color: "#a9b4d0",
+                fontSize: "15px",
+                padding: "42px 20px",
+              }}
+            >
               Loading stored audit results...
             </div>
           ) : !filteredResults.length ? (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-[#081120] px-5 py-10 text-center text-sm text-slate-300">
+            <div
+              style={{
+                ...subPanelStyle,
+                textAlign: "center",
+                color: "#a9b4d0",
+                fontSize: "15px",
+                padding: "42px 20px",
+              }}
+            >
               No stored results match the current filters.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[24px] border border-white/10 bg-[#06101f]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <div className="max-h-[900px] overflow-auto">
-                <table className="min-w-[1280px] w-full border-collapse">
-                  <thead className="sticky top-0 z-10 bg-[rgba(10,18,34,0.94)] backdrop-blur-xl">
-                    <tr className="border-b border-white/10">
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        <input
-                          type="checkbox"
-                          checked={
-                            allVisibleIds.length > 0 &&
-                            allVisibleIds.every((id) => selectedIdSet.has(id))
-                          }
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              selectAllVisible();
-                            } else {
-                              setSelectedIds((prev) =>
-                                prev.filter((id) => !allVisibleIds.includes(id))
-                              );
-                            }
-                          }}
-                          className="h-4 w-4 rounded border-white/20 bg-[#07101f] text-violet-500 focus:ring-violet-500/30"
-                        />
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Conversation
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Agent
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Review Sentiment
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Client Sentiment
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Resolution
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Verdict / Error
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Replied At
-                      </th>
-                      <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        Run Info
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {visibleResults.map((item, index) => {
-                      const resultType = getResultType(item);
-                      const resolution = safeText(item.resolution_status, "");
-                      const rowTone =
-                        index % 2 === 0 ? "bg-white/[0.025]" : "bg-transparent";
-
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`${rowTone} border-b border-white/8 transition hover:bg-white/[0.045]`}
-                        >
-                          <td className="px-4 py-4 align-top">
-                            <input
-                              type="checkbox"
-                              checked={selectedIdSet.has(item.id)}
-                              onChange={() => toggleSingle(item.id)}
-                              className="mt-1 h-4 w-4 rounded border-white/20 bg-[#07101f] text-violet-500 focus:ring-violet-500/30"
-                            />
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="space-y-1">
-                              <div className="text-sm font-semibold text-white">
-                                {safeText(item.conversation_id, "Unknown Conversation")}
-                              </div>
-                              <div className="text-xs text-slate-400">
-                                Client: {safeText(item.client_email)}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                CSAT: {safeText(item.csat_score)}
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="space-y-2">
-                              <div className="text-sm font-medium text-slate-100">
-                                {safeText(item.agent_name, "Unassigned")}
-                              </div>
-                              <span
-                                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
-                                  resultType === "error"
-                                    ? statusToneClasses("error")
-                                    : resultType === "opportunity_case"
-                                    ? statusToneClasses("opportunity_case")
-                                    : resultType === "positive_signal"
-                                    ? statusToneClasses("positive_signal")
-                                    : resultType === "negative_risk"
-                                    ? statusToneClasses("negative_risk")
-                                    : statusToneClasses("pending")
-                                }`}
-                              >
-                                {resultType === "error"
-                                  ? "Error"
-                                  : resultType === "opportunity_case"
-                                  ? "Opportunity"
-                                  : resultType === "positive_signal"
-                                  ? "Positive"
-                                  : resultType === "negative_risk"
-                                  ? "Risk"
-                                  : "Stored"}
-                              </span>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <span
-                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
-                                safeText(item.review_sentiment, "") === "Missed Opportunity"
-                                  ? statusToneClasses("opportunity_case")
-                                  : safeText(item.review_sentiment, "") ===
-                                      "Likely Positive Review" ||
-                                    safeText(item.review_sentiment, "") ===
-                                      "Highly Likely Positive Review"
-                                  ? statusToneClasses("positive_signal")
-                                  : safeText(item.review_sentiment, "") ===
-                                      "Likely Negative Review" ||
-                                    safeText(item.review_sentiment, "") ===
-                                      "Highly Likely Negative Review" ||
-                                    safeText(item.review_sentiment, "") ===
-                                      "Negative Outcome - No Review Request"
-                                  ? statusToneClasses("negative_risk")
-                                  : statusToneClasses("pending")
-                              }`}
-                            >
-                              {safeText(item.review_sentiment)}
-                            </span>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="text-sm text-slate-200">
-                              {safeText(item.client_sentiment)}
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <span
-                              className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
-                                resolution === "Resolved"
-                                  ? statusToneClasses("resolved")
-                                  : resolution === "Pending"
-                                  ? statusToneClasses("pending")
-                                  : resolution === "Unresolved"
-                                  ? statusToneClasses("unresolved")
-                                  : statusToneClasses("pending")
-                              }`}
-                            >
-                              {safeText(item.resolution_status)}
-                            </span>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            {item.error ? (
-                              <div className="max-w-[320px] rounded-2xl border border-rose-400/15 bg-rose-500/8 px-3 py-2 text-xs leading-5 text-rose-100">
-                                {safeText(item.error)}
-                              </div>
-                            ) : (
-                              <div className="max-w-[360px] text-sm leading-6 text-slate-200">
-                                {safeText(item.ai_verdict)}
-                              </div>
-                            )}
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="space-y-1">
-                              <div className="text-sm text-slate-100">
-                                {formatDateTime(item.replied_at || item.created_at)}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {formatShortDate(item.replied_at || item.created_at)}
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-4 align-top">
-                            <div className="space-y-1">
-                              <div className="text-sm text-slate-100">
-                                {safeText(item.runMeta?.requested_by_email)}
-                              </div>
-                              <div className="text-xs text-slate-400">
-                                {safeText(item.runMeta?.audit_mode, "live_gpt")}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                {formatShortDate(item.runMeta?.created_at)}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {filteredResults.length > 50 ? (
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowAllRows((prev) => !prev)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
+            <>
+              <div
+                style={{
+                  overflow: "hidden",
+                  borderRadius: "22px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(4,8,20,0.72)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+                }}
               >
-                {showAllRows
-                  ? "Show Less"
-                  : `Show More (${filteredResults.length - visibleResults.length} more)`}
-              </button>
-            </div>
-          ) : null}
+                <div style={{ maxHeight: "920px", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      minWidth: "1480px",
+                      borderCollapse: "collapse",
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        <th style={tableHeadCellStyle}>
+                          <input
+                            type="checkbox"
+                            checked={
+                              allVisibleIds.length > 0 &&
+                              allVisibleIds.every((id) => selectedIdSet.has(id))
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                selectAllVisible();
+                              } else {
+                                setSelectedIds((prev) =>
+                                  prev.filter((id) => !allVisibleIds.includes(id))
+                                );
+                              }
+                            }}
+                          />
+                        </th>
+                        <th style={tableHeadCellStyle}>Conversation</th>
+                        <th style={tableHeadCellStyle}>Agent</th>
+                        <th style={tableHeadCellStyle}>Type</th>
+                        <th style={tableHeadCellStyle}>Review Sentiment</th>
+                        <th style={tableHeadCellStyle}>Client Sentiment</th>
+                        <th style={tableHeadCellStyle}>Resolution</th>
+                        <th style={tableHeadCellStyle}>Replied At</th>
+                        <th style={tableHeadCellStyle}>Requested By</th>
+                        <th style={tableHeadCellStyle}>Details</th>
+                      </tr>
+                    </thead>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <span>Successful: {totalSuccess}</span>
-            <span>•</span>
-            <span>Errors: {totalErrors}</span>
-            <span>•</span>
-            <span>Selected: {selectedIds.length}</span>
-          </div>
+                    <tbody>
+                      {visibleResults.map((item, index) => {
+                        const resultType = getResultType(item);
+                        const resolution = safeText(item.resolution_status, "");
+                        const rowBackground =
+                          index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent";
+                        const isExpanded = Boolean(expandedRows[item.id]);
+
+                        return (
+                          <>
+                            <tr key={item.id} style={{ background: rowBackground }}>
+                              <td style={tableCellStyle}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIdSet.has(item.id)}
+                                  onChange={() => toggleSingle(item.id)}
+                                />
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <div style={{ color: "#f5f7ff", fontWeight: 700, marginBottom: "6px" }}>
+                                  {safeText(item.conversation_id, "Unknown Conversation")}
+                                </div>
+                                <div style={{ color: "#a9b4d0", fontSize: "12px", marginBottom: "4px" }}>
+                                  Client: {safeText(item.client_email)}
+                                </div>
+                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
+                                  CSAT: {safeText(item.csat_score)}
+                                </div>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <div style={{ color: "#f5f7ff", fontWeight: 600 }}>
+                                  {safeText(item.agent_name, "Unassigned")}
+                                </div>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <span
+                                  style={
+                                    resultType === "error"
+                                      ? getPillStyle("error")
+                                      : resultType === "opportunity_case"
+                                      ? getPillStyle("opportunity_case")
+                                      : resultType === "positive_signal"
+                                      ? getPillStyle("positive_signal")
+                                      : resultType === "negative_risk"
+                                      ? getPillStyle("negative_risk")
+                                      : getPillStyle("pending")
+                                  }
+                                >
+                                  {resultType === "error"
+                                    ? "Error"
+                                    : resultType === "opportunity_case"
+                                    ? "Opportunity"
+                                    : resultType === "positive_signal"
+                                    ? "Positive"
+                                    : resultType === "negative_risk"
+                                    ? "Risk"
+                                    : "Stored"}
+                                </span>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <span
+                                  style={
+                                    safeText(item.review_sentiment, "") === "Missed Opportunity"
+                                      ? getPillStyle("opportunity_case")
+                                      : safeText(item.review_sentiment, "") ===
+                                          "Likely Positive Review" ||
+                                        safeText(item.review_sentiment, "") ===
+                                          "Highly Likely Positive Review"
+                                      ? getPillStyle("positive_signal")
+                                      : safeText(item.review_sentiment, "") ===
+                                          "Likely Negative Review" ||
+                                        safeText(item.review_sentiment, "") ===
+                                          "Highly Likely Negative Review" ||
+                                        safeText(item.review_sentiment, "") ===
+                                          "Negative Outcome - No Review Request"
+                                      ? getPillStyle("negative_risk")
+                                      : getPillStyle("pending")
+                                  }
+                                >
+                                  {safeText(item.review_sentiment)}
+                                </span>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <div style={{ color: "#dbe7ff", fontWeight: 600 }}>
+                                  {safeText(item.client_sentiment)}
+                                </div>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <span
+                                  style={
+                                    resolution === "Resolved"
+                                      ? getPillStyle("resolved")
+                                      : resolution === "Pending"
+                                      ? getPillStyle("pending")
+                                      : resolution === "Unresolved"
+                                      ? getPillStyle("unresolved")
+                                      : getPillStyle("pending")
+                                  }
+                                >
+                                  {safeText(item.resolution_status)}
+                                </span>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <div style={{ color: "#f5f7ff", fontWeight: 600, marginBottom: "4px" }}>
+                                  {formatDateTime(item.replied_at || item.created_at)}
+                                </div>
+                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
+                                  {formatShortDate(item.replied_at || item.created_at)}
+                                </div>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <div style={{ color: "#f5f7ff", fontWeight: 600, marginBottom: "4px" }}>
+                                  {safeText(item.runMeta?.requested_by_email)}
+                                </div>
+                                <div style={{ color: "#7f8db3", fontSize: "12px", marginBottom: "2px" }}>
+                                  {safeText(item.runMeta?.audit_mode, "live_gpt")}
+                                </div>
+                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
+                                  {formatShortDate(item.runMeta?.created_at)}
+                                </div>
+                              </td>
+
+                              <td style={tableCellStyle}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRowExpanded(item.id)}
+                                  style={{
+                                    ...actionButtonStyle,
+                                    height: "38px",
+                                    fontSize: "13px",
+                                  }}
+                                >
+                                  {isExpanded ? "Hide" : "View"}
+                                </button>
+                              </td>
+                            </tr>
+
+                            {isExpanded ? (
+                              <tr key={`${item.id}-expanded`} style={{ background: "rgba(255,255,255,0.02)" }}>
+                                <td colSpan={10} style={{ ...tableCellStyle, paddingTop: "0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                                  <div
+                                    style={{
+                                      margin: "0 0 8px",
+                                      borderRadius: "18px",
+                                      border: item.error
+                                        ? "1px solid rgba(251,113,133,0.18)"
+                                        : "1px solid rgba(255,255,255,0.08)",
+                                      background: item.error
+                                        ? "rgba(244,63,94,0.08)"
+                                        : "rgba(255,255,255,0.03)",
+                                      padding: "18px",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "#8ea0d6",
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.12em",
+                                        marginBottom: "10px",
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      {item.error ? "Error Details" : "Full Verdict"}
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        color: item.error ? "#ffe4e6" : "#dbe7ff",
+                                        fontSize: "14px",
+                                        lineHeight: 1.8,
+                                        whiteSpace: "pre-wrap",
+                                      }}
+                                    >
+                                      {safeText(item.error || item.ai_verdict)}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {filteredResults.length > 20 ? (
+                <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllRows((prev) => !prev)}
+                    style={actionButtonStyle}
+                  >
+                    {showAllRows
+                      ? "Show Less"
+                      : `Show More (${filteredResults.length - visibleResults.length} more)`}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         </section>
       </div>
     </main>
