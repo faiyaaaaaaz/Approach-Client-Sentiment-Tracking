@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -201,95 +202,6 @@ The client went silent and did not confirm whether the issue was solved.
 Use this when the final outcome cannot be confirmed from the conversation.
 
 --------------------------------------------------
-EXAMPLES
---------------------------------------------------
-
-Example A
-Client: “Awesome, it’s working now. Thank you so much!”
-Agent: “Great! Please leave us a review here: https://www.trustpilot.com/review/fundednext.com”
-Output logic:
-- reviewSentiment = Highly Likely Positive Review
-- clientSentiment = Very Positive
-
-Example B
-Client: “That solved the issue, thanks a lot.”
-Agent: “Glad I could help.”
-Conversation ends and the agent did NOT send a review request link.
-Output logic:
-- reviewSentiment = Missed Opportunity
-- clientSentiment = Positive
-
-Example C
-Client: “I’m still waiting for my payout verification.”
-Agent: “Meanwhile, please review us on Trustpilot: https://www.trustpilot.com/review/fundednext.com”
-Output logic:
-- reviewSentiment = Likely Negative Review
-- clientSentiment = Negative
-
-Example D
-Client: “This is the third time I’m asking. Nothing is fixed.”
-Agent: “Please leave a review on Sitejabber: https://www.sitejabber.com/requested-review?biz_id=62357d8fdf98d”
-Output logic:
-- reviewSentiment = Highly Likely Negative Review
-- clientSentiment = Very Negative
-
-Example E
-Client: “Thanks.”
-Agent: “You’re welcome.”
-The agent did NOT send a review request link. There is no clear favorable resolution and no strong positive emotion.
-Output logic:
-- reviewSentiment = Negative Outcome - No Review Request if the outcome was unresolved, pending, unclear, or not favorable
-- clientSentiment = Neutral or Slightly Positive depending on context
-
-Example F
-Client: “Perfect, that fixed everything.”
-Agent: “Happy to help.”
-The agent did NOT send a review request link.
-Output logic:
-- reviewSentiment = Missed Opportunity
-- clientSentiment = Very Positive
-
-Example G
-Client: “Okay.”
-The agent sent a review request link immediately after an unclear outcome.
-Output logic:
-- reviewSentiment = Likely Negative Review or Highly Likely Negative Review depending on frustration level
-- clientSentiment = based on the real tone, not just the word “Okay”
-
-Example H
-The issue was still pending or escalated.
-The agent did NOT send a review request link.
-Output logic:
-- reviewSentiment = Negative Outcome - No Review Request
-- clientSentiment = based on emotional tone
-
-Example I
-Client: “I’m still waiting and nothing is fixed yet.”
-Agent: “We have escalated it.”
-The agent did NOT send a review request link.
-Output logic:
-- reviewSentiment = Negative Outcome - No Review Request
-- clientSentiment = Negative
-
-Example J
-Client was frustrated about login access.
-Agent deactivated 2FA and gave instructions.
-Client only replied “Ok.”
-The agent did NOT send a review request link.
-There was no clear client confirmation that the problem was fully solved in the client’s favor.
-Output logic:
-- reviewSentiment = Negative Outcome - No Review Request
-- clientSentiment = Negative
-
-Example K
-Client’s issue was resolved.
-Client sounded satisfied but not strongly emotional.
-Agent sent a review request link.
-Output logic:
-- reviewSentiment = Likely Positive Review
-- clientSentiment = Slightly Positive or Positive
-
---------------------------------------------------
 OUTPUT RULES
 --------------------------------------------------
 
@@ -298,33 +210,11 @@ Do not add markdown.
 Do not add explanation outside JSON.
 
 aiVerdict rules:
-
-- MUST be exactly one single line (no line breaks)
+- MUST be exactly one single line
 - maximum 35 words
 - MUST include all 3 parts in this exact structure:
 
 "<review verdict>; Client Sentiment: <sentiment>; Resolution Status: <resolution> because <reason>"
-
-Rules:
-- the review verdict part should be slightly more descriptive than the other parts
-- the review verdict part should briefly explain the review approach or missed review opportunity
-- Client Sentiment must be only the label, with no explanation
-- Resolution Status must include the label and a short reason
-- use exactly these phrases:
-  - "Client Sentiment:"
-  - "Resolution Status:"
-- be factual, concise, and specific
-- do not use bullet points
-- do not use multiple sentences
-- do not repeat raw field names like reviewSentiment or resolutionStatus
-- do not add any extra sections
-
-Examples:
-
-- "Review link was not sent despite a favorable outcome for the client, creating a missed review opportunity; Client Sentiment: Positive; Resolution Status: Resolved because the concern was addressed"
-- "Review was requested before the issue was fully settled, making a negative review more likely; Client Sentiment: Negative; Resolution Status: Pending because the client was told to wait"
-- "No review request was sent after an unclear ending, so no review opportunity was used; Client Sentiment: Neutral; Resolution Status: Unclear because the client stopped replying"
-- "No review request was sent and the conversation ended poorly; Client Sentiment: Very Negative; Resolution Status: Unresolved because not all concerns were addressed"
 
 Return exactly this structure:
 
@@ -525,22 +415,14 @@ function normalizeTimestampForDb(value) {
   if (value === null || value === undefined || value === "") return null;
 
   if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 1000000000000) {
-      return new Date(value).toISOString();
-    }
-    if (value > 1000000000) {
-      return new Date(value * 1000).toISOString();
-    }
+    if (value > 1000000000000) return new Date(value).toISOString();
+    if (value > 1000000000) return new Date(value * 1000).toISOString();
   }
 
   const numeric = Number(String(value).trim());
   if (Number.isFinite(numeric) && numeric > 0) {
-    if (numeric > 1000000000000) {
-      return new Date(numeric).toISOString();
-    }
-    if (numeric > 1000000000) {
-      return new Date(numeric * 1000).toISOString();
-    }
+    if (numeric > 1000000000000) return new Date(numeric).toISOString();
+    if (numeric > 1000000000) return new Date(numeric * 1000).toISOString();
   }
 
   const parsed = new Date(value);
@@ -607,10 +489,7 @@ async function runOpenAIAudit({
       model: OPENAI_MODEL,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: auditPrompt,
-        },
+        { role: "system", content: auditPrompt },
         {
           role: "user",
           content: `Conversation ID: ${conversationId}\n\nTranscript:\n${transcript || "(no transcript found)"}`,
@@ -663,7 +542,10 @@ async function persistAuditRunAndResults({
   promptSource,
   results,
 }) {
+  const runId = crypto.randomUUID();
+
   const runPayload = {
+    id: runId,
     requested_by_user_id: user.id,
     requested_by_email: email,
     start_date: startDate || null,
@@ -678,18 +560,26 @@ async function persistAuditRunAndResults({
     prompt_source: promptSource,
   };
 
-  const { data: insertedRun, error: runInsertError } = await adminClient
+  const { error: runInsertError } = await adminClient
     .from("audit_runs")
-    .insert(runPayload)
-    .select("id")
-    .single();
+    .insert(runPayload);
 
-  if (runInsertError || !insertedRun?.id) {
-    throw new Error(runInsertError?.message || "Could not save audit run.");
+  if (runInsertError) {
+    throw new Error(runInsertError.message || "Could not save audit run.");
+  }
+
+  const { data: runCheck, error: runCheckError } = await adminClient
+    .from("audit_runs")
+    .select("id")
+    .eq("id", runId)
+    .maybeSingle();
+
+  if (runCheckError || !runCheck?.id) {
+    throw new Error(runCheckError?.message || "Audit run row was not confirmed after insert.");
   }
 
   const resultRows = results.map((item) => ({
-    run_id: insertedRun.id,
+    run_id: runId,
     conversation_id: item.conversationId || null,
     replied_at: normalizeTimestampForDb(item.repliedAt),
     csat_score:
@@ -711,12 +601,12 @@ async function persistAuditRunAndResults({
       .insert(resultRows);
 
     if (resultsInsertError) {
-      await adminClient.from("audit_runs").delete().eq("id", insertedRun.id);
+      await adminClient.from("audit_runs").delete().eq("id", runId);
       throw new Error(resultsInsertError.message || "Could not save audit results.");
     }
   }
 
-  return insertedRun.id;
+  return runId;
 }
 
 export async function POST(request) {
@@ -734,13 +624,7 @@ export async function POST(request) {
       !intercomApiKey ||
       !openAiApiKey
     ) {
-      return json(
-        {
-          ok: false,
-          error: "Missing required environment variables.",
-        },
-        { status: 500 }
-      );
+      return json({ ok: false, error: "Missing required environment variables." }, { status: 500 });
     }
 
     const authHeader = request.headers.get("authorization") || "";
@@ -749,13 +633,7 @@ export async function POST(request) {
       : "";
 
     if (!token) {
-      return json(
-        {
-          ok: false,
-          error: "Missing access token.",
-        },
-        { status: 401 }
-      );
+      return json({ ok: false, error: "Missing access token." }, { status: 401 });
     }
 
     const authClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -772,26 +650,14 @@ export async function POST(request) {
     } = await authClient.auth.getUser(token);
 
     if (userError || !user) {
-      return json(
-        {
-          ok: false,
-          error: "Invalid or expired session.",
-        },
-        { status: 401 }
-      );
+      return json({ ok: false, error: "Invalid or expired session." }, { status: 401 });
     }
 
     const email = String(user.email || "").toLowerCase();
     const domain = email.split("@")[1] || "";
 
     if (domain !== "nextventures.io") {
-      return json(
-        {
-          ok: false,
-          error: "Only nextventures.io accounts are allowed.",
-        },
-        { status: 403 }
-      );
+      return json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 });
     }
 
     const { data: profileData } = await adminClient
@@ -804,10 +670,7 @@ export async function POST(request) {
 
     if (!canRunAudits(profile)) {
       return json(
-        {
-          ok: false,
-          error: "This account does not have permission to run tests.",
-        },
+        { ok: false, error: "This account does not have permission to run tests." },
         { status: 403 }
       );
     }
@@ -821,10 +684,7 @@ export async function POST(request) {
 
     if (!rawConversations.length) {
       return json(
-        {
-          ok: false,
-          error: "No fetched conversations were provided for audit.",
-        },
+        { ok: false, error: "No fetched conversations were provided for audit." },
         { status: 400 }
       );
     }
@@ -835,10 +695,7 @@ export async function POST(request) {
 
     if (!normalizedConversations.length) {
       return json(
-        {
-          ok: false,
-          error: "No valid conversation IDs were found in the audit payload.",
-        },
+        { ok: false, error: "No valid conversation IDs were found in the audit payload." },
         { status: 400 }
       );
     }
