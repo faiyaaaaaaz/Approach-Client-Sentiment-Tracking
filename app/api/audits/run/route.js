@@ -514,8 +514,41 @@ function buildTranscript(conversation) {
   const messages = [...sourceMessage, ...partMessages];
 
   return messages
-    .map((message) => `[${message.when}] [${message.role}] (${message.name}): ${message.text}`)
+    .map(
+      (message) =>
+        `[${message.when}] [${message.role}] (${message.name}): ${message.text}`
+    )
     .join("\n\n");
+}
+
+function normalizeTimestampForDb(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value > 1000000000000) {
+      return new Date(value).toISOString();
+    }
+    if (value > 1000000000) {
+      return new Date(value * 1000).toISOString();
+    }
+  }
+
+  const numeric = Number(String(value).trim());
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric > 1000000000000) {
+      return new Date(numeric).toISOString();
+    }
+    if (numeric > 1000000000) {
+      return new Date(numeric * 1000).toISOString();
+    }
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString();
+  }
+
+  return null;
 }
 
 async function fetchFullConversation(intercomApiKey, conversationId) {
@@ -615,6 +648,77 @@ async function runOpenAIAudit({
   };
 }
 
+async function persistAuditRunAndResults({
+  adminClient,
+  user,
+  email,
+  startDate,
+  endDate,
+  limiterEnabled,
+  limitCount,
+  receivedCount,
+  auditedCount,
+  successCount,
+  errorCount,
+  promptSource,
+  results,
+}) {
+  const runPayload = {
+    requested_by_user_id: user.id,
+    requested_by_email: email,
+    start_date: startDate || null,
+    end_date: endDate || null,
+    limiter_enabled: limiterEnabled,
+    limit_count: limitCount,
+    received_count: receivedCount,
+    audited_count: auditedCount,
+    success_count: successCount,
+    error_count: errorCount,
+    audit_mode: "live_gpt",
+    prompt_source: promptSource,
+  };
+
+  const { data: insertedRun, error: runInsertError } = await adminClient
+    .from("audit_runs")
+    .insert(runPayload)
+    .select("id")
+    .single();
+
+  if (runInsertError || !insertedRun?.id) {
+    throw new Error(runInsertError?.message || "Could not save audit run.");
+  }
+
+  const resultRows = results.map((item) => ({
+    run_id: insertedRun.id,
+    conversation_id: item.conversationId || null,
+    replied_at: normalizeTimestampForDb(item.repliedAt),
+    csat_score:
+      item.csatScore === null || item.csatScore === undefined
+        ? null
+        : String(item.csatScore),
+    client_email: item.clientEmail || null,
+    agent_name: item.agentName || null,
+    ai_verdict: item.aiVerdict || null,
+    review_sentiment: item.reviewSentiment || null,
+    client_sentiment: item.clientSentiment || null,
+    resolution_status: item.resolutionStatus || null,
+    error: item.error || null,
+  }));
+
+  if (resultRows.length) {
+    const { error: resultsInsertError } = await adminClient
+      .from("audit_results")
+      .insert(resultRows);
+
+    if (resultsInsertError) {
+      await adminClient.from("audit_runs").delete().eq("id", insertedRun.id);
+      throw new Error(resultsInsertError.message || "Could not save audit results.");
+    }
+  }
+
+  return insertedRun.id;
+}
+
 export async function POST(request) {
   try {
     const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -709,11 +813,11 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const rawConversations = Array.isArray(body?.conversations)
-      ? body.conversations
-      : [];
+    const rawConversations = Array.isArray(body?.conversations) ? body.conversations : [];
     const limiterEnabled = Boolean(body?.limiterEnabled);
     const requestedLimit = Number(body?.limitCount);
+    const startDate = String(body?.startDate || "").trim() || null;
+    const endDate = String(body?.endDate || "").trim() || null;
 
     if (!rawConversations.length) {
       return json(
@@ -791,6 +895,30 @@ export async function POST(request) {
       }
     }
 
+    const promptSource =
+      auditPrompt === FALLBACK_AUDIT_PROMPT
+        ? "fallback_code_prompt"
+        : "admin_live_prompt";
+
+    const successCount = results.filter((item) => !item.error).length;
+    const errorCount = results.filter((item) => Boolean(item.error)).length;
+
+    const storedRunId = await persistAuditRunAndResults({
+      adminClient,
+      user,
+      email,
+      startDate,
+      endDate,
+      limiterEnabled,
+      limitCount,
+      receivedCount: normalizedConversations.length,
+      auditedCount: results.length,
+      successCount,
+      errorCount,
+      promptSource,
+      results,
+    });
+
     return json({
       ok: true,
       message:
@@ -804,9 +932,9 @@ export async function POST(request) {
         limiterEnabled,
         limitCount,
         auditMode: "live_gpt",
-        promptSource:
-          auditPrompt === FALLBACK_AUDIT_PROMPT ? "fallback_code_prompt" : "admin_live_prompt",
-        nextStep: "Persist runs and results to Supabase for the Results page.",
+        promptSource,
+        storedRunId,
+        storageStatus: "saved_to_supabase",
       },
       results,
     });
