@@ -48,19 +48,9 @@ function normalizeText(value, fallback = "-") {
   return text || fallback;
 }
 
-function safeLower(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function toDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatDateInput(value) {
-  const date = toDate(value);
-  if (!date) return "";
-  return date.toISOString().slice(0, 10);
 }
 
 function formatDateTime(value) {
@@ -72,16 +62,6 @@ function formatDateTime(value) {
     day: "2-digit",
     hour: "numeric",
     minute: "2-digit",
-  });
-}
-
-function formatDateOnly(value) {
-  const date = toDate(value);
-  if (!date) return "-";
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
   });
 }
 
@@ -209,7 +189,10 @@ function filterRows(rows, filters) {
       return false;
     if (filters.resolutionStatus !== "all" && row?.resolution_status !== filters.resolutionStatus)
       return false;
-    if (filters.resultType !== "all" && deriveResultType(row?.review_sentiment) !== filters.resultType)
+    if (
+      filters.resultType !== "all" &&
+      deriveResultType(row?.review_sentiment) !== filters.resultType
+    )
       return false;
     if (filters.cexOnly && row?.team_name !== "CEx") return false;
 
@@ -771,8 +754,16 @@ function SectionFilterRow({
   );
 }
 
-function DonutChart({ title, subtitle, entries, total, onSelect }) {
-  const palette = ["#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#6366f1"];
+function DonutChart({ title, entries, total, onSelect }) {
+  const palette = [
+    "#8b5cf6",
+    "#ec4899",
+    "#06b6d4",
+    "#10b981",
+    "#f59e0b",
+    "#ef4444",
+    "#6366f1",
+  ];
   const segments = buildPieSegments(entries, palette);
   const gradient = buildConicGradient(segments);
 
@@ -783,23 +774,28 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
         border: "1px solid rgba(255,255,255,0.08)",
         background: "rgba(255,255,255,0.025)",
         padding: "18px",
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div style={{ fontSize: "24px", fontWeight: 700, marginBottom: "4px" }}>{title}</div>
-      <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "16px" }}>{subtitle}</div>
+      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>{title}</div>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "220px minmax(0, 1fr)",
+          gridTemplateColumns: "minmax(220px, 260px) minmax(0, 1fr)",
           gap: "18px",
           alignItems: "center",
+          flex: 1,
+          minHeight: 0,
         }}
       >
         <div
           style={{
-            width: "220px",
-            height: "220px",
+            width: "100%",
+            maxWidth: "240px",
+            aspectRatio: "1 / 1",
             margin: "0 auto",
             borderRadius: "50%",
             background: gradient,
@@ -810,8 +806,8 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
         >
           <div
             style={{
-              width: "120px",
-              height: "120px",
+              width: "58%",
+              aspectRatio: "1 / 1",
               borderRadius: "50%",
               background: "linear-gradient(180deg, rgba(12,18,34,0.98), rgba(7,10,22,1))",
               border: "1px solid rgba(255,255,255,0.06)",
@@ -822,14 +818,21 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
           >
             <div>
               <div style={{ fontSize: "34px", fontWeight: 800 }}>{total}</div>
-              <div style={{ fontSize: "12px", color: "#8ea0d6", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "11px", color: "#8ea0d6", letterSpacing: "0.08em" }}>
                 TOTAL
               </div>
             </div>
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: "10px" }}>
+        <div
+          style={{
+            display: "grid",
+            gap: "10px",
+            alignContent: "start",
+            minWidth: 0,
+          }}
+        >
           {segments.length ? (
             segments.map((segment) => (
               <button
@@ -839,7 +842,7 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
                 style={{
                   display: "grid",
                   gridTemplateColumns: "12px minmax(0, 1fr) auto",
-                  gap: "12px",
+                  gap: "10px",
                   alignItems: "center",
                   padding: "12px 14px",
                   borderRadius: "16px",
@@ -848,6 +851,7 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
                   color: "#eef3ff",
                   cursor: "pointer",
                   textAlign: "left",
+                  minWidth: 0,
                 }}
               >
                 <span
@@ -859,8 +863,25 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
                     boxShadow: `0 0 16px ${segment.color}`,
                   }}
                 />
-                <span style={{ fontSize: "14px", fontWeight: 700 }}>{segment.label}</span>
-                <span style={{ fontSize: "13px", color: "#cdd7ff", fontWeight: 700 }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {segment.label}
+                </span>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "#cdd7ff",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {segment.count} · {formatPercent(segment.percent)}
                 </span>
               </button>
@@ -885,7 +906,7 @@ function DonutChart({ title, subtitle, entries, total, onSelect }) {
   );
 }
 
-function HorizontalBarChart({ title, subtitle, entries, total, onSelect, kind }) {
+function HorizontalBarChart({ title, entries, total, onSelect, kind }) {
   const max = Math.max(...entries.map((item) => item[1]), 1);
 
   return (
@@ -895,12 +916,14 @@ function HorizontalBarChart({ title, subtitle, entries, total, onSelect, kind })
         border: "1px solid rgba(255,255,255,0.08)",
         background: "rgba(255,255,255,0.025)",
         padding: "18px",
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div style={{ fontSize: "24px", fontWeight: 700, marginBottom: "4px" }}>{title}</div>
-      <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "16px" }}>{subtitle}</div>
+      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>{title}</div>
 
-      <div style={{ display: "grid", gap: "12px" }}>
+      <div style={{ display: "grid", gap: "12px", flex: 1 }}>
         {entries.length ? (
           entries.map(([label, count]) => {
             const percent = total ? (count / total) * 100 : 0;
@@ -940,8 +963,16 @@ function HorizontalBarChart({ title, subtitle, entries, total, onSelect, kind })
                     alignItems: "center",
                   }}
                 >
-                  <div style={{ fontSize: "14px", fontWeight: 700 }}>{label}</div>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#cdd7ff" }}>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      maxWidth: "70%",
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#cdd7ff" }}>
                     {count} · {formatPercent(percent)}
                   </div>
                 </div>
@@ -995,6 +1026,9 @@ function KPIStat({ label, value, accent }) {
         background: accent,
         padding: "18px",
         minHeight: "120px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
       }}
     >
       <div
@@ -1284,10 +1318,7 @@ export default function DashboardPage() {
   const dedupedRows = useMemo(() => dedupeLatestByConversation(rawRows), [rawRows]);
 
   const teams = useMemo(() => uniqueValues(dedupedRows, "team_name"), [dedupedRows]);
-  const employees = useMemo(
-    () => uniqueValues(dedupedRows, "employee_name"),
-    [dedupedRows]
-  );
+  const employees = useMemo(() => uniqueValues(dedupedRows, "employee_name"), [dedupedRows]);
   const reviewSentiments = useMemo(
     () => uniqueValues(dedupedRows, "review_sentiment"),
     [dedupedRows]
@@ -1371,8 +1402,6 @@ export default function DashboardPage() {
   const mappedCount = filteredRows.filter(
     (row) => row.employee_match_status === "mapped"
   ).length;
-  const cexCount = filteredRows.filter((row) => row.team_name === "CEx").length;
-
   const latestStoredAt = filteredRows[0]?.created_at || dedupedRows[0]?.created_at || "";
 
   function openDetail(title, value, rows) {
@@ -1428,6 +1457,7 @@ export default function DashboardPage() {
     borderRadius: "24px",
     padding: "20px",
     boxShadow: "0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
+    minHeight: "100%",
   };
 
   const inputStyle = {
@@ -1465,13 +1495,26 @@ export default function DashboardPage() {
     boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
   };
 
+  const sectionPairStyle = {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+    gap: "18px",
+    marginBottom: "22px",
+    alignItems: "stretch",
+  };
+
+  const innerTwoColStyle = {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(340px, 0.9fr)",
+    gap: "16px",
+    alignItems: "stretch",
+  };
+
   return (
     <main style={pageStyle}>
       <DetailModal
         open={detailState.open}
-        onClose={() =>
-          setDetailState({ open: false, title: "", value: "", rows: [] })
-        }
+        onClose={() => setDetailState({ open: false, title: "", value: "", rows: [] })}
         title={detailState.title}
         highlightValue={detailState.value}
         rows={detailState.rows}
@@ -1835,6 +1878,7 @@ export default function DashboardPage() {
             gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
             gap: "14px",
             marginBottom: "22px",
+            alignItems: "stretch",
           }}
         >
           <KPIStat
@@ -1891,14 +1935,7 @@ export default function DashboardPage() {
           </section>
         ) : (
           <>
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                gap: "18px",
-                marginBottom: "22px",
-              }}
-            >
+            <section style={sectionPairStyle}>
               <div style={sectionCardStyle}>
                 <SectionFilterRow
                   title="Review section filters"
@@ -1911,16 +1948,9 @@ export default function DashboardPage() {
                   resolutionStatuses={resolutionStatuses}
                 />
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
-                    gap: "16px",
-                  }}
-                >
+                <div style={innerTwoColStyle}>
                   <HorizontalBarChart
                     title="Review sentiment"
-                    subtitle="Click any bar"
                     entries={reviewEntries}
                     total={reviewRows.length}
                     kind="review"
@@ -1935,7 +1965,6 @@ export default function DashboardPage() {
 
                   <DonutChart
                     title="Result type mix"
-                    subtitle="Positive / Opportunity / Risk"
                     entries={orderedEntries(
                       countBy(
                         reviewRows.map((row) => ({
@@ -1971,16 +2000,9 @@ export default function DashboardPage() {
                   resolutionStatuses={resolutionStatuses}
                 />
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
-                    gap: "16px",
-                  }}
-                >
+                <div style={innerTwoColStyle}>
                   <HorizontalBarChart
                     title="Client sentiment"
-                    subtitle="Click any bar"
                     entries={clientEntries}
                     total={clientRows.length}
                     kind="client"
@@ -1995,7 +2017,6 @@ export default function DashboardPage() {
 
                   <DonutChart
                     title="Client sentiment share"
-                    subtitle="Interactive slice drilldown"
                     entries={clientEntries}
                     total={clientRows.length}
                     onSelect={(label) =>
@@ -2010,14 +2031,7 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                gap: "18px",
-                marginBottom: "22px",
-              }}
-            >
+            <section style={sectionPairStyle}>
               <div style={sectionCardStyle}>
                 <SectionFilterRow
                   title="Resolution section filters"
@@ -2030,16 +2044,9 @@ export default function DashboardPage() {
                   resolutionStatuses={resolutionStatuses}
                 />
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
-                    gap: "16px",
-                  }}
-                >
+                <div style={innerTwoColStyle}>
                   <HorizontalBarChart
                     title="Resolution status"
-                    subtitle="Click any bar"
                     entries={resolutionEntries}
                     total={resolutionRows.length}
                     kind="resolution"
@@ -2054,7 +2061,6 @@ export default function DashboardPage() {
 
                   <DonutChart
                     title="Resolution share"
-                    subtitle="Interactive slice drilldown"
                     entries={resolutionEntries}
                     total={resolutionRows.length}
                     onSelect={(label) =>
@@ -2094,9 +2100,7 @@ export default function DashboardPage() {
                       <button
                         key={week.key}
                         type="button"
-                        onClick={() =>
-                          openDetail("Weekly Drilldown", week.label, week.rows)
-                        }
+                        onClick={() => openDetail("Weekly Drilldown", week.label, week.rows)}
                         style={{
                           textAlign: "left",
                           borderRadius: "18px",
@@ -2112,16 +2116,35 @@ export default function DashboardPage() {
                             display: "flex",
                             justifyContent: "space-between",
                             gap: "12px",
-                            marginBottom: "10px",
+                            marginBottom: "12px",
                             alignItems: "center",
                           }}
                         >
-                          <div style={{ fontSize: "16px", fontWeight: 800 }}>
-                            {week.label}
-                          </div>
+                          <div style={{ fontSize: "16px", fontWeight: 800 }}>{week.label}</div>
                           <div style={{ fontSize: "13px", color: "#cdd7ff", fontWeight: 700 }}>
                             {week.total} total
                           </div>
+                        </div>
+
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "10px",
+                            borderRadius: "999px",
+                            background: "rgba(255,255,255,0.05)",
+                            overflow: "hidden",
+                            marginBottom: "12px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              borderRadius: "999px",
+                              background:
+                                "linear-gradient(90deg, #2563eb, #7c3aed, #db2777)",
+                            }}
+                          />
                         </div>
 
                         <div
@@ -2130,7 +2153,7 @@ export default function DashboardPage() {
                             gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
                             gap: "10px",
                             color: "#dbe7ff",
-                            fontSize: "13px",
+                            fontSize: "12px",
                             lineHeight: 1.6,
                           }}
                         >
@@ -2200,21 +2223,18 @@ export default function DashboardPage() {
                   gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                   gap: "16px",
                   marginBottom: "18px",
+                  alignItems: "stretch",
                 }}
               >
                 {[
                   {
                     title: "Top Volume",
-                    rows: [...leaderboard]
-                      .sort((a, b) => b.handled - a.handled)
-                      .slice(0, 5),
+                    rows: [...leaderboard].sort((a, b) => b.handled - a.handled).slice(0, 5),
                     field: "handled",
                   },
                   {
                     title: "Top Missed Opportunity",
-                    rows: [...leaderboard]
-                      .sort((a, b) => b.missed - a.missed)
-                      .slice(0, 5),
+                    rows: [...leaderboard].sort((a, b) => b.missed - a.missed).slice(0, 5),
                     field: "missed",
                   },
                   {
@@ -2239,6 +2259,9 @@ export default function DashboardPage() {
                       border: "1px solid rgba(255,255,255,0.08)",
                       background: "rgba(255,255,255,0.03)",
                       padding: "16px",
+                      minHeight: "100%",
+                      display: "flex",
+                      flexDirection: "column",
                     }}
                   >
                     <div
@@ -2251,7 +2274,7 @@ export default function DashboardPage() {
                       {block.title}
                     </div>
 
-                    <div style={{ display: "grid", gap: "10px" }}>
+                    <div style={{ display: "grid", gap: "10px", flex: 1 }}>
                       {block.rows.length ? (
                         block.rows.map((row) => (
                           <button
@@ -2272,6 +2295,10 @@ export default function DashboardPage() {
                               padding: "12px",
                               color: "#eef3ff",
                               cursor: "pointer",
+                              minHeight: "80px",
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "space-between",
                             }}
                           >
                             <div
@@ -2460,13 +2487,7 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                gap: "18px",
-              }}
-            >
+            <section style={sectionPairStyle}>
               <div style={sectionCardStyle}>
                 <SectionFilterRow
                   title="Trend filters"
@@ -2486,25 +2507,20 @@ export default function DashboardPage() {
                   style={{
                     display: "grid",
                     gap: "12px",
-                    maxHeight: "520px",
+                    maxHeight: "540px",
                     overflowY: "auto",
                     paddingRight: "4px",
                   }}
                 >
                   {trendData.length ? (
                     trendData.map((item) => {
-                      const maxTotal = Math.max(
-                        ...trendData.map((entry) => entry.total),
-                        1
-                      );
+                      const maxTotal = Math.max(...trendData.map((entry) => entry.total), 1);
 
                       return (
                         <button
                           key={item.key}
                           type="button"
-                          onClick={() =>
-                            openDetail("Trend Drilldown", item.label, item.rows)
-                          }
+                          onClick={() => openDetail("Trend Drilldown", item.label, item.rows)}
                           style={{
                             textAlign: "left",
                             borderRadius: "18px",
@@ -2524,9 +2540,7 @@ export default function DashboardPage() {
                               alignItems: "center",
                             }}
                           >
-                            <div style={{ fontSize: "15px", fontWeight: 800 }}>
-                              {item.label}
-                            </div>
+                            <div style={{ fontSize: "15px", fontWeight: 800 }}>{item.label}</div>
                             <div style={{ color: "#cdd7ff", fontSize: "13px", fontWeight: 700 }}>
                               {item.total}
                             </div>
@@ -2607,11 +2621,11 @@ export default function DashboardPage() {
                     background: "rgba(4,8,20,0.72)",
                   }}
                 >
-                  <div style={{ maxHeight: "640px", overflow: "auto" }}>
+                  <div style={{ maxHeight: "700px", overflow: "auto" }}>
                     <table
                       style={{
                         width: "100%",
-                        minWidth: "1080px",
+                        minWidth: "1180px",
                         borderCollapse: "collapse",
                       }}
                     >
@@ -2654,8 +2668,7 @@ export default function DashboardPage() {
                           <tr
                             key={`${row.conversation_id}-${index}`}
                             style={{
-                              background:
-                                index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
+                              background: index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
                             }}
                           >
                             <td
