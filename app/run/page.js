@@ -110,6 +110,14 @@ function statusPillStyles(value) {
     };
   }
 
+  if (value === "Error") {
+    return {
+      border: "1px solid rgba(244,63,94,0.22)",
+      background: "rgba(244,63,94,0.12)",
+      color: "#fecdd3",
+    };
+  }
+
   return {
     border: "1px solid rgba(168,85,247,0.22)",
     background: "rgba(168,85,247,0.12)",
@@ -336,6 +344,211 @@ function PresetCalendarIcon() {
   );
 }
 
+function DuplicateWarningModal({
+  open,
+  duplicateSummary,
+  processing,
+  onCancel,
+  onSkip,
+  onOverwrite,
+}) {
+  if (!open) return null;
+
+  const sampleIds = Array.isArray(duplicateSummary?.sampleConversationIds)
+    ? duplicateSummary.sampleConversationIds
+    : [];
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2000,
+        background: "rgba(2,6,23,0.72)",
+        backdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+      }}
+    >
+      <div
+        style={{
+          width: "min(760px, 100%)",
+          borderRadius: "28px",
+          border: "1px solid rgba(255,255,255,0.08)",
+          background:
+            "linear-gradient(180deg, rgba(15,22,43,0.96), rgba(7,10,24,0.98))",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
+          padding: "28px",
+        }}
+      >
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 12px",
+            borderRadius: "999px",
+            background: "rgba(245,158,11,0.12)",
+            border: "1px solid rgba(251,191,36,0.18)",
+            color: "#fde68a",
+            fontSize: "12px",
+            fontWeight: 700,
+            marginBottom: "16px",
+          }}
+        >
+          Duplicate Audit Warning
+        </div>
+
+        <h2
+          style={{
+            margin: "0 0 12px",
+            fontSize: "34px",
+            lineHeight: 1.05,
+            letterSpacing: "-0.04em",
+          }}
+        >
+          Some selected conversations already exist in Results.
+        </h2>
+
+        <p
+          style={{
+            margin: "0 0 18px",
+            color: "#a9b4d0",
+            fontSize: "16px",
+            lineHeight: 1.7,
+          }}
+        >
+          {duplicateSummary?.duplicateCount || 0} conversation audit(s) already exist in your
+          stored Results archive. Choose whether to skip those existing records or overwrite them
+          with a fresh audit.
+        </p>
+
+        <div
+          style={{
+            borderRadius: "18px",
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(255,255,255,0.03)",
+            padding: "18px",
+            marginBottom: "18px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "12px",
+              color: "#8ea0d6",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              marginBottom: "10px",
+            }}
+          >
+            Sample conversation IDs
+          </div>
+
+          {sampleIds.length ? (
+            <div
+              style={{
+                display: "grid",
+                gap: "8px",
+                maxHeight: "220px",
+                overflow: "auto",
+              }}
+            >
+              {sampleIds.map((id) => (
+                <div
+                  key={id}
+                  style={{
+                    borderRadius: "12px",
+                    background: "rgba(0,0,0,0.16)",
+                    padding: "10px 12px",
+                    color: "#e5ebff",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                  }}
+                >
+                  {id}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: "#a9b4d0", fontSize: "14px" }}>
+              No sample conversation IDs were returned.
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "12px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={processing}
+            style={{
+              borderRadius: "16px",
+              padding: "14px 18px",
+              fontSize: "15px",
+              fontWeight: 700,
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.03)",
+              color: "#e5ebff",
+              cursor: processing ? "not-allowed" : "pointer",
+              opacity: processing ? 0.6 : 1,
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={processing}
+            style={{
+              borderRadius: "16px",
+              padding: "14px 18px",
+              fontSize: "15px",
+              fontWeight: 700,
+              border: "1px solid rgba(59,130,246,0.18)",
+              background: "rgba(59,130,246,0.12)",
+              color: "#dbeafe",
+              cursor: processing ? "not-allowed" : "pointer",
+              opacity: processing ? 0.6 : 1,
+            }}
+          >
+            {processing ? "Working..." : "Skip Existing"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOverwrite}
+            disabled={processing}
+            style={{
+              borderRadius: "16px",
+              padding: "14px 18px",
+              fontSize: "15px",
+              fontWeight: 700,
+              border: "1px solid rgba(244,63,94,0.18)",
+              background:
+                "linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88))",
+              color: "#ffffff",
+              cursor: processing ? "not-allowed" : "pointer",
+              opacity: processing ? 0.6 : 1,
+              boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
+            }}
+          >
+            {processing ? "Working..." : "Overwrite Existing"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RunPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -365,6 +578,10 @@ export default function RunPage() {
   const [showAllResults, setShowAllResults] = useState(false);
   const [showJumpTop, setShowJumpTop] = useState(false);
 
+  const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
+  const [duplicateSummary, setDuplicateSummary] = useState(null);
+  const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
+
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
   const presetMenuRef = useRef(null);
@@ -377,6 +594,9 @@ export default function RunPage() {
     setRunError("");
     setRunSuccess("");
     setShowAllResults(false);
+    setDuplicateWarningOpen(false);
+    setDuplicateSummary(null);
+    setDuplicateDecisionLoading(false);
   }
 
   function openPicker(inputRef) {
@@ -608,6 +828,9 @@ export default function RunPage() {
     setRunError("");
     setRunSuccess("");
     setShowAllResults(false);
+    setDuplicateWarningOpen(false);
+    setDuplicateSummary(null);
+    setDuplicateDecisionLoading(false);
   }
 
   async function handleFetchConversations() {
@@ -618,6 +841,9 @@ export default function RunPage() {
     setRunError("");
     setRunSuccess("");
     setShowAllResults(false);
+    setDuplicateWarningOpen(false);
+    setDuplicateSummary(null);
+    setDuplicateDecisionLoading(false);
 
     if (!session?.access_token) {
       setFetchError("Your login session is missing. Please sign in again.");
@@ -680,7 +906,7 @@ export default function RunPage() {
     }
   }
 
-  async function handleRunAudit() {
+  async function executeRunAudit(duplicateMode = "") {
     setRunError("");
     setRunSuccess("");
     setRunData(null);
@@ -714,22 +940,67 @@ export default function RunPage() {
           conversations,
           limiterEnabled,
           limitCount,
+          startDate,
+          endDate,
+          duplicateMode,
         }),
       });
 
       const data = await response.json();
 
+      if (response.status === 409 && data?.requiresDuplicateDecision) {
+        setDuplicateSummary(data.duplicateSummary || null);
+        setDuplicateWarningOpen(true);
+        setRunLoading(false);
+        return;
+      }
+
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || "Audit run failed.");
       }
 
+      setDuplicateWarningOpen(false);
+      setDuplicateSummary(null);
       setRunData(data);
-      setRunSuccess(data?.message || "Audit run completed.");
+
+      if (data?.meta?.duplicateModeApplied === "skip_existing") {
+        setRunSuccess(
+          `Audit completed. ${data.meta.skippedCount || 0} duplicate conversation(s) were skipped.`
+        );
+      } else if (data?.meta?.duplicateModeApplied === "overwrite_existing") {
+        setRunSuccess(
+          `Audit completed. ${data.meta.overwrittenCount || 0} duplicate conversation(s) were overwritten.`
+        );
+      } else {
+        setRunSuccess(data?.message || "Audit run completed.");
+      }
     } catch (error) {
       setRunError(error instanceof Error ? error.message : "Audit run failed.");
     } finally {
       setRunLoading(false);
     }
+  }
+
+  async function handleRunAudit() {
+    await executeRunAudit("");
+  }
+
+  async function handleDuplicateSkip() {
+    setDuplicateDecisionLoading(true);
+    await executeRunAudit("skip_existing");
+    setDuplicateDecisionLoading(false);
+  }
+
+  async function handleDuplicateOverwrite() {
+    setDuplicateDecisionLoading(true);
+    await executeRunAudit("overwrite_existing");
+    setDuplicateDecisionLoading(false);
+  }
+
+  function handleDuplicateCancel() {
+    setDuplicateWarningOpen(false);
+    setDuplicateSummary(null);
+    setRunError("Audit run paused. Duplicate conversations need your decision.");
   }
 
   const canRunTests =
@@ -832,7 +1103,19 @@ export default function RunPage() {
       return RUN_PROGRESS_MESSAGES[runMessageIndex];
     }
 
+    if (duplicateWarningOpen && duplicateSummary?.duplicateCount) {
+      return `${duplicateSummary.duplicateCount} duplicate conversation audit(s) were found. Choose whether to skip or overwrite them.`;
+    }
+
     if (runData?.meta?.auditedCount >= 0) {
+      if (runData?.meta?.duplicateModeApplied === "skip_existing") {
+        return `Latest run completed ${runData.meta.auditedCount} conversation(s). ${runData.meta.skippedCount || 0} duplicate conversation(s) were skipped.`;
+      }
+
+      if (runData?.meta?.duplicateModeApplied === "overwrite_existing") {
+        return `Latest run completed ${runData.meta.auditedCount} conversation(s). ${runData.meta.overwrittenCount || 0} duplicate conversation(s) were overwritten.`;
+      }
+
       return `Latest run completed ${runData.meta.auditedCount} conversation(s).`;
     }
 
@@ -864,6 +1147,8 @@ export default function RunPage() {
     runMessageIndex,
     fetchData,
     runData,
+    duplicateWarningOpen,
+    duplicateSummary,
   ]);
 
   const inputBaseStyle = {
@@ -895,6 +1180,15 @@ export default function RunPage() {
           "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
+      <DuplicateWarningModal
+        open={duplicateWarningOpen}
+        duplicateSummary={duplicateSummary}
+        processing={duplicateDecisionLoading || runLoading}
+        onCancel={handleDuplicateCancel}
+        onSkip={handleDuplicateSkip}
+        onOverwrite={handleDuplicateOverwrite}
+      />
+
       <div style={{ maxWidth: "1280px", margin: "0 auto" }}>
         <div
           style={{
@@ -2627,7 +2921,22 @@ export default function RunPage() {
                 <br />
                 <strong>Mode:</strong> {runData?.meta?.auditMode || "-"}
                 <br />
-                <strong>Next step:</strong> {runData?.meta?.nextStep || "-"}
+                <strong>Duplicate handling:</strong>{" "}
+                {runData?.meta?.duplicateModeApplied || "none"}
+                <br />
+                {runData?.meta?.skippedCount ? (
+                  <>
+                    <strong>Skipped duplicates:</strong> {runData.meta.skippedCount}
+                    <br />
+                  </>
+                ) : null}
+                {runData?.meta?.overwrittenCount ? (
+                  <>
+                    <strong>Overwritten duplicates:</strong> {runData.meta.overwrittenCount}
+                    <br />
+                  </>
+                ) : null}
+                <strong>Storage:</strong> {runData?.meta?.storageStatus || "-"}
               </div>
 
               <div
