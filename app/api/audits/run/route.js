@@ -433,6 +433,99 @@ function normalizeTimestampForDb(value) {
   return null;
 }
 
+function normalizeDuplicateMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+
+  if (mode === "skip_existing") return "skip_existing";
+  if (mode === "overwrite_existing") return "overwrite_existing";
+  if (mode === "cancel") return "cancel";
+  return "";
+}
+
+async function fetchExistingStoredResults(adminClient, conversationIds) {
+  if (!conversationIds.length) return [];
+
+  const { data, error } = await adminClient
+    .from("audit_results")
+    .select("id, run_id, conversation_id, agent_name, client_email, created_at")
+    .in("conversation_id", conversationIds);
+
+  if (error) {
+    throw new Error(error.message || "Could not check existing stored results.");
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+async function removeStoredDuplicates(adminClient, conversationIds) {
+  if (!conversationIds.length) {
+    return { deletedResults: 0, deletedRuns: 0 };
+  }
+
+  const { data: existingRows, error: existingRowsError } = await adminClient
+    .from("audit_results")
+    .select("id, run_id")
+    .in("conversation_id", conversationIds);
+
+  if (existingRowsError) {
+    throw new Error(existingRowsError.message || "Could not inspect stored duplicates.");
+  }
+
+  const rows = Array.isArray(existingRows) ? existingRows : [];
+  if (!rows.length) {
+    return { deletedResults: 0, deletedRuns: 0 };
+  }
+
+  const runIds = Array.from(new Set(rows.map((item) => item.run_id).filter(Boolean)));
+  const resultIds = rows.map((item) => item.id).filter(Boolean);
+
+  const { error: deleteResultsError } = await adminClient
+    .from("audit_results")
+    .delete()
+    .in("id", resultIds);
+
+  if (deleteResultsError) {
+    throw new Error(deleteResultsError.message || "Could not delete existing stored duplicates.");
+  }
+
+  let deletedRuns = 0;
+
+  if (runIds.length) {
+    const { data: remainingRows, error: remainingRowsError } = await adminClient
+      .from("audit_results")
+      .select("run_id")
+      .in("run_id", runIds);
+
+    if (remainingRowsError) {
+      throw new Error(remainingRowsError.message || "Could not verify remaining run rows.");
+    }
+
+    const stillUsedRunIds = new Set(
+      (remainingRows || []).map((item) => item.run_id).filter(Boolean)
+    );
+
+    const emptyRunIds = runIds.filter((id) => !stillUsedRunIds.has(id));
+
+    if (emptyRunIds.length) {
+      const { error: deleteRunsError } = await adminClient
+        .from("audit_runs")
+        .delete()
+        .in("id", emptyRunIds);
+
+      if (deleteRunsError) {
+        throw new Error(deleteRunsError.message || "Could not clean up duplicate audit runs.");
+      }
+
+      deletedRuns = emptyRunIds.length;
+    }
+  }
+
+  return {
+    deletedResults: resultIds.length,
+    deletedRuns,
+  };
+}
+
 async function fetchFullConversation(intercomApiKey, conversationId) {
   const response = await fetch(`https://api.intercom.io/conversations/${conversationId}`, {
     method: "GET",
@@ -624,7 +717,10 @@ export async function POST(request) {
       !intercomApiKey ||
       !openAiApiKey
     ) {
-      return json({ ok: false, error: "Missing required environment variables." }, { status: 500 });
+      return json(
+        { ok: false, error: "Missing required environment variables." },
+        { status: 500 }
+      );
     }
 
     const authHeader = request.headers.get("authorization") || "";
@@ -657,7 +753,10 @@ export async function POST(request) {
     const domain = email.split("@")[1] || "";
 
     if (domain !== "nextventures.io") {
-      return json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 });
+      return json(
+        { ok: false, error: "Only nextventures.io accounts are allowed." },
+        { status: 403 }
+      );
     }
 
     const { data: profileData } = await adminClient
@@ -681,6 +780,7 @@ export async function POST(request) {
     const requestedLimit = Number(body?.limitCount);
     const startDate = String(body?.startDate || "").trim() || null;
     const endDate = String(body?.endDate || "").trim() || null;
+    const duplicateMode = normalizeDuplicateMode(body?.duplicateMode);
 
     if (!rawConversations.length) {
       return json(
@@ -700,15 +800,121 @@ export async function POST(request) {
       );
     }
 
-    const auditPrompt = await loadLiveAuditPrompt(adminClient);
-
     const limitCount = limiterEnabled
       ? Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, 50))
       : null;
 
-    const conversationsToAudit = limiterEnabled
+    const conversationsToAuditInitial = limiterEnabled
       ? normalizedConversations.slice(0, limitCount)
       : normalizedConversations;
+
+    const conversationIdsToCheck = Array.from(
+      new Set(
+        conversationsToAuditInitial
+          .map((item) => item.conversationId)
+          .filter(Boolean)
+      )
+    );
+
+    const existingStoredRows = await fetchExistingStoredResults(
+      adminClient,
+      conversationIdsToCheck
+    );
+
+    const duplicateConversationIds = Array.from(
+      new Set(
+        existingStoredRows
+          .map((item) => String(item.conversation_id || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (duplicateConversationIds.length && !duplicateMode) {
+      return json(
+        {
+          ok: false,
+          requiresDuplicateDecision: true,
+          error:
+            "Some of these conversation audits already exist in Results. Choose whether to skip them or overwrite them.",
+          duplicateSummary: {
+            duplicateCount: duplicateConversationIds.length,
+            sampleConversationIds: duplicateConversationIds.slice(0, 10),
+            duplicateConversationIds,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    if (duplicateMode === "cancel") {
+      return json(
+        {
+          ok: false,
+          cancelledByUser: true,
+          error: "Audit run was cancelled by the user.",
+        },
+        { status: 400 }
+      );
+    }
+
+    let conversationsToAudit = conversationsToAuditInitial;
+    let duplicateActionMeta = {
+      duplicateModeApplied: duplicateMode || "none",
+      duplicateCount: duplicateConversationIds.length,
+      skippedCount: 0,
+      overwrittenCount: 0,
+      deletedStoredResults: 0,
+      deletedStoredRuns: 0,
+    };
+
+    if (duplicateConversationIds.length && duplicateMode === "skip_existing") {
+      conversationsToAudit = conversationsToAuditInitial.filter(
+        (item) => !duplicateConversationIds.includes(item.conversationId)
+      );
+
+      duplicateActionMeta = {
+        ...duplicateActionMeta,
+        duplicateModeApplied: "skip_existing",
+        skippedCount: duplicateConversationIds.length,
+      };
+    }
+
+    if (duplicateConversationIds.length && duplicateMode === "overwrite_existing") {
+      const removalSummary = await removeStoredDuplicates(
+        adminClient,
+        duplicateConversationIds
+      );
+
+      duplicateActionMeta = {
+        ...duplicateActionMeta,
+        duplicateModeApplied: "overwrite_existing",
+        overwrittenCount: duplicateConversationIds.length,
+        deletedStoredResults: removalSummary.deletedResults,
+        deletedStoredRuns: removalSummary.deletedRuns,
+      };
+    }
+
+    if (!conversationsToAudit.length) {
+      return json({
+        ok: true,
+        message:
+          "All selected conversations already exist in Results, so nothing new was audited.",
+        meta: {
+          requestedBy: email,
+          receivedCount: normalizedConversations.length,
+          auditedCount: 0,
+          limiterEnabled,
+          limitCount,
+          auditMode: "live_gpt",
+          promptSource: "not_needed",
+          storageStatus: "no_new_results_saved",
+          ...duplicateActionMeta,
+        },
+        results: [],
+      });
+    }
+
+    const auditPrompt = await loadLiveAuditPrompt(adminClient);
 
     const results = [];
 
@@ -792,6 +998,7 @@ export async function POST(request) {
         promptSource,
         storedRunId,
         storageStatus: "saved_to_supabase",
+        ...duplicateActionMeta,
       },
       results,
     });
