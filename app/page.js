@@ -1,5 +1,8 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabase";
 
 const INTERCOM_BASE_URL =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
@@ -25,34 +28,22 @@ const CLIENT_SENTIMENT_ORDER = [
 
 const RESOLUTION_ORDER = ["Resolved", "Pending", "Unclear", "Unresolved"];
 
-const SECTION_WINDOWS = [
+const RANGE_PRESETS = [
   { key: "7d", label: "7D" },
   { key: "30d", label: "30D" },
   { key: "90d", label: "90D" },
+  { key: "180d", label: "180D" },
   { key: "365d", label: "1Y" },
   { key: "all", label: "All" },
 ];
 
-const TREND_GROUPS = [
+const TREND_GROUP_OPTIONS = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
 ];
 
-function getSupabaseAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    return null;
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-function normalizeText(value, fallback = "Unknown") {
+function normalizeText(value, fallback = "-") {
   const text = String(value || "").trim();
   return text || fallback;
 }
@@ -66,10 +57,15 @@ function toDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function formatDateInput(value) {
+  const date = toDate(value);
+  if (!date) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 function formatDateTime(value) {
   const date = toDate(value);
   if (!date) return "-";
-
   return date.toLocaleString(undefined, {
     year: "numeric",
     month: "short",
@@ -82,7 +78,6 @@ function formatDateTime(value) {
 function formatDateOnly(value) {
   const date = toDate(value);
   if (!date) return "-";
-
   return date.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -95,124 +90,56 @@ function formatPercent(value) {
   return `${value.toFixed(1)}%`;
 }
 
-function parseSearchParams(searchParams) {
-  return {
-    range: String(searchParams?.range || "30d"),
-    start: String(searchParams?.start || ""),
-    end: String(searchParams?.end || ""),
-    team: String(searchParams?.team || "all"),
-    employee: String(searchParams?.employee || "all"),
-    review: String(searchParams?.review || "all"),
-    client: String(searchParams?.client || "all"),
-    resolution: String(searchParams?.resolution || "all"),
-    resultType: String(searchParams?.resultType || "all"),
-    reviewWindow: String(searchParams?.reviewWindow || "30d"),
-    clientWindow: String(searchParams?.clientWindow || "30d"),
-    leaderboardWindow: String(searchParams?.leaderboardWindow || "30d"),
-    trendWindow: String(searchParams?.trendWindow || "90d"),
-    trendGroup: String(searchParams?.trendGroup || "week"),
-    spotlightReview: String(searchParams?.spotlightReview || "Missed Opportunity"),
-    spotlightClient: String(searchParams?.spotlightClient || "Very Positive"),
-  };
+function getNow() {
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  return now;
 }
 
-function buildHref(params, updates = {}) {
-  const next = new URLSearchParams();
-
-  const merged = { ...params, ...updates };
-
-  Object.entries(merged).forEach(([key, value]) => {
-    if (value === undefined || value === null) return;
-    const text = String(value).trim();
-    if (!text) return;
-    next.set(key, text);
-  });
-
-  const query = next.toString();
-  return query ? `/?${query}` : "/";
-}
-
-function getDateRange(params) {
-  const today = new Date();
-  const end = params.end ? toDate(`${params.end}T23:59:59`) : today;
-  const endDate = end || today;
-
-  if (params.range === "all") {
-    return { startDate: null, endDate };
-  }
-
-  if (params.range === "custom" || params.start || params.end) {
-    const startDate = params.start ? toDate(`${params.start}T00:00:00`) : null;
-    return { startDate, endDate };
-  }
-
-  const rangeMap = {
+function getPresetStartDate(presetKey, endDate) {
+  if (presetKey === "all") return null;
+  const daysMap = {
     "7d": 7,
     "30d": 30,
     "90d": 90,
     "180d": 180,
     "365d": 365,
   };
-
-  const days = rangeMap[params.range] || 30;
-  const startDate = new Date(endDate);
-  startDate.setDate(startDate.getDate() - (days - 1));
-  startDate.setHours(0, 0, 0, 0);
-
-  return { startDate, endDate };
+  const days = daysMap[presetKey] || 30;
+  const start = new Date(endDate);
+  start.setDate(start.getDate() - (days - 1));
+  start.setHours(0, 0, 0, 0);
+  return start;
 }
 
-function applyGlobalFilters(rows, params) {
-  const { startDate, endDate } = getDateRange(params);
+function buildDateRange(rangePreset, startDate, endDate) {
+  const end = endDate ? toDate(`${endDate}T23:59:59`) : getNow();
+  const safeEnd = end || getNow();
 
-  return rows.filter((row) => {
-    const createdAt = toDate(row.created_at);
+  if (rangePreset === "all") {
+    return { start: null, end: safeEnd };
+  }
 
-    if (startDate && createdAt && createdAt < startDate) return false;
-    if (endDate && createdAt && createdAt > endDate) return false;
+  if (startDate || endDate) {
+    const start = startDate ? toDate(`${startDate}T00:00:00`) : null;
+    return { start, end: safeEnd };
+  }
 
-    if (params.team !== "all" && row.team_name !== params.team) return false;
-    if (params.employee !== "all" && row.employee_name !== params.employee) return false;
-    if (params.review !== "all" && row.review_sentiment !== params.review) return false;
-    if (params.client !== "all" && row.client_sentiment !== params.client) return false;
-    if (params.resolution !== "all" && row.resolution_status !== params.resolution) return false;
-
-    if (params.resultType !== "all") {
-      const review = row.review_sentiment || "";
-      const resultType = deriveResultType(review);
-      if (resultType !== params.resultType) return false;
-    }
-
-    return true;
-  });
-}
-
-function applySectionWindow(rows, windowKey, endDateInput) {
-  if (!rows.length || windowKey === "all") return rows;
-
-  const endDate = endDateInput || new Date();
-  const startDate = new Date(endDate);
-
-  const map = {
-    "7d": 7,
-    "30d": 30,
-    "90d": 90,
-    "365d": 365,
+  return {
+    start: getPresetStartDate(rangePreset, safeEnd),
+    end: safeEnd,
   };
-
-  const days = map[windowKey] || 30;
-  startDate.setDate(startDate.getDate() - (days - 1));
-  startDate.setHours(0, 0, 0, 0);
-
-  return rows.filter((row) => {
-    const createdAt = toDate(row.created_at);
-    return createdAt && createdAt >= startDate && createdAt <= endDate;
-  });
 }
 
 function deriveResultType(reviewSentiment) {
   const value = String(reviewSentiment || "");
   if (value === "Missed Opportunity") return "Opportunity";
+  if (
+    value === "Likely Positive Review" ||
+    value === "Highly Likely Positive Review"
+  ) {
+    return "Positive";
+  }
   if (
     value === "Likely Negative Review" ||
     value === "Highly Likely Negative Review" ||
@@ -220,43 +147,121 @@ function deriveResultType(reviewSentiment) {
   ) {
     return "Risk";
   }
-  if (
-    value === "Likely Positive Review" ||
-    value === "Highly Likely Positive Review"
-  ) {
-    return "Positive";
-  }
   return "Other";
 }
 
-function dedupeLatestByConversation(rows) {
-  const seen = new Map();
+function conversationUrl(conversationId) {
+  const id = String(conversationId || "").trim();
+  return id ? `${INTERCOM_BASE_URL}/${id}` : "#";
+}
 
-  for (const row of rows) {
-    const key = String(row.conversation_id || "").trim();
+function dedupeLatestByConversation(rows) {
+  const byConversation = new Map();
+
+  for (const row of rows || []) {
+    const key = String(row?.conversation_id || "").trim();
     if (!key) continue;
 
-    const existing = seen.get(key);
-    const currentDate = toDate(row.created_at)?.getTime() || 0;
-    const existingDate = toDate(existing?.created_at)?.getTime() || 0;
+    const existing = byConversation.get(key);
+    const currentTs = toDate(row?.created_at)?.getTime() || 0;
+    const existingTs = toDate(existing?.created_at)?.getTime() || 0;
 
-    if (!existing || currentDate > existingDate) {
-      seen.set(key, row);
+    if (!existing || currentTs > existingTs) {
+      byConversation.set(key, row);
     }
   }
 
-  return Array.from(seen.values()).sort((a, b) => {
-    const bDate = toDate(b.created_at)?.getTime() || 0;
-    const aDate = toDate(a.created_at)?.getTime() || 0;
-    return bDate - aDate;
+  return Array.from(byConversation.values()).sort((a, b) => {
+    const aTs = toDate(a?.created_at)?.getTime() || 0;
+    const bTs = toDate(b?.created_at)?.getTime() || 0;
+    return bTs - aTs;
+  });
+}
+
+function uniqueValues(rows, key) {
+  return Array.from(
+    new Set(
+      (rows || [])
+        .map((row) => String(row?.[key] || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+}
+
+function filterRows(rows, filters) {
+  const { start, end } = buildDateRange(
+    filters.rangePreset,
+    filters.startDate,
+    filters.endDate
+  );
+
+  return (rows || []).filter((row) => {
+    const created = toDate(row?.created_at);
+
+    if (start && created && created < start) return false;
+    if (end && created && created > end) return false;
+
+    if (filters.team !== "all" && row?.team_name !== filters.team) return false;
+    if (filters.employee !== "all" && row?.employee_name !== filters.employee) return false;
+    if (filters.reviewSentiment !== "all" && row?.review_sentiment !== filters.reviewSentiment)
+      return false;
+    if (filters.clientSentiment !== "all" && row?.client_sentiment !== filters.clientSentiment)
+      return false;
+    if (filters.resolutionStatus !== "all" && row?.resolution_status !== filters.resolutionStatus)
+      return false;
+    if (filters.resultType !== "all" && deriveResultType(row?.review_sentiment) !== filters.resultType)
+      return false;
+    if (filters.cexOnly && row?.team_name !== "CEx") return false;
+
+    return true;
+  });
+}
+
+function sectionRangeRows(rows, sectionFilters) {
+  const { start, end } = buildDateRange(
+    sectionFilters.rangePreset,
+    sectionFilters.startDate,
+    sectionFilters.endDate
+  );
+
+  return (rows || []).filter((row) => {
+    const created = toDate(row?.created_at);
+    if (start && created && created < start) return false;
+    if (end && created && created > end) return false;
+
+    if (sectionFilters.team !== "all" && row?.team_name !== sectionFilters.team) return false;
+    if (sectionFilters.employee !== "all" && row?.employee_name !== sectionFilters.employee)
+      return false;
+    if (
+      sectionFilters.reviewSentiment !== "all" &&
+      row?.review_sentiment !== sectionFilters.reviewSentiment
+    )
+      return false;
+    if (
+      sectionFilters.clientSentiment !== "all" &&
+      row?.client_sentiment !== sectionFilters.clientSentiment
+    )
+      return false;
+    if (
+      sectionFilters.resolutionStatus !== "all" &&
+      row?.resolution_status !== sectionFilters.resolutionStatus
+    )
+      return false;
+    if (
+      sectionFilters.resultType !== "all" &&
+      deriveResultType(row?.review_sentiment) !== sectionFilters.resultType
+    )
+      return false;
+
+    return true;
   });
 }
 
 function countBy(rows, key) {
   const map = new Map();
 
-  for (const row of rows) {
-    const label = normalizeText(row[key], "Unknown");
+  for (const row of rows || []) {
+    const label = normalizeText(row?.[key], "Unknown");
     map.set(label, (map.get(label) || 0) + 1);
   }
 
@@ -264,118 +269,160 @@ function countBy(rows, key) {
 }
 
 function orderedEntries(map, preferredOrder = []) {
-  const entries = Array.from(map.entries());
   const orderMap = new Map(preferredOrder.map((item, index) => [item, index]));
 
-  return entries.sort((a, b) => {
+  return Array.from(map.entries()).sort((a, b) => {
     const aIndex = orderMap.has(a[0]) ? orderMap.get(a[0]) : 9999;
     const bIndex = orderMap.has(b[0]) ? orderMap.get(b[0]) : 9999;
 
     if (aIndex !== bIndex) return aIndex - bIndex;
-    return b[1] - a[1] || a[0].localeCompare(b[0]);
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return a[0].localeCompare(b[0]);
   });
 }
 
-function groupTrend(rows, groupKey) {
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function buildWeeklyData(rows) {
   const map = new Map();
 
-  for (const row of rows) {
-    const date = toDate(row.created_at);
-    if (!date) continue;
+  for (const row of rows || []) {
+    const created = toDate(row?.created_at);
+    if (!created) continue;
 
+    const weekStart = getWeekStart(created);
+    const key = weekStart.toISOString();
+
+    const current = map.get(key) || {
+      key,
+      weekStart,
+      label: `Week of ${weekStart.toLocaleDateString(undefined, {
+        month: "short",
+        day: "2-digit",
+      })}`,
+      total: 0,
+      missed: 0,
+      positive: 0,
+      veryPositive: 0,
+      unresolved: 0,
+      rows: [],
+    };
+
+    current.total += 1;
+    if (row?.review_sentiment === "Missed Opportunity") current.missed += 1;
+    if (
+      row?.review_sentiment === "Likely Positive Review" ||
+      row?.review_sentiment === "Highly Likely Positive Review"
+    ) {
+      current.positive += 1;
+    }
+    if (row?.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (row?.resolution_status === "Unresolved") current.unresolved += 1;
+    current.rows.push(row);
+
+    map.set(key, current);
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => b.weekStart.getTime() - a.weekStart.getTime()
+  );
+}
+
+function buildTrendData(rows, groupBy) {
+  const map = new Map();
+
+  for (const row of rows || []) {
+    const created = toDate(row?.created_at);
+    if (!created) continue;
+
+    let key = "";
     let label = "";
-    let sortValue = "";
 
-    if (groupKey === "month") {
-      label = date.toLocaleDateString(undefined, {
+    if (groupBy === "month") {
+      key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}`;
+      label = created.toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
       });
-      sortValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    } else if (groupKey === "week") {
-      const weekStart = new Date(date);
-      const day = weekStart.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      weekStart.setDate(weekStart.getDate() + diff);
-      weekStart.setHours(0, 0, 0, 0);
-
+    } else if (groupBy === "week") {
+      const weekStart = getWeekStart(created);
+      key = weekStart.toISOString().slice(0, 10);
       label = `Week of ${weekStart.toLocaleDateString(undefined, {
         month: "short",
         day: "2-digit",
       })}`;
-      sortValue = weekStart.toISOString();
     } else {
-      label = date.toLocaleDateString(undefined, {
+      key = created.toISOString().slice(0, 10);
+      label = created.toLocaleDateString(undefined, {
         month: "short",
         day: "2-digit",
       });
-      sortValue = date.toISOString().slice(0, 10);
     }
 
-    const current = map.get(sortValue) || {
+    const current = map.get(key) || {
+      key,
       label,
-      sortValue,
       total: 0,
       missed: 0,
       positive: 0,
       unresolved: 0,
       veryPositive: 0,
+      rows: [],
     };
 
     current.total += 1;
-
-    if (row.review_sentiment === "Missed Opportunity") current.missed += 1;
+    if (row?.review_sentiment === "Missed Opportunity") current.missed += 1;
     if (
-      row.review_sentiment === "Likely Positive Review" ||
-      row.review_sentiment === "Highly Likely Positive Review"
+      row?.review_sentiment === "Likely Positive Review" ||
+      row?.review_sentiment === "Highly Likely Positive Review"
     ) {
       current.positive += 1;
     }
-    if (row.resolution_status === "Unresolved") current.unresolved += 1;
-    if (row.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (row?.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (row?.resolution_status === "Unresolved") current.unresolved += 1;
+    current.rows.push(row);
 
-    map.set(sortValue, current);
+    map.set(key, current);
   }
 
-  return Array.from(map.values()).sort((a, b) =>
-    a.sortValue.localeCompare(b.sortValue)
-  );
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function getUniqueValues(rows, key) {
-  return Array.from(
-    new Set(rows.map((row) => String(row[key] || "").trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b));
-}
-
-function buildEmployeeLeaderboard(rows) {
+function buildLeaderboard(rows) {
   const map = new Map();
 
-  for (const row of rows) {
-    const employee = normalizeText(row.employee_name, "Unmapped");
+  for (const row of rows || []) {
+    const employee = normalizeText(row?.employee_name, "Unmapped");
     const current = map.get(employee) || {
-      employee_name: employee,
-      team_name: row.team_name || "-",
+      employee,
+      team: row?.team_name || "-",
       handled: 0,
       missed: 0,
-      positive: 0,
       veryPositive: 0,
       unresolved: 0,
-      mapped: row.employee_match_status === "mapped" ? 1 : 0,
-      sampleConversationId: row.conversation_id || "",
+      positiveReview: 0,
+      sampleRow: row,
+      rows: [],
     };
 
     current.handled += 1;
-
-    if (row.review_sentiment === "Missed Opportunity") current.missed += 1;
+    if (row?.review_sentiment === "Missed Opportunity") current.missed += 1;
+    if (row?.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (row?.resolution_status === "Unresolved") current.unresolved += 1;
     if (
-      row.review_sentiment === "Likely Positive Review" ||
-      row.review_sentiment === "Highly Likely Positive Review"
+      row?.review_sentiment === "Likely Positive Review" ||
+      row?.review_sentiment === "Highly Likely Positive Review"
     ) {
-      current.positive += 1;
+      current.positiveReview += 1;
     }
-    if (row.client_sentiment === "Very Positive") current.veryPositive += 1;
-    if (row.resolution_status === "Unresolved") current.unresolved += 1;
+    current.rows.push(row);
 
     map.set(employee, current);
   }
@@ -384,169 +431,958 @@ function buildEmployeeLeaderboard(rows) {
     .map((item) => ({
       ...item,
       opportunityRate: item.handled ? (item.missed / item.handled) * 100 : 0,
-      positiveRate: item.handled ? (item.positive / item.handled) * 100 : 0,
+      positiveRate: item.handled ? (item.positiveReview / item.handled) * 100 : 0,
       riskRate: item.handled ? (item.unresolved / item.handled) * 100 : 0,
     }))
-    .sort((a, b) => b.handled - a.handled || a.employee_name.localeCompare(b.employee_name));
+    .sort((a, b) => {
+      if (b.handled !== a.handled) return b.handled - a.handled;
+      return a.employee.localeCompare(b.employee);
+    });
 }
 
-function makeConversationUrl(conversationId) {
-  const id = String(conversationId || "").trim();
-  return id ? `${INTERCOM_BASE_URL}/${id}` : "#";
+function buildPieSegments(entries, palette) {
+  const total = entries.reduce((sum, [, count]) => sum + count, 0) || 1;
+  let cumulative = 0;
+
+  return entries.map(([label, count], index) => {
+    const value = (count / total) * 100;
+    const start = cumulative;
+    cumulative += value;
+    return {
+      label,
+      count,
+      percent: value,
+      color: palette[index % palette.length],
+      start,
+      end: cumulative,
+    };
+  });
 }
 
-function buildSpotlightRows(rows, spotlightReview, spotlightClient) {
-  return rows
-    .filter((row) => {
-      const reviewMatch =
-        spotlightReview === "all" ? true : row.review_sentiment === spotlightReview;
-      const clientMatch =
-        spotlightClient === "all" ? true : row.client_sentiment === spotlightClient;
-      return reviewMatch && clientMatch;
-    })
-    .slice(0, 12);
-}
+function buildConicGradient(segments) {
+  if (!segments.length) return "conic-gradient(#1f2937 0 100%)";
 
-function renderPillLinks(params, paramName, activeValue, values) {
-  return (
-    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-      {values.map((item) => {
-        const isActive = activeValue === item.key;
-        return (
-          <Link
-            key={item.key}
-            href={buildHref(params, { [paramName]: item.key })}
-            style={{
-              padding: "8px 12px",
-              borderRadius: "999px",
-              textDecoration: "none",
-              fontSize: "12px",
-              fontWeight: 700,
-              border: isActive
-                ? "1px solid rgba(96,165,250,0.28)"
-                : "1px solid rgba(255,255,255,0.08)",
-              background: isActive
-                ? "linear-gradient(135deg, rgba(37,99,235,0.24), rgba(168,85,247,0.18))"
-                : "rgba(255,255,255,0.03)",
-              color: isActive ? "#eaf0ff" : "#a9b4d0",
-              boxShadow: isActive ? "0 0 18px rgba(59,130,246,0.16)" : "none",
-            }}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </div>
+  const parts = segments.map(
+    (segment) =>
+      `${segment.color} ${segment.start.toFixed(2)}% ${segment.end.toFixed(2)}%`
   );
+
+  return `conic-gradient(${parts.join(", ")})`;
 }
 
-function DistributionBars({
-  entries,
-  total,
-  color,
-  params,
-  filterKey,
-  activeValue,
+function resultTypePalette(resultType) {
+  if (resultType === "Opportunity") return "#f59e0b";
+  if (resultType === "Positive") return "#10b981";
+  if (resultType === "Risk") return "#ef4444";
+  return "#8b5cf6";
+}
+
+function createBaseSectionFilters() {
+  return {
+    rangePreset: "30d",
+    startDate: "",
+    endDate: "",
+    team: "all",
+    employee: "all",
+    reviewSentiment: "all",
+    clientSentiment: "all",
+    resolutionStatus: "all",
+    resultType: "all",
+  };
+}
+
+function createGlobalFilters() {
+  return {
+    rangePreset: "30d",
+    startDate: "",
+    endDate: "",
+    team: "all",
+    employee: "all",
+    reviewSentiment: "all",
+    clientSentiment: "all",
+    resolutionStatus: "all",
+    resultType: "all",
+    cexOnly: true,
+  };
+}
+
+function SectionFilterRow({
+  title,
+  filters,
+  setFilters,
+  teams,
+  employees,
+  reviewSentiments,
+  clientSentiments,
+  resolutionStatuses,
+  showTrendGroup = false,
+  trendGroup,
+  setTrendGroup,
 }) {
-  if (!entries.length) {
-    return (
+  const inputStyle = {
+    width: "100%",
+    minHeight: "42px",
+    borderRadius: "14px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(5,8,18,0.86)",
+    color: "#e7ecff",
+    padding: "0 12px",
+    fontSize: "13px",
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: "11px",
+    color: "#8ea0d6",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "6px",
+    fontWeight: 600,
+  };
+
+  const pillStyle = (active) => ({
+    padding: "7px 10px",
+    borderRadius: "999px",
+    fontSize: "11px",
+    fontWeight: 700,
+    border: active
+      ? "1px solid rgba(96,165,250,0.28)"
+      : "1px solid rgba(255,255,255,0.08)",
+    background: active
+      ? "linear-gradient(135deg, rgba(37,99,235,0.24), rgba(168,85,247,0.18))"
+      : "rgba(255,255,255,0.03)",
+    color: active ? "#eef3ff" : "#a9b4d0",
+    cursor: "pointer",
+  });
+
+  return (
+    <div
+      style={{
+        borderRadius: "18px",
+        border: "1px solid rgba(255,255,255,0.06)",
+        background: "rgba(255,255,255,0.02)",
+        padding: "14px",
+        marginBottom: "16px",
+      }}
+    >
       <div
         style={{
-          borderRadius: "18px",
-          border: "1px dashed rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.02)",
-          padding: "18px",
-          color: "#9fb0d4",
-          fontSize: "14px",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+          alignItems: "center",
+          marginBottom: "12px",
         }}
       >
-        No records match this section yet.
-      </div>
-    );
-  }
+        <div
+          style={{
+            fontSize: "14px",
+            fontWeight: 700,
+            color: "#eef3ff",
+          }}
+        >
+          {title}
+        </div>
 
-  return (
-    <div style={{ display: "grid", gap: "12px" }}>
-      {entries.map(([label, count]) => {
-        const width = total ? Math.max((count / total) * 100, 4) : 0;
-        const isActive = activeValue === label;
-
-        return (
-          <Link
-            key={label}
-            href={buildHref(params, {
-              [filterKey]: isActive ? "all" : label,
-            })}
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              display: "block",
-            }}
-          >
-            <div
-              style={{
-                borderRadius: "18px",
-                border: isActive
-                  ? "1px solid rgba(96,165,250,0.28)"
-                  : "1px solid rgba(255,255,255,0.08)",
-                background: isActive
-                  ? "rgba(37,99,235,0.08)"
-                  : "rgba(255,255,255,0.025)",
-                padding: "14px",
-              }}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {RANGE_PRESETS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() =>
+                setFilters((prev) => ({
+                  ...prev,
+                  rangePreset: item.key,
+                  startDate: "",
+                  endDate: "",
+                }))
+              }
+              style={pillStyle(filters.rangePreset === item.key)}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  marginBottom: "10px",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ fontSize: "14px", fontWeight: 700, color: "#eef3ff" }}>
-                  {label}
-                </div>
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "#c8d6ff",
-                    fontWeight: 700,
-                  }}
-                >
-                  {count} · {formatPercent((count / total) * 100)}
-                </div>
-              </div>
+              {item.label}
+            </button>
+          ))}
 
-              <div
-                style={{
-                  width: "100%",
-                  height: "10px",
-                  borderRadius: "999px",
-                  background: "rgba(255,255,255,0.05)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${width}%`,
-                    height: "100%",
-                    borderRadius: "999px",
-                    background: color,
-                  }}
-                />
-              </div>
-            </div>
-          </Link>
-        );
-      })}
+          {showTrendGroup
+            ? TREND_GROUP_OPTIONS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setTrendGroup(item.key)}
+                  style={pillStyle(trendGroup === item.key)}
+                >
+                  {item.label}
+                </button>
+              ))
+            : null}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: "10px",
+        }}
+      >
+        <div>
+          <label style={labelStyle}>Start</label>
+          <input
+            type="date"
+            value={filters.startDate}
+            onChange={(e) =>
+              setFilters((prev) => ({
+                ...prev,
+                startDate: e.target.value,
+                rangePreset: prev.rangePreset === "all" ? "all" : "custom",
+              }))
+            }
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label style={labelStyle}>End</label>
+          <input
+            type="date"
+            value={filters.endDate}
+            onChange={(e) =>
+              setFilters((prev) => ({
+                ...prev,
+                endDate: e.target.value,
+                rangePreset: prev.rangePreset === "all" ? "all" : "custom",
+              }))
+            }
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label style={labelStyle}>Team</label>
+          <select
+            value={filters.team}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, team: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Teams</option>
+            {teams.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Employee</label>
+          <select
+            value={filters.employee}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, employee: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Employees</option>
+            {employees.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Review</label>
+          <select
+            value={filters.reviewSentiment}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, reviewSentiment: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Review</option>
+            {reviewSentiments.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Client</label>
+          <select
+            value={filters.clientSentiment}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, clientSentiment: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Client</option>
+            {clientSentiments.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Resolution</label>
+          <select
+            value={filters.resolutionStatus}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, resolutionStatus: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Resolution</option>
+            {resolutionStatuses.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Type</label>
+          <select
+            value={filters.resultType}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, resultType: e.target.value }))
+            }
+            style={inputStyle}
+          >
+            <option value="all">All Types</option>
+            <option value="Positive">Positive</option>
+            <option value="Opportunity">Opportunity</option>
+            <option value="Risk">Risk</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
 
-export default async function DashboardPage({ searchParams }) {
-  const params = parseSearchParams(await searchParams);
-  const supabase = getSupabaseAdminClient();
+function DonutChart({ title, subtitle, entries, total, onSelect }) {
+  const palette = ["#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#6366f1"];
+  const segments = buildPieSegments(entries, palette);
+  const gradient = buildConicGradient(segments);
+
+  return (
+    <div
+      style={{
+        borderRadius: "22px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.025)",
+        padding: "18px",
+      }}
+    >
+      <div style={{ fontSize: "24px", fontWeight: 700, marginBottom: "4px" }}>{title}</div>
+      <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "16px" }}>{subtitle}</div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "220px minmax(0, 1fr)",
+          gap: "18px",
+          alignItems: "center",
+        }}
+      >
+        <div
+          style={{
+            width: "220px",
+            height: "220px",
+            margin: "0 auto",
+            borderRadius: "50%",
+            background: gradient,
+            display: "grid",
+            placeItems: "center",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+          }}
+        >
+          <div
+            style={{
+              width: "120px",
+              height: "120px",
+              borderRadius: "50%",
+              background: "linear-gradient(180deg, rgba(12,18,34,0.98), rgba(7,10,22,1))",
+              border: "1px solid rgba(255,255,255,0.06)",
+              display: "grid",
+              placeItems: "center",
+              textAlign: "center",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "34px", fontWeight: 800 }}>{total}</div>
+              <div style={{ fontSize: "12px", color: "#8ea0d6", letterSpacing: "0.08em" }}>
+                TOTAL
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: "10px" }}>
+          {segments.length ? (
+            segments.map((segment) => (
+              <button
+                key={segment.label}
+                type="button"
+                onClick={() => onSelect(segment.label)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "12px minmax(0, 1fr) auto",
+                  gap: "12px",
+                  alignItems: "center",
+                  padding: "12px 14px",
+                  borderRadius: "16px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  color: "#eef3ff",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span
+                  style={{
+                    width: "12px",
+                    height: "12px",
+                    borderRadius: "999px",
+                    background: segment.color,
+                    boxShadow: `0 0 16px ${segment.color}`,
+                  }}
+                />
+                <span style={{ fontSize: "14px", fontWeight: 700 }}>{segment.label}</span>
+                <span style={{ fontSize: "13px", color: "#cdd7ff", fontWeight: 700 }}>
+                  {segment.count} · {formatPercent(segment.percent)}
+                </span>
+              </button>
+            ))
+          ) : (
+            <div
+              style={{
+                borderRadius: "16px",
+                border: "1px dashed rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.02)",
+                padding: "18px",
+                color: "#9fb0d4",
+                fontSize: "14px",
+              }}
+            >
+              No data for this section.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HorizontalBarChart({ title, subtitle, entries, total, onSelect, kind }) {
+  const max = Math.max(...entries.map((item) => item[1]), 1);
+
+  return (
+    <div
+      style={{
+        borderRadius: "22px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.025)",
+        padding: "18px",
+      }}
+    >
+      <div style={{ fontSize: "24px", fontWeight: 700, marginBottom: "4px" }}>{title}</div>
+      <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "16px" }}>{subtitle}</div>
+
+      <div style={{ display: "grid", gap: "12px" }}>
+        {entries.length ? (
+          entries.map(([label, count]) => {
+            const percent = total ? (count / total) * 100 : 0;
+            const width = Math.max((count / max) * 100, 5);
+            const color =
+              kind === "resolution"
+                ? label === "Resolved"
+                  ? "linear-gradient(90deg, #10b981, #06b6d4)"
+                  : label === "Pending"
+                  ? "linear-gradient(90deg, #f59e0b, #f97316)"
+                  : label === "Unclear"
+                  ? "linear-gradient(90deg, #8b5cf6, #ec4899)"
+                  : "linear-gradient(90deg, #ef4444, #7f1d1d)"
+                : resultTypePalette(deriveResultType(label));
+
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onSelect(label)}
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  padding: "12px 14px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  color: "#eef3ff",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    marginBottom: "10px",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "14px", fontWeight: 700 }}>{label}</div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#cdd7ff" }}>
+                    {count} · {formatPercent(percent)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    width: "100%",
+                    height: "12px",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.05)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${width}%`,
+                      height: "100%",
+                      borderRadius: "999px",
+                      background: color,
+                    }}
+                  />
+                </div>
+              </button>
+            );
+          })
+        ) : (
+          <div
+            style={{
+              borderRadius: "16px",
+              border: "1px dashed rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.02)",
+              padding: "18px",
+              color: "#9fb0d4",
+              fontSize: "14px",
+            }}
+          >
+            No data for this section.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KPIStat({ label, value, accent }) {
+  return (
+    <div
+      style={{
+        borderRadius: "20px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: accent,
+        padding: "18px",
+        minHeight: "120px",
+      }}
+    >
+      <div
+        style={{
+          color: "#8ea0d6",
+          fontSize: "11px",
+          textTransform: "uppercase",
+          letterSpacing: "0.12em",
+          marginBottom: "8px",
+          fontWeight: 700,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: "38px",
+          fontWeight: 800,
+          lineHeight: 1,
+          letterSpacing: "-0.04em",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DetailModal({ open, onClose, title, rows, highlightValue }) {
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(2,5,14,0.75)",
+        backdropFilter: "blur(8px)",
+        zIndex: 1000,
+        display: "grid",
+        placeItems: "center",
+        padding: "24px",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(1280px, 96vw)",
+          maxHeight: "90vh",
+          overflow: "hidden",
+          borderRadius: "28px",
+          border: "1px solid rgba(255,255,255,0.08)",
+          background:
+            "linear-gradient(180deg, rgba(15,22,43,0.97), rgba(7,10,24,0.99))",
+          boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+        }}
+      >
+        <div
+          style={{
+            padding: "22px 24px",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: "28px", fontWeight: 800 }}>{title}</div>
+            <div style={{ color: "#8ea0d6", fontSize: "14px", marginTop: "6px" }}>
+              {highlightValue} · {rows.length} conversation(s)
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              borderRadius: "14px",
+              padding: "10px 14px",
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.03)",
+              color: "#eef3ff",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Close
+          </button>
+        </div>
+
+        <div style={{ maxHeight: "calc(90vh - 96px)", overflow: "auto", padding: "20px 24px" }}>
+          <div style={{ display: "grid", gap: "12px" }}>
+            {rows.map((row) => (
+              <div
+                key={`${row.conversation_id}-${row.created_at}`}
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  padding: "16px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "220px repeat(4, minmax(0, 1fr)) auto",
+                    gap: "14px",
+                    alignItems: "start",
+                  }}
+                >
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Conversation
+                    </div>
+                    <div style={{ fontSize: "18px", fontWeight: 800, marginBottom: "8px" }}>
+                      {row.conversation_id}
+                    </div>
+                    <div style={{ color: "#9fb0d4", fontSize: "12px", lineHeight: 1.7 }}>
+                      Agent: {row.agent_name || "Unassigned"}
+                      <br />
+                      Client: {row.client_email || "-"}
+                      <br />
+                      Replied: {formatDateTime(row.replied_at || row.created_at)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Employee
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{row.employee_name || "Unmapped"}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Team
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{row.team_name || "-"}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Review
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{row.review_sentiment || "-"}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Client
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{row.client_sentiment || "-"}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#8ea0d6", fontSize: "11px", marginBottom: "6px" }}>
+                      Resolution
+                    </div>
+                    <div style={{ fontWeight: 700 }}>{row.resolution_status || "-"}</div>
+                  </div>
+
+                  <a
+                    href={conversationUrl(row.conversation_id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      alignSelf: "center",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "10px 12px",
+                      borderRadius: "14px",
+                      textDecoration: "none",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "#ecf2ff",
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    Open in Intercom
+                  </a>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "14px",
+                    color: row.error ? "#fecdd3" : "#dbe7ff",
+                    fontSize: "14px",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  {row.error || row.ai_verdict || "-"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
+  const [rawRows, setRawRows] = useState([]);
+  const [error, setError] = useState("");
+
+  const [globalFilters, setGlobalFilters] = useState(createGlobalFilters());
+
+  const [reviewFilters, setReviewFilters] = useState(createBaseSectionFilters());
+  const [clientFilters, setClientFilters] = useState(createBaseSectionFilters());
+  const [resolutionFilters, setResolutionFilters] = useState(createBaseSectionFilters());
+  const [weeklyFilters, setWeeklyFilters] = useState({
+    ...createBaseSectionFilters(),
+    rangePreset: "90d",
+  });
+  const [leaderboardFilters, setLeaderboardFilters] = useState({
+    ...createBaseSectionFilters(),
+    rangePreset: "90d",
+  });
+  const [trendFilters, setTrendFilters] = useState({
+    ...createBaseSectionFilters(),
+    rangePreset: "90d",
+  });
+  const [trendGroup, setTrendGroup] = useState("week");
+
+  const [detailState, setDetailState] = useState({
+    open: false,
+    title: "",
+    value: "",
+    rows: [],
+  });
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRows() {
+      setLoading(true);
+      setError("");
+
+      const { data, error: fetchError } = await supabase
+        .from("audit_results")
+        .select(`
+          id,
+          run_id,
+          conversation_id,
+          replied_at,
+          csat_score,
+          client_email,
+          agent_name,
+          employee_name,
+          employee_email,
+          team_name,
+          employee_match_status,
+          ai_verdict,
+          review_sentiment,
+          client_sentiment,
+          resolution_status,
+          error,
+          created_at
+        `)
+        .order("created_at", { ascending: false })
+        .limit(10000);
+
+      if (!active) return;
+
+      if (fetchError) {
+        setError(fetchError.message || "Could not load dashboard data.");
+        setRawRows([]);
+      } else {
+        setRawRows(Array.isArray(data) ? data : []);
+      }
+
+      setLoading(false);
+    }
+
+    loadRows();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const dedupedRows = useMemo(() => dedupeLatestByConversation(rawRows), [rawRows]);
+
+  const teams = useMemo(() => uniqueValues(dedupedRows, "team_name"), [dedupedRows]);
+  const employees = useMemo(
+    () => uniqueValues(dedupedRows, "employee_name"),
+    [dedupedRows]
+  );
+  const reviewSentiments = useMemo(
+    () => uniqueValues(dedupedRows, "review_sentiment"),
+    [dedupedRows]
+  );
+  const clientSentiments = useMemo(
+    () => uniqueValues(dedupedRows, "client_sentiment"),
+    [dedupedRows]
+  );
+  const resolutionStatuses = useMemo(
+    () => uniqueValues(dedupedRows, "resolution_status"),
+    [dedupedRows]
+  );
+
+  const filteredRows = useMemo(
+    () => filterRows(dedupedRows, globalFilters),
+    [dedupedRows, globalFilters]
+  );
+
+  const reviewRows = useMemo(
+    () => sectionRangeRows(filteredRows, reviewFilters),
+    [filteredRows, reviewFilters]
+  );
+
+  const clientRows = useMemo(
+    () => sectionRangeRows(filteredRows, clientFilters),
+    [filteredRows, clientFilters]
+  );
+
+  const resolutionRows = useMemo(
+    () => sectionRangeRows(filteredRows, resolutionFilters),
+    [filteredRows, resolutionFilters]
+  );
+
+  const weeklyRows = useMemo(
+    () => sectionRangeRows(filteredRows, weeklyFilters),
+    [filteredRows, weeklyFilters]
+  );
+
+  const leaderboardRows = useMemo(
+    () => sectionRangeRows(filteredRows, leaderboardFilters),
+    [filteredRows, leaderboardFilters]
+  );
+
+  const trendRows = useMemo(
+    () => sectionRangeRows(filteredRows, trendFilters),
+    [filteredRows, trendFilters]
+  );
+
+  const reviewEntries = useMemo(
+    () => orderedEntries(countBy(reviewRows, "review_sentiment"), REVIEW_SENTIMENT_ORDER),
+    [reviewRows]
+  );
+
+  const clientEntries = useMemo(
+    () => orderedEntries(countBy(clientRows, "client_sentiment"), CLIENT_SENTIMENT_ORDER),
+    [clientRows]
+  );
+
+  const resolutionEntries = useMemo(
+    () => orderedEntries(countBy(resolutionRows, "resolution_status"), RESOLUTION_ORDER),
+    [resolutionRows]
+  );
+
+  const weeklyData = useMemo(() => buildWeeklyData(weeklyRows), [weeklyRows]);
+  const leaderboard = useMemo(() => buildLeaderboard(leaderboardRows), [leaderboardRows]);
+  const trendData = useMemo(() => buildTrendData(trendRows, trendGroup), [trendRows, trendGroup]);
+
+  const total = filteredRows.length;
+  const missedCount = filteredRows.filter(
+    (row) => row.review_sentiment === "Missed Opportunity"
+  ).length;
+  const veryPositiveCount = filteredRows.filter(
+    (row) => row.client_sentiment === "Very Positive"
+  ).length;
+  const resolvedCount = filteredRows.filter(
+    (row) => row.resolution_status === "Resolved"
+  ).length;
+  const unresolvedCount = filteredRows.filter(
+    (row) => row.resolution_status === "Unresolved"
+  ).length;
+  const mappedCount = filteredRows.filter(
+    (row) => row.employee_match_status === "mapped"
+  ).length;
+  const cexCount = filteredRows.filter((row) => row.team_name === "CEx").length;
+
+  const latestStoredAt = filteredRows[0]?.created_at || dedupedRows[0]?.created_at || "";
+
+  function openDetail(title, value, rows) {
+    setDetailState({
+      open: true,
+      title,
+      value,
+      rows: (rows || []).slice(0, 120),
+    });
+  }
 
   const pageStyle = {
     minHeight: "100vh",
@@ -559,7 +1395,7 @@ export default async function DashboardPage({ searchParams }) {
   };
 
   const shellStyle = {
-    maxWidth: "1480px",
+    maxWidth: "1500px",
     margin: "0 auto",
   };
 
@@ -582,39 +1418,21 @@ export default async function DashboardPage({ searchParams }) {
     border: "1px solid rgba(255,255,255,0.08)",
     background: "linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96))",
     borderRadius: "28px",
-    padding: "28px",
+    padding: "20px",
     boxShadow: "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-  };
-
-  const cardStyle = {
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(9, 13, 28, 0.84)",
-    borderRadius: "22px",
-    padding: "22px",
-    boxShadow: "0 14px 30px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
   };
 
   const sectionCardStyle = {
     border: "1px solid rgba(255,255,255,0.08)",
     background: "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
     borderRadius: "24px",
-    padding: "24px",
+    padding: "20px",
     boxShadow: "0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
-  };
-
-  const labelStyle = {
-    display: "block",
-    fontSize: "12px",
-    color: "#8ea0d6",
-    textTransform: "uppercase",
-    letterSpacing: "0.14em",
-    marginBottom: "8px",
-    fontWeight: 600,
   };
 
   const inputStyle = {
     width: "100%",
-    minHeight: "52px",
+    minHeight: "48px",
     borderRadius: "16px",
     border: "1px solid rgba(255,255,255,0.08)",
     background: "rgba(5,8,18,0.9)",
@@ -625,198 +1443,40 @@ export default async function DashboardPage({ searchParams }) {
     boxSizing: "border-box",
   };
 
-  const buttonStyle = {
-    border: "none",
-    borderRadius: "16px",
-    padding: "14px 20px",
-    fontSize: "14px",
+  const labelStyle = {
+    display: "block",
+    fontSize: "11px",
+    color: "#8ea0d6",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    marginBottom: "6px",
+    fontWeight: 600,
+  };
+
+  const compactButtonStyle = {
+    borderRadius: "14px",
+    padding: "12px 16px",
+    fontSize: "13px",
     fontWeight: 700,
     color: "#ffffff",
     cursor: "pointer",
     background: "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
+    border: "none",
     boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
   };
 
-  if (!supabase) {
-    return (
-      <main style={pageStyle}>
-        <div style={shellStyle}>
-          <div style={topBarStyle}>
-            <div>
-              <div
-                style={{
-                  fontSize: "12px",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: "#8ea0d6",
-                  marginBottom: "8px",
-                }}
-              >
-                NEXT Ventures
-              </div>
-              <div style={{ fontSize: "24px", fontWeight: 700 }}>
-                Review Approach &amp; Client Sentiment Tracking
-              </div>
-            </div>
-          </div>
-
-          <section style={panelStyle}>
-            <h1
-              style={{
-                fontSize: "40px",
-                lineHeight: 1.08,
-                letterSpacing: "-0.04em",
-                margin: "0 0 16px",
-              }}
-            >
-              Dashboard cannot load yet.
-            </h1>
-            <p style={{ margin: 0, color: "#a9b4d0", fontSize: "18px", lineHeight: 1.7 }}>
-              Supabase server credentials are missing. This page reads directly from Supabase, not
-              from the Results UI, so it needs the server environment variables to exist first.
-            </p>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
-  const { data, error } = await supabase
-    .from("audit_results")
-    .select(
-      `
-      id,
-      run_id,
-      conversation_id,
-      replied_at,
-      csat_score,
-      client_email,
-      agent_name,
-      employee_name,
-      employee_email,
-      team_name,
-      employee_match_status,
-      ai_verdict,
-      review_sentiment,
-      client_sentiment,
-      resolution_status,
-      error,
-      created_at,
-      audit_runs (
-        requested_by_email,
-        audit_mode,
-        start_date,
-        end_date,
-        created_at
-      )
-    `
-    )
-    .order("created_at", { ascending: false })
-    .limit(10000);
-
-  const rows = error ? [] : Array.isArray(data) ? data : [];
-  const latestUniqueRows = dedupeLatestByConversation(rows);
-  const filteredRows = applyGlobalFilters(latestUniqueRows, params);
-
-  const rangeInfo = getDateRange(params);
-  const reviewRows = applySectionWindow(filteredRows, params.reviewWindow, rangeInfo.endDate);
-  const clientRows = applySectionWindow(filteredRows, params.clientWindow, rangeInfo.endDate);
-  const leaderboardRows = applySectionWindow(
-    filteredRows,
-    params.leaderboardWindow,
-    rangeInfo.endDate
-  );
-  const trendRows = applySectionWindow(filteredRows, params.trendWindow, rangeInfo.endDate);
-
-  const reviewEntries = orderedEntries(
-    countBy(reviewRows, "review_sentiment"),
-    REVIEW_SENTIMENT_ORDER
-  );
-  const clientEntries = orderedEntries(
-    countBy(clientRows, "client_sentiment"),
-    CLIENT_SENTIMENT_ORDER
-  );
-  const resolutionEntries = orderedEntries(
-    countBy(filteredRows, "resolution_status"),
-    RESOLUTION_ORDER
-  );
-  const trendEntries = groupTrend(trendRows, params.trendGroup);
-  const employeeLeaderboard = buildEmployeeLeaderboard(leaderboardRows).slice(0, 12);
-  const spotlightRows = buildSpotlightRows(
-    filteredRows,
-    params.spotlightReview,
-    params.spotlightClient
-  );
-
-  const teams = getUniqueValues(latestUniqueRows, "team_name");
-  const employees = getUniqueValues(latestUniqueRows, "employee_name");
-  const reviewSentiments = getUniqueValues(latestUniqueRows, "review_sentiment");
-  const clientSentiments = getUniqueValues(latestUniqueRows, "client_sentiment");
-  const resolutionStatuses = getUniqueValues(latestUniqueRows, "resolution_status");
-
-  const total = filteredRows.length;
-  const positiveOutcomes = filteredRows.filter((row) =>
-    ["Likely Positive Review", "Highly Likely Positive Review"].includes(row.review_sentiment)
-  ).length;
-  const missedCount = filteredRows.filter(
-    (row) => row.review_sentiment === "Missed Opportunity"
-  ).length;
-  const veryPositiveCount = filteredRows.filter(
-    (row) => row.client_sentiment === "Very Positive"
-  ).length;
-  const resolvedCount = filteredRows.filter(
-    (row) => row.resolution_status === "Resolved"
-  ).length;
-  const unresolvedCount = filteredRows.filter(
-    (row) => row.resolution_status === "Unresolved"
-  ).length;
-  const cexCount = filteredRows.filter((row) => row.team_name === "CEx").length;
-  const mappedCount = filteredRows.filter(
-    (row) => row.employee_match_status === "mapped"
-  ).length;
-  const errorCount = filteredRows.filter((row) => Boolean(row.error)).length;
-
-  const kpiCards = [
-    {
-      label: "Unique Audited Conversations",
-      value: total,
-      subtext: "Latest stored row per conversation only. Dashboard ignores duplicate audit saves.",
-      accent: "linear-gradient(135deg, rgba(37,99,235,0.22), rgba(168,85,247,0.14))",
-    },
-    {
-      label: "Missed Opportunities",
-      value: missedCount,
-      subtext: "Review requests that were likely left on the table inside the filtered result set.",
-      accent: "linear-gradient(135deg, rgba(245,158,11,0.18), rgba(249,115,22,0.14))",
-    },
-    {
-      label: "Very Positive Clients",
-      value: veryPositiveCount,
-      subtext: "Conversations where the client ended in a very positive emotional state.",
-      accent: "linear-gradient(135deg, rgba(16,185,129,0.18), rgba(6,182,212,0.14))",
-    },
-    {
-      label: "Positive Resolution Rate",
-      value: formatPercent(total ? (resolvedCount / total) * 100 : 0),
-      subtext: "Share of filtered conversations that ended with resolution status = Resolved.",
-      accent: "linear-gradient(135deg, rgba(14,165,233,0.16), rgba(34,197,94,0.14))",
-    },
-    {
-      label: "Unresolved Risk Count",
-      value: unresolvedCount,
-      subtext: "Rows still marked as unresolved in the deduped filtered data.",
-      accent: "linear-gradient(135deg, rgba(244,63,94,0.18), rgba(168,85,247,0.14))",
-    },
-    {
-      label: "Mapped Employee Records",
-      value: `${mappedCount}/${total}`,
-      subtext: `CEx rows in current view: ${cexCount}. Dashboard is now reading mapped employee fields from Supabase.`,
-      accent: "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(16,185,129,0.12))",
-    },
-  ];
-
   return (
     <main style={pageStyle}>
+      <DetailModal
+        open={detailState.open}
+        onClose={() =>
+          setDetailState({ open: false, title: "", value: "", rows: [] })
+        }
+        title={detailState.title}
+        highlightValue={detailState.value}
+        rows={detailState.rows}
+      />
+
       <div style={shellStyle}>
         <div style={topBarStyle}>
           <div>
@@ -868,1344 +1528,1284 @@ export default async function DashboardPage({ searchParams }) {
                 display: "inline-block",
               }}
             />
-            Real Supabase Analytics
+            Live Dashboard
           </div>
         </div>
 
-        <section style={{ ...panelStyle, marginBottom: "24px" }}>
+        <section style={{ ...panelStyle, marginBottom: "22px" }}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.2fr) minmax(320px, 0.8fr)",
-              gap: "24px",
-              alignItems: "start",
+              gridTemplateColumns: "minmax(0, 1fr) auto",
+              gap: "18px",
+              alignItems: "center",
             }}
           >
             <div>
               <div
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 12px",
-                  borderRadius: "999px",
-                  background: "rgba(99,102,241,0.14)",
-                  border: "1px solid rgba(129,140,248,0.2)",
-                  color: "#cdd7ff",
                   fontSize: "12px",
-                  fontWeight: 600,
-                  marginBottom: "18px",
+                  color: "#8ea0d6",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.16em",
+                  marginBottom: "10px",
+                  fontWeight: 700,
                 }}
               >
-                Premium Intelligence Layer
+                Dashboard
               </div>
-
-              <h1
+              <div
                 style={{
-                  fontSize: "56px",
-                  lineHeight: 1.01,
-                  letterSpacing: "-0.055em",
-                  margin: "0 0 18px",
-                  maxWidth: "900px",
+                  fontSize: "44px",
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.05em",
+                  fontWeight: 800,
+                  marginBottom: "10px",
                 }}
               >
-                Premium QA intelligence from deduped stored audits, not fake dashboard filler.
-              </h1>
-
-              <p
+                QA intelligence
+              </div>
+              <div
                 style={{
-                  margin: "0 0 20px",
                   color: "#a9b4d0",
-                  fontSize: "18px",
-                  lineHeight: 1.75,
-                  maxWidth: "920px",
+                  fontSize: "14px",
+                  lineHeight: 1.7,
                 }}
               >
-                This Dashboard reads directly from Supabase, dedupes by conversation ID, keeps the
-                latest stored result, and turns your mapped audit records into real insight panels,
-                trend views, employee intelligence, and Intercom drilldowns.
-              </p>
-
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <Link
-                  href="/run"
-                  style={{
-                    ...buttonStyle,
-                    textDecoration: "none",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  Run New Audit
-                </Link>
-
-                <Link
-                  href="/results"
-                  style={{
-                    textDecoration: "none",
-                    borderRadius: "16px",
-                    padding: "14px 18px",
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    color: "#e5ebff",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                  }}
-                >
-                  Open Results Archive
-                </Link>
-
-                <Link
-                  href="/admin"
-                  style={{
-                    textDecoration: "none",
-                    borderRadius: "16px",
-                    padding: "14px 18px",
-                    fontSize: "14px",
-                    fontWeight: 700,
-                    color: "#e5ebff",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                  }}
-                >
-                  Admin Controls
-                </Link>
+                Latest stored result: {formatDateTime(latestStoredAt)}
               </div>
             </div>
 
-            <div style={{ ...cardStyle, minHeight: "100%" }}>
-              <div style={labelStyle}>Dashboard Foundation</div>
-              <div
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <Link href="/run" style={{ ...compactButtonStyle, textDecoration: "none" }}>
+                Run Audit
+              </Link>
+              <Link
+                href="/results"
                 style={{
-                  fontSize: "26px",
+                  textDecoration: "none",
+                  borderRadius: "14px",
+                  padding: "12px 16px",
+                  fontSize: "13px",
                   fontWeight: 700,
-                  lineHeight: 1.15,
-                  marginBottom: "14px",
+                  color: "#e5ebff",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
-                What this page is pulling from
-              </div>
-
-              <div
+                Results
+              </Link>
+              <Link
+                href="/admin"
                 style={{
-                  display: "grid",
-                  gap: "12px",
-                  color: "#dbe7ff",
-                  fontSize: "15px",
-                  lineHeight: 1.8,
+                  textDecoration: "none",
+                  borderRadius: "14px",
+                  padding: "12px 16px",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#e5ebff",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
-                <div
-                  style={{
-                    borderRadius: "18px",
-                    background: "rgba(16,185,129,0.08)",
-                    border: "1px solid rgba(16,185,129,0.18)",
-                    padding: "14px 16px",
-                  }}
-                >
-                  <strong>Source of truth:</strong> Supabase `audit_results`, `audit_runs`, and
-                  mapped employee fields.
-                </div>
-
-                <div
-                  style={{
-                    borderRadius: "18px",
-                    background: "rgba(59,130,246,0.08)",
-                    border: "1px solid rgba(59,130,246,0.18)",
-                    padding: "14px 16px",
-                  }}
-                >
-                  <strong>Duplicate protection:</strong> only the latest saved row per
-                  conversation_id is counted in analytics.
-                </div>
-
-                <div
-                  style={{
-                    borderRadius: "18px",
-                    background: "rgba(245,158,11,0.08)",
-                    border: "1px solid rgba(245,158,11,0.18)",
-                    padding: "14px 16px",
-                  }}
-                >
-                  <strong>Drilldown behavior:</strong> each conversation ID can open directly in
-                  Intercom.
-                </div>
-              </div>
+                Admin
+              </Link>
             </div>
           </div>
         </section>
 
-        <section style={{ ...panelStyle, marginBottom: "24px" }}>
+        <section style={{ ...panelStyle, marginBottom: "22px" }}>
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "18px",
-              flexWrap: "wrap",
+              display: "grid",
+              gridTemplateColumns: "repeat(5, minmax(0, 1fr)) auto",
+              gap: "12px",
               alignItems: "end",
-              marginBottom: "18px",
             }}
           >
             <div>
-              <div style={labelStyle}>Global Dashboard Controls</div>
-              <div
-                style={{
-                  fontSize: "28px",
-                  fontWeight: 700,
-                  lineHeight: 1.12,
-                  marginBottom: "8px",
-                }}
+              <label style={labelStyle}>Range</label>
+              <select
+                value={globalFilters.rangePreset}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    rangePreset: e.target.value,
+                    startDate: "",
+                    endDate: "",
+                  }))
+                }
+                style={inputStyle}
               >
-                Filter the entire analytics layer
-              </div>
-              <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7 }}>
-                Change the date range, employee slice, team, or sentiment focus. Every section
-                below reads from this filtered foundation first.
-              </div>
+                <option value="7d">Past 7 Days</option>
+                <option value="30d">Past 30 Days</option>
+                <option value="90d">Past 90 Days</option>
+                <option value="180d">Past 180 Days</option>
+                <option value="365d">Past 1 Year</option>
+                <option value="all">All Time</option>
+                <option value="custom">Custom</option>
+              </select>
             </div>
 
-            <div style={{ color: "#a9b4d0", fontSize: "14px", lineHeight: 1.7 }}>
-              Active range:{" "}
-              <strong style={{ color: "#eef3ff" }}>
-                {rangeInfo.startDate
-                  ? `${formatDateOnly(rangeInfo.startDate)} to ${formatDateOnly(
-                      rangeInfo.endDate
-                    )}`
-                  : `All available data until ${formatDateOnly(rangeInfo.endDate)}`}
-              </strong>
+            <div>
+              <label style={labelStyle}>Start</label>
+              <input
+                type="date"
+                value={globalFilters.startDate}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    startDate: e.target.value,
+                    rangePreset: prev.rangePreset === "all" ? "all" : "custom",
+                  }))
+                }
+                style={inputStyle}
+              />
             </div>
+
+            <div>
+              <label style={labelStyle}>End</label>
+              <input
+                type="date"
+                value={globalFilters.endDate}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    endDate: e.target.value,
+                    rangePreset: prev.rangePreset === "all" ? "all" : "custom",
+                  }))
+                }
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Team</label>
+              <select
+                value={globalFilters.team}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({ ...prev, team: e.target.value }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Teams</option>
+                {teams.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Employee</label>
+              <select
+                value={globalFilters.employee}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({ ...prev, employee: e.target.value }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Employees</option>
+                {employees.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#dbe7ff",
+                fontSize: "14px",
+                fontWeight: 600,
+                paddingBottom: "12px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={globalFilters.cexOnly}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({ ...prev, cexOnly: e.target.checked }))
+                }
+              />
+              CEx only
+            </label>
+
+            <div>
+              <label style={labelStyle}>Review</label>
+              <select
+                value={globalFilters.reviewSentiment}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    reviewSentiment: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Review</option>
+                {reviewSentiments.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Client</label>
+              <select
+                value={globalFilters.clientSentiment}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    clientSentiment: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Client</option>
+                {clientSentiments.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Resolution</label>
+              <select
+                value={globalFilters.resolutionStatus}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    resolutionStatus: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Resolution</option>
+                {resolutionStatuses.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Type</label>
+              <select
+                value={globalFilters.resultType}
+                onChange={(e) =>
+                  setGlobalFilters((prev) => ({
+                    ...prev,
+                    resultType: e.target.value,
+                  }))
+                }
+                style={inputStyle}
+              >
+                <option value="all">All Types</option>
+                <option value="Positive">Positive</option>
+                <option value="Opportunity">Opportunity</option>
+                <option value="Risk">Risk</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setGlobalFilters(createGlobalFilters())}
+              style={compactButtonStyle}
+            >
+              Reset
+            </button>
           </div>
-
-          <form method="get">
-            <input type="hidden" name="reviewWindow" value={params.reviewWindow} />
-            <input type="hidden" name="clientWindow" value={params.clientWindow} />
-            <input type="hidden" name="leaderboardWindow" value={params.leaderboardWindow} />
-            <input type="hidden" name="trendWindow" value={params.trendWindow} />
-            <input type="hidden" name="trendGroup" value={params.trendGroup} />
-            <input type="hidden" name="spotlightReview" value={params.spotlightReview} />
-            <input type="hidden" name="spotlightClient" value={params.spotlightClient} />
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                gap: "14px",
-                marginBottom: "14px",
-              }}
-            >
-              <div>
-                <label style={labelStyle}>Range Preset</label>
-                <select name="range" defaultValue={params.range} style={inputStyle}>
-                  <option value="7d">Past 7 Days</option>
-                  <option value="30d">Past 30 Days</option>
-                  <option value="90d">Past 90 Days</option>
-                  <option value="180d">Past 6 Months</option>
-                  <option value="365d">Past 12 Months</option>
-                  <option value="all">All Time</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Start Date</label>
-                <input type="date" name="start" defaultValue={params.start} style={inputStyle} />
-              </div>
-
-              <div>
-                <label style={labelStyle}>End Date</label>
-                <input type="date" name="end" defaultValue={params.end} style={inputStyle} />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Team</label>
-                <select name="team" defaultValue={params.team} style={inputStyle}>
-                  <option value="all">All Teams</option>
-                  {teams.map((team) => (
-                    <option key={team} value={team}>
-                      {team}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Employee</label>
-                <select name="employee" defaultValue={params.employee} style={inputStyle}>
-                  <option value="all">All Employees</option>
-                  {employees.map((employee) => (
-                    <option key={employee} value={employee}>
-                      {employee}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Review Sentiment</label>
-                <select name="review" defaultValue={params.review} style={inputStyle}>
-                  <option value="all">All Review Sentiments</option>
-                  {reviewSentiments.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Client Sentiment</label>
-                <select name="client" defaultValue={params.client} style={inputStyle}>
-                  <option value="all">All Client Sentiments</option>
-                  {clientSentiments.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Resolution</label>
-                <select name="resolution" defaultValue={params.resolution} style={inputStyle}>
-                  <option value="all">All Resolution Statuses</option>
-                  {resolutionStatuses.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) 220px 220px auto",
-                gap: "14px",
-                alignItems: "end",
-              }}
-            >
-              <div>
-                <label style={labelStyle}>Insight Focus Review Type</label>
-                <select
-                  name="spotlightReview"
-                  defaultValue={params.spotlightReview}
-                  style={inputStyle}
-                >
-                  <option value="all">All Review Types</option>
-                  {reviewSentiments.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Insight Focus Client Sentiment</label>
-                <select
-                  name="spotlightClient"
-                  defaultValue={params.spotlightClient}
-                  style={inputStyle}
-                >
-                  <option value="all">All Client Sentiments</option>
-                  {clientSentiments.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Result Type</label>
-                <select
-                  name="resultType"
-                  defaultValue={params.resultType}
-                  style={inputStyle}
-                >
-                  <option value="all">All Result Types</option>
-                  <option value="Positive">Positive</option>
-                  <option value="Opportunity">Opportunity</option>
-                  <option value="Risk">Risk</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <button type="submit" style={buttonStyle}>
-                Apply Dashboard Filters
-              </button>
-            </div>
-          </form>
         </section>
 
         <section
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
-            gap: "18px",
-            marginBottom: "24px",
+            gap: "14px",
+            marginBottom: "22px",
           }}
         >
-          {kpiCards.map((card) => (
-            <div key={card.label} style={{ ...cardStyle, background: card.accent }}>
-              <div
-                style={{
-                  color: "#8ea0d6",
-                  fontSize: "12px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "10px",
-                }}
-              >
-                {card.label}
-              </div>
-              <div
-                style={{
-                  fontSize: "34px",
-                  fontWeight: 800,
-                  letterSpacing: "-0.04em",
-                  marginBottom: "10px",
-                }}
-              >
-                {card.value}
-              </div>
-              <div style={{ color: "#d8e3ff", fontSize: "14px", lineHeight: 1.7 }}>
-                {card.subtext}
-              </div>
-            </div>
-          ))}
+          <KPIStat
+            label="Unique Conversations"
+            value={total}
+            accent="linear-gradient(135deg, rgba(37,99,235,0.18), rgba(99,102,241,0.12))"
+          />
+          <KPIStat
+            label="Missed Opportunities"
+            value={missedCount}
+            accent="linear-gradient(135deg, rgba(245,158,11,0.18), rgba(249,115,22,0.12))"
+          />
+          <KPIStat
+            label="Very Positive"
+            value={veryPositiveCount}
+            accent="linear-gradient(135deg, rgba(16,185,129,0.18), rgba(6,182,212,0.12))"
+          />
+          <KPIStat
+            label="Resolution Rate"
+            value={formatPercent(total ? (resolvedCount / total) * 100 : 0)}
+            accent="linear-gradient(135deg, rgba(14,165,233,0.18), rgba(34,197,94,0.12))"
+          />
+          <KPIStat
+            label="Unresolved"
+            value={unresolvedCount}
+            accent="linear-gradient(135deg, rgba(244,63,94,0.18), rgba(168,85,247,0.12))"
+          />
+          <KPIStat
+            label="Mapped Records"
+            value={`${mappedCount}/${total}`}
+            accent="linear-gradient(135deg, rgba(59,130,246,0.14), rgba(16,185,129,0.12))"
+          />
         </section>
 
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
+        {loading ? (
+          <section style={panelStyle}>
+            <div style={{ fontSize: "24px", fontWeight: 700, marginBottom: "8px" }}>
+              Loading dashboard...
+            </div>
+          </section>
+        ) : error ? (
+          <section style={panelStyle}>
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: "18px",
+                borderRadius: "18px",
+                border: "1px solid rgba(244,63,94,0.22)",
+                background: "rgba(244,63,94,0.08)",
+                padding: "16px",
+                color: "#fecdd3",
               }}
             >
-              <div>
-                <div style={labelStyle}>Review Sentiment Distribution</div>
-                <div style={{ fontSize: "26px", fontWeight: 700, lineHeight: 1.15 }}>
-                  Outcome mix inside your filtered archive
+              {error}
+            </div>
+          </section>
+        ) : (
+          <>
+            <section
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                gap: "18px",
+                marginBottom: "22px",
+              }}
+            >
+              <div style={sectionCardStyle}>
+                <SectionFilterRow
+                  title="Review section filters"
+                  filters={reviewFilters}
+                  setFilters={setReviewFilters}
+                  teams={teams}
+                  employees={employees}
+                  reviewSentiments={reviewSentiments}
+                  clientSentiments={clientSentiments}
+                  resolutionStatuses={resolutionStatuses}
+                />
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
+                    gap: "16px",
+                  }}
+                >
+                  <HorizontalBarChart
+                    title="Review sentiment"
+                    subtitle="Click any bar"
+                    entries={reviewEntries}
+                    total={reviewRows.length}
+                    kind="review"
+                    onSelect={(label) =>
+                      openDetail(
+                        "Review Sentiment Drilldown",
+                        label,
+                        reviewRows.filter((row) => row.review_sentiment === label)
+                      )
+                    }
+                  />
+
+                  <DonutChart
+                    title="Result type mix"
+                    subtitle="Positive / Opportunity / Risk"
+                    entries={orderedEntries(
+                      countBy(
+                        reviewRows.map((row) => ({
+                          ...row,
+                          result_type: deriveResultType(row.review_sentiment),
+                        })),
+                        "result_type"
+                      )
+                    )}
+                    total={reviewRows.length}
+                    onSelect={(label) =>
+                      openDetail(
+                        "Result Type Drilldown",
+                        label,
+                        reviewRows.filter(
+                          (row) => deriveResultType(row.review_sentiment) === label
+                        )
+                      )
+                    }
+                  />
                 </div>
               </div>
 
-              {renderPillLinks(params, "reviewWindow", params.reviewWindow, SECTION_WINDOWS)}
-            </div>
+              <div style={sectionCardStyle}>
+                <SectionFilterRow
+                  title="Client section filters"
+                  filters={clientFilters}
+                  setFilters={setClientFilters}
+                  teams={teams}
+                  employees={employees}
+                  reviewSentiments={reviewSentiments}
+                  clientSentiments={clientSentiments}
+                  resolutionStatuses={resolutionStatuses}
+                />
 
-            <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-              Your old logic emphasized Missed Opportunity. This section keeps that visible, but it
-              also lets you pivot to any review outcome through the global filter bar.
-            </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
+                    gap: "16px",
+                  }}
+                >
+                  <HorizontalBarChart
+                    title="Client sentiment"
+                    subtitle="Click any bar"
+                    entries={clientEntries}
+                    total={clientRows.length}
+                    kind="client"
+                    onSelect={(label) =>
+                      openDetail(
+                        "Client Sentiment Drilldown",
+                        label,
+                        clientRows.filter((row) => row.client_sentiment === label)
+                      )
+                    }
+                  />
 
-            <DistributionBars
-              entries={reviewEntries}
-              total={reviewRows.length}
-              color="linear-gradient(90deg, #06b6d4, #8b5cf6, #ec4899)"
-              params={params}
-              filterKey="review"
-              activeValue={params.review}
-            />
-          </div>
+                  <DonutChart
+                    title="Client sentiment share"
+                    subtitle="Interactive slice drilldown"
+                    entries={clientEntries}
+                    total={clientRows.length}
+                    onSelect={(label) =>
+                      openDetail(
+                        "Client Sentiment Drilldown",
+                        label,
+                        clientRows.filter((row) => row.client_sentiment === label)
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </section>
 
-          <div style={sectionCardStyle}>
-            <div
+            <section
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: "18px",
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                gap: "18px",
+                marginBottom: "22px",
               }}
             >
-              <div>
-                <div style={labelStyle}>Client Sentiment Distribution</div>
-                <div style={{ fontSize: "26px", fontWeight: 700, lineHeight: 1.15 }}>
-                  Emotional direction across deduped conversations
+              <div style={sectionCardStyle}>
+                <SectionFilterRow
+                  title="Resolution section filters"
+                  filters={resolutionFilters}
+                  setFilters={setResolutionFilters}
+                  teams={teams}
+                  employees={employees}
+                  reviewSentiments={reviewSentiments}
+                  clientSentiments={clientSentiments}
+                  resolutionStatuses={resolutionStatuses}
+                />
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
+                    gap: "16px",
+                  }}
+                >
+                  <HorizontalBarChart
+                    title="Resolution status"
+                    subtitle="Click any bar"
+                    entries={resolutionEntries}
+                    total={resolutionRows.length}
+                    kind="resolution"
+                    onSelect={(label) =>
+                      openDetail(
+                        "Resolution Drilldown",
+                        label,
+                        resolutionRows.filter((row) => row.resolution_status === label)
+                      )
+                    }
+                  />
+
+                  <DonutChart
+                    title="Resolution share"
+                    subtitle="Interactive slice drilldown"
+                    entries={resolutionEntries}
+                    total={resolutionRows.length}
+                    onSelect={(label) =>
+                      openDetail(
+                        "Resolution Drilldown",
+                        label,
+                        resolutionRows.filter((row) => row.resolution_status === label)
+                      )
+                    }
+                  />
                 </div>
               </div>
 
-              {renderPillLinks(params, "clientWindow", params.clientWindow, SECTION_WINDOWS)}
-            </div>
+              <div style={sectionCardStyle}>
+                <SectionFilterRow
+                  title="Week-by-week filters"
+                  filters={weeklyFilters}
+                  setFilters={setWeeklyFilters}
+                  teams={teams}
+                  employees={employees}
+                  reviewSentiments={reviewSentiments}
+                  clientSentiments={clientSentiments}
+                  resolutionStatuses={resolutionStatuses}
+                />
 
-            <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-              Your old sheet focused on Very Positive. This section preserves that but keeps the
-              whole emotional range visible, with one-click drill filters.
-            </div>
-
-            <DistributionBars
-              entries={clientEntries}
-              total={clientRows.length}
-              color="linear-gradient(90deg, #22c55e, #06b6d4, #8b5cf6)"
-              params={params}
-              filterKey="client"
-              activeValue={params.client}
-            />
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 0.95fr) minmax(0, 1.05fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Resolution and Risk</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "12px",
-              }}
-            >
-              Resolution pressure and quality-state mix
-            </div>
-
-            <div style={{ display: "grid", gap: "12px", marginBottom: "18px" }}>
-              {resolutionEntries.map(([label, count]) => {
-                const width = total ? Math.max((count / total) * 100, 4) : 0;
-                const active = params.resolution === label;
-
-                return (
-                  <Link
-                    key={label}
-                    href={buildHref(params, { resolution: active ? "all" : label })}
-                    style={{ textDecoration: "none", color: "inherit" }}
-                  >
-                    <div
-                      style={{
-                        borderRadius: "18px",
-                        border: active
-                          ? "1px solid rgba(96,165,250,0.28)"
-                          : "1px solid rgba(255,255,255,0.08)",
-                        background: active
-                          ? "rgba(37,99,235,0.08)"
-                          : "rgba(255,255,255,0.025)",
-                        padding: "14px",
-                      }}
-                    >
-                      <div
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "12px",
+                    maxHeight: "560px",
+                    overflowY: "auto",
+                    paddingRight: "4px",
+                  }}
+                >
+                  {weeklyData.length ? (
+                    weeklyData.map((week) => (
+                      <button
+                        key={week.key}
+                        type="button"
+                        onClick={() =>
+                          openDetail("Weekly Drilldown", week.label, week.rows)
+                        }
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          marginBottom: "10px",
-                        }}
-                      >
-                        <div style={{ fontSize: "14px", fontWeight: 700 }}>{label}</div>
-                        <div style={{ fontSize: "13px", color: "#c8d6ff", fontWeight: 700 }}>
-                          {count} · {formatPercent(total ? (count / total) * 100 : 0)}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "10px",
-                          borderRadius: "999px",
-                          background: "rgba(255,255,255,0.05)",
-                          overflow: "hidden",
+                          textAlign: "left",
+                          borderRadius: "18px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          padding: "16px",
+                          color: "#eef3ff",
+                          cursor: "pointer",
                         }}
                       >
                         <div
                           style={{
-                            width: `${width}%`,
-                            height: "100%",
-                            borderRadius: "999px",
-                            background:
-                              label === "Resolved"
-                                ? "linear-gradient(90deg, #10b981, #06b6d4)"
-                                : label === "Pending"
-                                ? "linear-gradient(90deg, #f59e0b, #f97316)"
-                                : label === "Unclear"
-                                ? "linear-gradient(90deg, #8b5cf6, #ec4899)"
-                                : "linear-gradient(90deg, #ef4444, #b91c1c)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            marginBottom: "10px",
+                            alignItems: "center",
                           }}
-                        />
-                      </div>
+                        >
+                          <div style={{ fontSize: "16px", fontWeight: 800 }}>
+                            {week.label}
+                          </div>
+                          <div style={{ fontSize: "13px", color: "#cdd7ff", fontWeight: 700 }}>
+                            {week.total} total
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                            gap: "10px",
+                            color: "#dbe7ff",
+                            fontSize: "13px",
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          <div>
+                            <strong>Missed</strong>
+                            <br />
+                            {week.missed}
+                          </div>
+                          <div>
+                            <strong>Positive</strong>
+                            <br />
+                            {week.positive}
+                          </div>
+                          <div>
+                            <strong>Very Positive</strong>
+                            <br />
+                            {week.veryPositive}
+                          </div>
+                          <div>
+                            <strong>Unresolved</strong>
+                            <br />
+                            {week.unresolved}
+                          </div>
+                          <div>
+                            <strong>Resolution Rate</strong>
+                            <br />
+                            {formatPercent(
+                              week.total ? ((week.total - week.unresolved) / week.total) * 100 : 0
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div
+                      style={{
+                        borderRadius: "18px",
+                        border: "1px dashed rgba(255,255,255,0.12)",
+                        background: "rgba(255,255,255,0.02)",
+                        padding: "18px",
+                        color: "#9fb0d4",
+                        fontSize: "14px",
+                      }}
+                    >
+                      No week-by-week data.
                     </div>
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: "12px",
-              }}
-            >
-              {[
-                {
-                  title: "Positive Review Outcomes",
-                  value: positiveOutcomes,
-                  desc: "Likely Positive + Highly Likely Positive",
-                },
-                {
-                  title: "Rows With Errors",
-                  value: errorCount,
-                  desc: "Stored audit rows carrying an error message",
-                },
-                {
-                  title: "Mapped Rows",
-                  value: mappedCount,
-                  desc: "Rows with mapped employee identity",
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  style={{
-                    borderRadius: "18px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(255,255,255,0.03)",
-                    padding: "16px",
-                  }}
-                >
-                  <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "8px" }}>
-                    {item.title}
-                  </div>
-                  <div style={{ fontSize: "28px", fontWeight: 800, marginBottom: "8px" }}>
-                    {item.value}
-                  </div>
-                  <div style={{ color: "#a9b4d0", fontSize: "13px", lineHeight: 1.6 }}>
-                    {item.desc}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={sectionCardStyle}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: "18px",
-              }}
-            >
-              <div>
-                <div style={labelStyle}>Insight Spotlight</div>
-                <div style={{ fontSize: "26px", fontWeight: 700, lineHeight: 1.15 }}>
-                  Deep focus on the combinations you care about most
+                  )}
                 </div>
               </div>
+            </section>
 
-              <div style={{ color: "#a9b4d0", fontSize: "13px", lineHeight: 1.6 }}>
-                Current focus: <strong>{params.spotlightReview}</strong> +{" "}
-                <strong>{params.spotlightClient}</strong>
-              </div>
-            </div>
+            <section style={{ ...sectionCardStyle, marginBottom: "22px" }}>
+              <SectionFilterRow
+                title="Leaderboard filters"
+                filters={leaderboardFilters}
+                setFilters={setLeaderboardFilters}
+                teams={teams}
+                employees={employees}
+                reviewSentiments={reviewSentiments}
+                clientSentiments={clientSentiments}
+                resolutionStatuses={resolutionStatuses}
+              />
 
-            <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-              This is where you can keep looking at Missed Opportunity + Very Positive by default,
-              but the filter bar above lets you switch to any combination you want.
-            </div>
-
-            {spotlightRows.length === 0 ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "18px",
-                  color: "#9fb0d4",
-                  fontSize: "14px",
-                }}
-              >
-                No conversations match this spotlight combination in the current filter scope.
-              </div>
-            ) : (
               <div
                 style={{
                   display: "grid",
-                  gap: "12px",
-                  maxHeight: "620px",
-                  overflowY: "auto",
-                  paddingRight: "4px",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: "16px",
+                  marginBottom: "18px",
                 }}
               >
-                {spotlightRows.map((row) => (
-                  <a
-                    key={row.conversation_id}
-                    href={makeConversationUrl(row.conversation_id)}
-                    target="_blank"
-                    rel="noreferrer"
+                {[
+                  {
+                    title: "Top Volume",
+                    rows: [...leaderboard]
+                      .sort((a, b) => b.handled - a.handled)
+                      .slice(0, 5),
+                    field: "handled",
+                  },
+                  {
+                    title: "Top Missed Opportunity",
+                    rows: [...leaderboard]
+                      .sort((a, b) => b.missed - a.missed)
+                      .slice(0, 5),
+                    field: "missed",
+                  },
+                  {
+                    title: "Top Very Positive",
+                    rows: [...leaderboard]
+                      .sort((a, b) => b.veryPositive - a.veryPositive)
+                      .slice(0, 5),
+                    field: "veryPositive",
+                  },
+                  {
+                    title: "Top Risk Rate",
+                    rows: [...leaderboard]
+                      .sort((a, b) => b.riskRate - a.riskRate)
+                      .slice(0, 5),
+                    field: "riskRate",
+                  },
+                ].map((block) => (
+                  <div
+                    key={block.title}
                     style={{
-                      textDecoration: "none",
-                      color: "inherit",
+                      borderRadius: "20px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "16px",
                     }}
                   >
                     <div
                       style={{
-                        borderRadius: "18px",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        background: "rgba(255,255,255,0.03)",
-                        padding: "16px",
+                        fontSize: "18px",
+                        fontWeight: 800,
+                        marginBottom: "12px",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                          marginBottom: "10px",
-                        }}
-                      >
-                        <div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "6px" }}>
-                            Conversation
-                          </div>
-                          <div style={{ fontSize: "18px", fontWeight: 800 }}>
-                            {row.conversation_id}
-                          </div>
-                        </div>
-
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "6px" }}>
-                            Replied At
-                          </div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                            {formatDateTime(row.replied_at || row.created_at)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                          gap: "12px",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "4px" }}>
-                            Employee
-                          </div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                            {row.employee_name || "Unmapped"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "4px" }}>
-                            Team
-                          </div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                            {row.team_name || "-"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "4px" }}>
-                            Review Sentiment
-                          </div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                            {row.review_sentiment || "-"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", marginBottom: "4px" }}>
-                            Client Sentiment
-                          </div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
-                            {row.client_sentiment || "-"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ color: "#dbe7ff", fontSize: "14px", lineHeight: 1.7 }}>
-                        {row.ai_verdict || row.error || "No verdict text stored."}
-                      </div>
+                      {block.title}
                     </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
 
-        <section style={{ ...sectionCardStyle, marginBottom: "24px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "12px",
-              flexWrap: "wrap",
-              alignItems: "center",
-              marginBottom: "18px",
-            }}
-          >
-            <div>
-              <div style={labelStyle}>Employee Intelligence</div>
-              <div style={{ fontSize: "28px", fontWeight: 700, lineHeight: 1.12 }}>
-                Who is driving opportunity, positivity, and risk?
-              </div>
-            </div>
-
-            {renderPillLinks(
-              params,
-              "leaderboardWindow",
-              params.leaderboardWindow,
-              SECTION_WINDOWS
-            )}
-          </div>
-
-          <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-            This section is designed to go beyond your old sheet. It still respects employee-level
-            logic, but adds positive rate, opportunity rate, unresolved risk rate, and drillable
-            conversation samples.
-          </div>
-
-          {employeeLeaderboard.length === 0 ? (
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "18px",
-                color: "#9fb0d4",
-                fontSize: "14px",
-              }}
-            >
-              No employee leaderboard data matches the current filters.
-            </div>
-          ) : (
-            <div
-              style={{
-                overflow: "hidden",
-                borderRadius: "20px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(4,8,20,0.72)",
-              }}
-            >
-              <div style={{ maxHeight: "680px", overflow: "auto" }}>
-                <table
-                  style={{
-                    width: "100%",
-                    minWidth: "1180px",
-                    borderCollapse: "collapse",
-                  }}
-                >
-                  <thead>
-                    <tr style={{ background: "rgba(10,18,34,0.96)" }}>
-                      {[
-                        "Employee",
-                        "Team",
-                        "Handled",
-                        "Missed Opportunity",
-                        "Very Positive",
-                        "Positive Rate",
-                        "Risk Rate",
-                        "Sample Conversation",
-                      ].map((label) => (
-                        <th
-                          key={label}
-                          style={{
-                            padding: "16px 14px",
-                            textAlign: "left",
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            fontWeight: 700,
-                            borderBottom: "1px solid rgba(255,255,255,0.08)",
-                            position: "sticky",
-                            top: 0,
-                            zIndex: 2,
-                            background: "rgba(10,18,34,0.96)",
-                          }}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {employeeLeaderboard.map((row, index) => (
-                      <tr
-                        key={`${row.employee_name}-${index}`}
-                        style={{
-                          background: index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
-                        }}
-                      >
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#f5f7ff",
-                            fontWeight: 800,
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.employee_name}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.team_name || "-"}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {row.handled}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#fde68a",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {row.missed}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#bbf7d0",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {row.veryPositive}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {formatPercent(row.positiveRate)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#fecdd3",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {formatPercent(row.riskRate)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          <a
-                            href={makeConversationUrl(row.sampleConversationId)}
-                            target="_blank"
-                            rel="noreferrer"
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      {block.rows.length ? (
+                        block.rows.map((row) => (
+                          <button
+                            key={`${block.title}-${row.employee}`}
+                            type="button"
+                            onClick={() =>
+                              openDetail(
+                                "Leaderboard Drilldown",
+                                `${block.title}: ${row.employee}`,
+                                row.rows
+                              )
+                            }
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              padding: "10px 12px",
-                              borderRadius: "14px",
-                              textDecoration: "none",
-                              fontSize: "13px",
-                              fontWeight: 700,
-                              color: "#ecf2ff",
-                              background: "rgba(255,255,255,0.03)",
-                              border: "1px solid rgba(255,255,255,0.1)",
+                              textAlign: "left",
+                              borderRadius: "16px",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "rgba(255,255,255,0.02)",
+                              padding: "12px",
+                              color: "#eef3ff",
+                              cursor: "pointer",
                             }}
                           >
-                            Open in Intercom
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "12px",
+                                marginBottom: "6px",
+                              }}
+                            >
+                              <div style={{ fontWeight: 700 }}>{row.employee}</div>
+                              <div style={{ color: "#cdd7ff", fontWeight: 700 }}>
+                                {block.field.includes("Rate")
+                                  ? formatPercent(row[block.field])
+                                  : row[block.field]}
+                              </div>
+                            </div>
+                            <div style={{ color: "#8ea0d6", fontSize: "12px" }}>
+                              {row.team} · handled {row.handled}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div style={{ color: "#9fb0d4", fontSize: "13px" }}>
+                          No leaderboard data.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
-        </section>
 
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
-            <div
+              <div
+                style={{
+                  overflow: "hidden",
+                  borderRadius: "20px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(4,8,20,0.72)",
+                }}
+              >
+                <div style={{ maxHeight: "520px", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      minWidth: "1180px",
+                      borderCollapse: "collapse",
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: "rgba(10,18,34,0.96)" }}>
+                        {[
+                          "Employee",
+                          "Team",
+                          "Handled",
+                          "Missed",
+                          "Very Positive",
+                          "Positive Rate",
+                          "Risk Rate",
+                          "Drilldown",
+                        ].map((label) => (
+                          <th
+                            key={label}
+                            style={{
+                              padding: "14px 12px",
+                              textAlign: "left",
+                              fontSize: "11px",
+                              color: "#8ea0d6",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.12em",
+                              fontWeight: 700,
+                              borderBottom: "1px solid rgba(255,255,255,0.08)",
+                              position: "sticky",
+                              top: 0,
+                              zIndex: 2,
+                              background: "rgba(10,18,34,0.96)",
+                            }}
+                          >
+                            {label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {leaderboard.map((row, index) => (
+                        <tr
+                          key={`${row.employee}-${index}`}
+                          style={{
+                            background: index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
+                          }}
+                        >
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              fontWeight: 800,
+                            }}
+                          >
+                            {row.employee}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                            }}
+                          >
+                            {row.team}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {row.handled}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              color: "#fde68a",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {row.missed}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              color: "#bbf7d0",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {row.veryPositive}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {formatPercent(row.positiveRate)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                              color: "#fecdd3",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {formatPercent(row.riskRate)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "14px 12px",
+                              borderBottom: "1px solid rgba(255,255,255,0.06)",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openDetail("Employee Drilldown", row.employee, row.rows)
+                              }
+                              style={{
+                                borderRadius: "12px",
+                                padding: "10px 12px",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                background: "rgba(255,255,255,0.03)",
+                                color: "#eef3ff",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: "18px",
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                gap: "18px",
               }}
             >
-              <div>
-                <div style={labelStyle}>Trend Signal</div>
-                <div style={{ fontSize: "26px", fontWeight: 700, lineHeight: 1.15 }}>
-                  Time-series movement across the archive
+              <div style={sectionCardStyle}>
+                <SectionFilterRow
+                  title="Trend filters"
+                  filters={trendFilters}
+                  setFilters={setTrendFilters}
+                  teams={teams}
+                  employees={employees}
+                  reviewSentiments={reviewSentiments}
+                  clientSentiments={clientSentiments}
+                  resolutionStatuses={resolutionStatuses}
+                  showTrendGroup
+                  trendGroup={trendGroup}
+                  setTrendGroup={setTrendGroup}
+                />
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "12px",
+                    maxHeight: "520px",
+                    overflowY: "auto",
+                    paddingRight: "4px",
+                  }}
+                >
+                  {trendData.length ? (
+                    trendData.map((item) => {
+                      const maxTotal = Math.max(
+                        ...trendData.map((entry) => entry.total),
+                        1
+                      );
+
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() =>
+                            openDetail("Trend Drilldown", item.label, item.rows)
+                          }
+                          style={{
+                            textAlign: "left",
+                            borderRadius: "18px",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.03)",
+                            padding: "14px",
+                            color: "#eef3ff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              marginBottom: "10px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div style={{ fontSize: "15px", fontWeight: 800 }}>
+                              {item.label}
+                            </div>
+                            <div style={{ color: "#cdd7ff", fontSize: "13px", fontWeight: 700 }}>
+                              {item.total}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              width: "100%",
+                              height: "12px",
+                              borderRadius: "999px",
+                              background: "rgba(255,255,255,0.05)",
+                              overflow: "hidden",
+                              marginBottom: "10px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${Math.max((item.total / maxTotal) * 100, 5)}%`,
+                                height: "100%",
+                                borderRadius: "999px",
+                                background:
+                                  "linear-gradient(90deg, #2563eb, #7c3aed, #db2777)",
+                              }}
+                            />
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                              gap: "10px",
+                              color: "#dbe7ff",
+                              fontSize: "12px",
+                              lineHeight: 1.6,
+                            }}
+                          >
+                            <div>Missed: {item.missed}</div>
+                            <div>Positive: {item.positive}</div>
+                            <div>Very Positive: {item.veryPositive}</div>
+                            <div>Unresolved: {item.unresolved}</div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div
+                      style={{
+                        borderRadius: "18px",
+                        border: "1px dashed rgba(255,255,255,0.12)",
+                        background: "rgba(255,255,255,0.02)",
+                        padding: "18px",
+                        color: "#9fb0d4",
+                        fontSize: "14px",
+                      }}
+                    >
+                      No trend data.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                {renderPillLinks(params, "trendWindow", params.trendWindow, SECTION_WINDOWS)}
-                {renderPillLinks(params, "trendGroup", params.trendGroup, TREND_GROUPS)}
-              </div>
-            </div>
-
-            <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-              This section lets you switch the timeframe and grouping however you want. It is not
-              locked to one weekly-only view.
-            </div>
-
-            {trendEntries.length === 0 ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "18px",
-                  color: "#9fb0d4",
-                  fontSize: "14px",
-                }}
-              >
-                No trend data matches the current filters.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: "14px" }}>
-                {trendEntries.map((item) => {
-                  const totalMax = Math.max(...trendEntries.map((entry) => entry.total), 1);
-
-                  return (
-                    <div
-                      key={item.sortValue}
-                      style={{
-                        borderRadius: "18px",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        background: "rgba(255,255,255,0.025)",
-                        padding: "14px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                          marginBottom: "10px",
-                        }}
-                      >
-                        <div style={{ fontSize: "14px", fontWeight: 800 }}>{item.label}</div>
-                        <div style={{ color: "#c8d6ff", fontSize: "13px", fontWeight: 700 }}>
-                          {item.total} total
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "12px",
-                          borderRadius: "999px",
-                          background: "rgba(255,255,255,0.05)",
-                          overflow: "hidden",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${Math.max((item.total / totalMax) * 100, 5)}%`,
-                            height: "100%",
-                            borderRadius: "999px",
-                            background: "linear-gradient(90deg, #2563eb, #7c3aed, #db2777)",
-                          }}
-                        />
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                          gap: "10px",
-                          color: "#dbe7ff",
-                          fontSize: "13px",
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        <div>
-                          <strong>Missed:</strong> {item.missed}
-                        </div>
-                        <div>
-                          <strong>Positive:</strong> {item.positive}
-                        </div>
-                        <div>
-                          <strong>Very Positive:</strong> {item.veryPositive}
-                        </div>
-                        <div>
-                          <strong>Unresolved:</strong> {item.unresolved}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Conversation Drilldown</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "12px",
-              }}
-            >
-              Click straight into Intercom from the analytics layer
-            </div>
-
-            <div style={{ color: "#a9b4d0", fontSize: "15px", lineHeight: 1.7, marginBottom: "18px" }}>
-              Every row below is deduped already. You asked for each data point to be useful, so
-              each conversation ID can open the real Intercom conversation directly.
-            </div>
-
-            <div
-              style={{
-                overflow: "hidden",
-                borderRadius: "20px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(4,8,20,0.72)",
-              }}
-            >
-              <div style={{ maxHeight: "760px", overflow: "auto" }}>
-                <table
+              <div style={sectionCardStyle}>
+                <div
                   style={{
-                    width: "100%",
-                    minWidth: "1380px",
-                    borderCollapse: "collapse",
+                    fontSize: "24px",
+                    fontWeight: 700,
+                    marginBottom: "14px",
                   }}
                 >
-                  <thead>
-                    <tr style={{ background: "rgba(10,18,34,0.96)" }}>
-                      {[
-                        "Conversation",
-                        "Employee",
-                        "Team",
-                        "Review Sentiment",
-                        "Client Sentiment",
-                        "Resolution",
-                        "Verdict / Error",
-                        "Replied At",
-                        "Open",
-                      ].map((label) => (
-                        <th
-                          key={label}
-                          style={{
-                            padding: "16px 14px",
-                            textAlign: "left",
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            fontWeight: 700,
-                            borderBottom: "1px solid rgba(255,255,255,0.08)",
-                            position: "sticky",
-                            top: 0,
-                            zIndex: 2,
-                            background: "rgba(10,18,34,0.96)",
-                          }}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
+                  Conversation explorer
+                </div>
 
-                  <tbody>
-                    {filteredRows.slice(0, 60).map((row, index) => (
-                      <tr
-                        key={`${row.conversation_id}-${index}`}
-                        style={{
-                          background: index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
-                        }}
-                      >
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          <div style={{ fontWeight: 800, marginBottom: "6px" }}>
-                            {row.conversation_id}
-                          </div>
-                          <div style={{ color: "#8ea0d6", fontSize: "12px", lineHeight: 1.6 }}>
-                            Agent: {row.agent_name || "Unassigned"}
-                            <br />
-                            Client: {row.client_email || "-"}
-                            <br />
-                            CSAT: {row.csat_score || "-"}
-                          </div>
-                        </td>
+                <div
+                  style={{
+                    overflow: "hidden",
+                    borderRadius: "20px",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    background: "rgba(4,8,20,0.72)",
+                  }}
+                >
+                  <div style={{ maxHeight: "640px", overflow: "auto" }}>
+                    <table
+                      style={{
+                        width: "100%",
+                        minWidth: "1080px",
+                        borderCollapse: "collapse",
+                      }}
+                    >
+                      <thead>
+                        <tr style={{ background: "rgba(10,18,34,0.96)" }}>
+                          {[
+                            "Conversation",
+                            "Employee",
+                            "Team",
+                            "Review",
+                            "Client",
+                            "Resolution",
+                            "Open",
+                          ].map((label) => (
+                            <th
+                              key={label}
+                              style={{
+                                padding: "14px 12px",
+                                textAlign: "left",
+                                fontSize: "11px",
+                                color: "#8ea0d6",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.12em",
+                                fontWeight: 700,
+                                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 2,
+                                background: "rgba(10,18,34,0.96)",
+                              }}
+                            >
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
 
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {row.employee_name || "Unmapped"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.team_name || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.review_sentiment || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.client_sentiment || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row.resolution_status || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                            color: row.error ? "#fecdd3" : "#dbe7ff",
-                            lineHeight: 1.65,
-                            maxWidth: "420px",
-                          }}
-                        >
-                          {row.error || row.ai_verdict || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatDateTime(row.replied_at || row.created_at)}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          <a
-                            href={makeConversationUrl(row.conversation_id)}
-                            target="_blank"
-                            rel="noreferrer"
+                      <tbody>
+                        {filteredRows.slice(0, 80).map((row, index) => (
+                          <tr
+                            key={`${row.conversation_id}-${index}`}
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              padding: "10px 12px",
-                              borderRadius: "14px",
-                              textDecoration: "none",
-                              fontSize: "13px",
-                              fontWeight: 700,
-                              color: "#ecf2ff",
-                              background: "rgba(255,255,255,0.03)",
-                              border: "1px solid rgba(255,255,255,0.1)",
+                              background:
+                                index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
                             }}
                           >
-                            View
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <div style={{ fontWeight: 800, marginBottom: "6px" }}>
+                                {row.conversation_id}
+                              </div>
+                              <div style={{ color: "#8ea0d6", fontSize: "12px", lineHeight: 1.6 }}>
+                                {row.agent_name || "Unassigned"}
+                                <br />
+                                {row.client_email || "-"}
+                              </div>
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                fontWeight: 700,
+                                verticalAlign: "top",
+                              }}
+                            >
+                              {row.employee_name || "Unmapped"}
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              {row.team_name || "-"}
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openDetail(
+                                    "Review Sentiment Drilldown",
+                                    row.review_sentiment || "Unknown",
+                                    filteredRows.filter(
+                                      (item) => item.review_sentiment === row.review_sentiment
+                                    )
+                                  )
+                                }
+                                style={{
+                                  border: "none",
+                                  background: "transparent",
+                                  color: "#eef3ff",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  padding: 0,
+                                }}
+                              >
+                                {row.review_sentiment || "-"}
+                              </button>
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openDetail(
+                                    "Client Sentiment Drilldown",
+                                    row.client_sentiment || "Unknown",
+                                    filteredRows.filter(
+                                      (item) => item.client_sentiment === row.client_sentiment
+                                    )
+                                  )
+                                }
+                                style={{
+                                  border: "none",
+                                  background: "transparent",
+                                  color: "#eef3ff",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  padding: 0,
+                                }}
+                              >
+                                {row.client_sentiment || "-"}
+                              </button>
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              {row.resolution_status || "-"}
+                            </td>
+
+                            <td
+                              style={{
+                                padding: "14px 12px",
+                                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <a
+                                href={conversationUrl(row.conversation_id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: "10px 12px",
+                                  borderRadius: "12px",
+                                  textDecoration: "none",
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                  color: "#ecf2ff",
+                                  background: "rgba(255,255,255,0.03)",
+                                  border: "1px solid rgba(255,255,255,0.1)",
+                                }}
+                              >
+                                Open
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
+          </>
+        )}
       </div>
     </main>
   );
