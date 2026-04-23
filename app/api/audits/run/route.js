@@ -308,6 +308,10 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function normalizeKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function extractConversationMeta(conversation, fallbackConversation = {}) {
   const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
     ? conversation.conversation_parts.conversation_parts
@@ -566,6 +570,63 @@ async function loadLiveAuditPrompt(adminClient) {
   return livePrompt || FALLBACK_AUDIT_PROMPT;
 }
 
+async function loadAgentMappings(adminClient, agentNames) {
+  const normalizedNames = Array.from(
+    new Set(
+      (agentNames || [])
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const mappingByName = new Map();
+
+  if (!normalizedNames.length) {
+    return mappingByName;
+  }
+
+  const { data, error } = await adminClient
+    .from("agent_mappings")
+    .select(
+      "intercom_agent_name, employee_name, employee_email, team_name, is_active"
+    )
+    .in("intercom_agent_name", normalizedNames);
+
+  if (error) {
+    throw new Error(error.message || "Could not load agent mappings.");
+  }
+
+  for (const row of data || []) {
+    if (row?.is_active === false) continue;
+    mappingByName.set(normalizeKey(row.intercom_agent_name), row);
+  }
+
+  return mappingByName;
+}
+
+function attachEmployeeMapping(result, mappingByName) {
+  const key = normalizeKey(result?.agentName);
+  const mapped = mappingByName.get(key);
+
+  if (!mapped) {
+    return {
+      ...result,
+      employeeName: null,
+      employeeEmail: null,
+      teamName: null,
+      employeeMatchStatus: "unmapped",
+    };
+  }
+
+  return {
+    ...result,
+    employeeName: String(mapped.employee_name || "").trim() || null,
+    employeeEmail: String(mapped.employee_email || "").trim() || null,
+    teamName: String(mapped.team_name || "").trim() || null,
+    employeeMatchStatus: "mapped",
+  };
+}
+
 async function runOpenAIAudit({
   openAiApiKey,
   transcript,
@@ -582,10 +643,10 @@ async function runOpenAIAudit({
       model: OPENAI_MODEL,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: auditPrompt },
+        { role: "system", content: `${auditPrompt}\n\nReturn valid JSON only.` },
         {
           role: "user",
-          content: `Conversation ID: ${conversationId}\n\nTranscript:\n${transcript || "(no transcript found)"}`,
+          content: `Return your answer as JSON.\n\nConversation ID: ${conversationId}\n\nTranscript:\n${transcript || "(no transcript found)"}`,
         },
       ],
       temperature: 0.1,
@@ -681,6 +742,10 @@ async function persistAuditRunAndResults({
         : String(item.csatScore),
     client_email: item.clientEmail || null,
     agent_name: item.agentName || null,
+    employee_name: item.employeeName || null,
+    employee_email: item.employeeEmail || null,
+    team_name: item.teamName || null,
+    employee_match_status: item.employeeMatchStatus || "unmapped",
     ai_verdict: item.aiVerdict || null,
     review_sentiment: item.reviewSentiment || null,
     client_sentiment: item.clientSentiment || null,
@@ -908,6 +973,8 @@ export async function POST(request) {
           auditMode: "live_gpt",
           promptSource: "not_needed",
           storageStatus: "no_new_results_saved",
+          mappedCount: 0,
+          unmappedCount: 0,
           ...duplicateActionMeta,
         },
         results: [],
@@ -958,13 +1025,27 @@ export async function POST(request) {
       }
     }
 
+    const mappingByName = await loadAgentMappings(
+      adminClient,
+      results.map((item) => item.agentName)
+    );
+
+    const mappedResults = results.map((item) =>
+      attachEmployeeMapping(item, mappingByName)
+    );
+
+    const mappedCount = mappedResults.filter(
+      (item) => item.employeeMatchStatus === "mapped"
+    ).length;
+    const unmappedCount = mappedResults.length - mappedCount;
+
     const promptSource =
       auditPrompt === FALLBACK_AUDIT_PROMPT
         ? "fallback_code_prompt"
         : "admin_live_prompt";
 
-    const successCount = results.filter((item) => !item.error).length;
-    const errorCount = results.filter((item) => Boolean(item.error)).length;
+    const successCount = mappedResults.filter((item) => !item.error).length;
+    const errorCount = mappedResults.filter((item) => Boolean(item.error)).length;
 
     const storedRunId = await persistAuditRunAndResults({
       adminClient,
@@ -975,32 +1056,34 @@ export async function POST(request) {
       limiterEnabled,
       limitCount,
       receivedCount: normalizedConversations.length,
-      auditedCount: results.length,
+      auditedCount: mappedResults.length,
       successCount,
       errorCount,
       promptSource,
-      results,
+      results: mappedResults,
     });
 
     return json({
       ok: true,
       message:
-        results.length > 0
+        mappedResults.length > 0
           ? "Audit completed successfully."
           : "No conversations were available for audit.",
       meta: {
         requestedBy: email,
         receivedCount: normalizedConversations.length,
-        auditedCount: results.length,
+        auditedCount: mappedResults.length,
         limiterEnabled,
         limitCount,
         auditMode: "live_gpt",
         promptSource,
         storedRunId,
         storageStatus: "saved_to_supabase",
+        mappedCount,
+        unmappedCount,
         ...duplicateActionMeta,
       },
-      results,
+      results: mappedResults,
     });
   } catch (error) {
     return json(
