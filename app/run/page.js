@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
+const AUDIT_BATCH_SIZE = 8;
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -18,23 +19,13 @@ const DATE_PRESET_OPTIONS = [
   { key: "custom", label: "Custom" },
 ];
 
-const FETCH_PROGRESS_STEPS = [
-  { label: "Preparing", detail: "Checking date range and limiter settings.", percent: 8 },
-  { label: "Authenticating", detail: "Verifying your signed-in session.", percent: 18 },
-  { label: "Connecting", detail: "Connecting to Intercom securely.", percent: 32 },
-  { label: "Searching", detail: "Scanning the selected date window.", percent: 50 },
-  { label: "Hydrating", detail: "Collecting conversation, agent, and client details.", percent: 72 },
-  { label: "Finalizing", detail: "Preparing the fetched conversation queue.", percent: 92 },
-];
-
-const AUDIT_PROGRESS_STEPS = [
-  { label: "Preparing Queue", detail: "Preparing conversations for GPT audit.", percent: 8 },
-  { label: "Checking Duplicates", detail: "Checking Results archive for existing conversations.", percent: 18 },
-  { label: "Fetching Details", detail: "Loading full Intercom conversation transcripts.", percent: 34 },
-  { label: "Building Transcripts", detail: "Formatting messages for GPT analysis.", percent: 48 },
-  { label: "Running GPT", detail: "Auditing conversations with the live prompt.", percent: 66 },
-  { label: "Mapping Agents", detail: "Attaching employee and team mapping data.", percent: 80 },
-  { label: "Saving Results", detail: "Saving audit run and result rows to Supabase.", percent: 92 },
+const FETCH_STEPS = [
+  "Preparing request",
+  "Checking access",
+  "Connecting to Intercom",
+  "Finding low-CSAT conversations",
+  "Hydrating conversation details",
+  "Preparing audit queue",
 ];
 
 function CalendarIcon() {
@@ -146,6 +137,7 @@ function formatNumber(value) {
 
 function formatClock(value) {
   if (!value) return "-";
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
 
@@ -160,6 +152,7 @@ function formatClock(value) {
 
 function formatElapsed(startedAt) {
   if (!startedAt) return "0s";
+
   const diff = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const minutes = Math.floor(diff / 60);
   const seconds = diff % 60;
@@ -168,17 +161,42 @@ function formatElapsed(startedAt) {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
-function getStatusTone(value) {
-  if (value === "Resolved" || value === "Completed") return "success";
-  if (value === "Pending") return "notice";
-  if (value === "Unresolved" || value === "Error") return "danger";
-  return "neutral";
+function splitIntoBatches(items, size) {
+  const batches = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+
+  return batches;
+}
+
+async function readJsonSafely(response) {
+  const text = await response.text();
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    const trimmed = text.replace(/\s+/g, " ").trim();
+    throw new Error(
+      `Server returned a non-JSON response. Status ${response.status}. ${trimmed.slice(0, 260)}`
+    );
+  }
 }
 
 function getResultStatusLabel(item) {
   if (item?.error) return "Error";
   if (item?.resolutionStatus) return item.resolutionStatus;
   return "Completed";
+}
+
+function getStatusTone(value) {
+  if (value === "Resolved" || value === "Completed") return "success";
+  if (value === "Pending") return "notice";
+  if (value === "Unresolved" || value === "Error") return "danger";
+  return "neutral";
 }
 
 function getResultSummary(item) {
@@ -221,11 +239,9 @@ function DuplicateWarningModal({
   return (
     <div className="modal-backdrop">
       <div className="duplicate-modal">
-        <div className="modal-badge warning">Duplicate Audit Warning</div>
+        <div className="modal-badge warning">Duplicate audit warning</div>
         <h2>Duplicates Found</h2>
-        <p>
-          {formatNumber(duplicateCount)} selected conversation audit(s) already exist in Results.
-        </p>
+        <p>{formatNumber(duplicateCount)} selected conversation audit(s) already exist in Results.</p>
 
         <div className="duplicate-sample-box">
           <span>Sample Conversation IDs</span>
@@ -256,6 +272,50 @@ function DuplicateWarningModal({
   );
 }
 
+function ProgressPanel({
+  type,
+  label,
+  detail,
+  percent,
+  elapsed,
+  completed,
+  total,
+  batchIndex,
+  totalBatches,
+  onCancel,
+}) {
+  return (
+    <div className="progress-panel">
+      <div className="progress-head">
+        <div>
+          <span>{type}</span>
+          <strong>{label}</strong>
+          <small>{detail}</small>
+        </div>
+        <div className="progress-percent">{Math.round(percent)}%</div>
+      </div>
+
+      <div className="progress-shell">
+        <div className="progress-bar" style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} />
+      </div>
+
+      <div className="progress-foot">
+        <span>
+          {total ? `${formatNumber(completed)} / ${formatNumber(total)} completed` : "Preparing"}
+        </span>
+        <span>
+          {totalBatches ? `Batch ${formatNumber(batchIndex)} of ${formatNumber(totalBatches)}` : ""}
+        </span>
+        <span>Elapsed: {elapsed}</span>
+      </div>
+
+      <button type="button" className="danger-btn compact" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 export default function RunPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -272,14 +332,13 @@ export default function RunPage() {
   const [authMessage, setAuthMessage] = useState("");
 
   const [fetchLoading, setFetchLoading] = useState(false);
-  const [fetchProgressIndex, setFetchProgressIndex] = useState(0);
+  const [fetchStepIndex, setFetchStepIndex] = useState(0);
   const [fetchStartedAt, setFetchStartedAt] = useState(null);
   const [fetchError, setFetchError] = useState("");
   const [fetchSuccess, setFetchSuccess] = useState("");
   const [fetchData, setFetchData] = useState(null);
 
   const [runLoading, setRunLoading] = useState(false);
-  const [runProgressIndex, setRunProgressIndex] = useState(0);
   const [runStartedAt, setRunStartedAt] = useState(null);
   const [runError, setRunError] = useState("");
   const [runSuccess, setRunSuccess] = useState("");
@@ -293,12 +352,24 @@ export default function RunPage() {
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
   const [duplicateSummary, setDuplicateSummary] = useState(null);
   const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
+  const [pendingDuplicateConversations, setPendingDuplicateConversations] = useState([]);
+
+  const [auditProgress, setAuditProgress] = useState({
+    completed: 0,
+    total: 0,
+    batchIndex: 0,
+    totalBatches: 0,
+    percent: 0,
+    label: "Ready",
+    detail: "Audit has not started.",
+  });
 
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
   const presetMenuRef = useRef(null);
   const fetchAbortRef = useRef(null);
   const runAbortRef = useRef(null);
+  const cancelRequestedRef = useRef(false);
 
   const canRunTests = canRunAudits(profile);
   const isBusy = fetchLoading || runLoading || duplicateDecisionLoading;
@@ -314,12 +385,9 @@ export default function RunPage() {
   const results = Array.isArray(runData?.results) ? runData.results : [];
   const successCount = results.filter((item) => !item?.error).length;
   const errorCount = results.filter((item) => item?.error).length;
-  const visibleResults = showAllResults ? results : results.slice(0, 6);
+  const visibleResults = showAllResults ? results : results.slice(0, 8);
   const selectedPresetLabel =
     DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
-
-  const currentFetchStep = FETCH_PROGRESS_STEPS[fetchProgressIndex] || FETCH_PROGRESS_STEPS[0];
-  const currentRunStep = AUDIT_PROGRESS_STEPS[runProgressIndex] || AUDIT_PROGRESS_STEPS[0];
 
   function addLog(message, tone = "info") {
     const now = new Date();
@@ -330,7 +398,7 @@ export default function RunPage() {
     });
 
     setExecutionLog((prev) =>
-      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 30)
+      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 40)
     );
   }
 
@@ -345,7 +413,17 @@ export default function RunPage() {
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
+    setPendingDuplicateConversations([]);
     setOperationStatus("idle");
+    setAuditProgress({
+      completed: 0,
+      total: 0,
+      batchIndex: 0,
+      totalBatches: 0,
+      percent: 0,
+      label: "Ready",
+      detail: "Audit has not started.",
+    });
   }
 
   function openPicker(inputRef) {
@@ -413,11 +491,7 @@ export default function RunPage() {
       };
     } catch (_error) {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
-
-      return {
-        profile: null,
-        message: "Signed in, but profile loading failed.",
-      };
+      return { profile: null, message: "Signed in, but profile loading failed." };
     }
   }
 
@@ -495,25 +569,11 @@ export default function RunPage() {
     if (!fetchLoading) return undefined;
 
     const interval = setInterval(() => {
-      setFetchProgressIndex((prev) =>
-        prev >= FETCH_PROGRESS_STEPS.length - 1 ? prev : prev + 1
-      );
+      setFetchStepIndex((prev) => (prev >= FETCH_STEPS.length - 1 ? prev : prev + 1));
     }, 1300);
 
     return () => clearInterval(interval);
   }, [fetchLoading]);
-
-  useEffect(() => {
-    if (!runLoading) return undefined;
-
-    const interval = setInterval(() => {
-      setRunProgressIndex((prev) =>
-        prev >= AUDIT_PROGRESS_STEPS.length - 1 ? prev : prev + 1
-      );
-    }, 1800);
-
-    return () => clearInterval(interval);
-  }, [runLoading]);
 
   useEffect(() => {
     function tickElapsed() {
@@ -565,9 +625,7 @@ export default function RunPage() {
       options: { redirectTo },
     });
 
-    if (error) {
-      setAuthMessage(error.message || "Google sign-in failed.");
-    }
+    if (error) setAuthMessage(error.message || "Google sign-in failed.");
   }
 
   async function handleLogout() {
@@ -581,20 +639,22 @@ export default function RunPage() {
     setAuthMessage("");
     setAuthLoading(false);
     setFetchData(null);
+    setRunData(null);
     setFetchError("");
     setFetchSuccess("");
-    setRunData(null);
     setRunError("");
     setRunSuccess("");
-    setShowAllResults(false);
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
+    setPendingDuplicateConversations([]);
     setOperationStatus("idle");
     addLog("Signed out.", "neutral");
   }
 
   function handleCancelFetch() {
+    cancelRequestedRef.current = true;
+
     if (fetchAbortRef.current) fetchAbortRef.current.abort();
 
     setFetchLoading(false);
@@ -604,16 +664,326 @@ export default function RunPage() {
   }
 
   function handleCancelAudit() {
+    cancelRequestedRef.current = true;
+
     if (runAbortRef.current) runAbortRef.current.abort();
 
     setRunLoading(false);
     setDuplicateDecisionLoading(false);
     setDuplicateWarningOpen(false);
     setRunError(
-      "Audit cancelled on this page. If the server had already started processing, a partial save may still finish."
+      "Audit cancelled. Already completed batches may still be saved in Results."
     );
     setOperationStatus("cancelled");
-    addLog("Audit cancelled by user. Check Results before rerunning the same batch.", "warning");
+    addLog("Audit cancelled. Check Results before rerunning the same batch.", "warning");
+  }
+
+  function getQueuedConversations(conversations) {
+    const list = Array.isArray(conversations) ? conversations : [];
+
+    if (!limiterEnabled) return list;
+
+    const parsedLimit = Number(limitCount);
+    if (!Number.isFinite(parsedLimit) || parsedLimit < 1) return list;
+
+    return list.slice(0, parsedLimit);
+  }
+
+  async function checkDuplicates(conversations) {
+    const controller = new AbortController();
+    runAbortRef.current = controller;
+
+    const response = await fetch("/api/audits/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        conversations,
+        limiterEnabled: false,
+        limitCount: null,
+        startDate,
+        endDate,
+        duplicateMode: "",
+        checkOnly: true,
+        batchMode: false,
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await readJsonSafely(response);
+
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || "Duplicate check failed.");
+    }
+
+    return data;
+  }
+
+  async function runSingleBatch({
+    batch,
+    batchIndex,
+    totalBatches,
+    totalCount,
+    duplicateMode,
+  }) {
+    const controller = new AbortController();
+    runAbortRef.current = controller;
+
+    const response = await fetch("/api/audits/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        conversations: batch,
+        limiterEnabled: false,
+        limitCount: null,
+        startDate,
+        endDate,
+        duplicateMode,
+        batchMode: true,
+        batchIndex,
+        totalBatches,
+        batchSize: batch.length,
+        totalCount,
+        batchLabel: `Batch ${batchIndex} of ${totalBatches}`,
+      }),
+      signal: controller.signal,
+    });
+
+    const data = await readJsonSafely(response);
+
+    if (response.status === 409 && data?.requiresDuplicateDecision) {
+      throw new Error("A duplicate appeared during a batch after the duplicate check. Please retry with Skip Existing or Overwrite Existing.");
+    }
+
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || `Batch ${batchIndex} failed.`);
+    }
+
+    return data;
+  }
+
+  async function startBatchAudit({
+    conversationsOverride = null,
+    duplicateMode = "",
+    autoTriggered = false,
+  } = {}) {
+    setRunError("");
+    setRunSuccess("");
+    setRunData(null);
+    setShowAllResults(false);
+    setDuplicateWarningOpen(false);
+    setDuplicateSummary(null);
+    setDuplicateDecisionLoading(false);
+
+    const sourceConversations = Array.isArray(conversationsOverride)
+      ? conversationsOverride
+      : fetchedConversations;
+
+    const queuedConversations = getQueuedConversations(sourceConversations);
+
+    if (!queuedConversations.length) {
+      setRunError("Please fetch conversations first.");
+      return;
+    }
+
+    if (!session?.access_token) {
+      setRunError("Your login session is missing. Please sign in again.");
+      return;
+    }
+
+    cancelRequestedRef.current = false;
+    setRunLoading(true);
+    setRunStartedAt(Date.now());
+    setOperationStatus("auditing");
+
+    setAuditProgress({
+      completed: 0,
+      total: queuedConversations.length,
+      batchIndex: 0,
+      totalBatches: 0,
+      percent: 3,
+      label: "Checking Duplicates",
+      detail: "Checking stored Results before starting the batch audit.",
+    });
+
+    addLog(
+      `Audit started for ${formatNumber(queuedConversations.length)} conversation(s). Mode: ${
+        duplicateMode || "duplicate check"
+      }.`,
+      "info"
+    );
+
+    try {
+      let modeToUse = duplicateMode;
+
+      if (!modeToUse) {
+        const duplicateCheck = await checkDuplicates(queuedConversations);
+        const duplicateCount = Number(duplicateCheck?.duplicateSummary?.duplicateCount || 0);
+
+        if (duplicateCount > 0) {
+          if (autoTriggered) {
+            modeToUse =
+              duplicateCount < AUTO_DUPLICATE_OVERWRITE_LIMIT
+                ? "overwrite_existing"
+                : "skip_existing";
+
+            addLog(
+              `${formatNumber(duplicateCount)} duplicate(s) found. Auto-${
+                modeToUse === "overwrite_existing" ? "overwrite" : "skip"
+              } applied.`,
+              modeToUse === "overwrite_existing" ? "warning" : "notice"
+            );
+          } else {
+            setPendingDuplicateConversations(queuedConversations);
+            setDuplicateSummary(duplicateCheck.duplicateSummary || null);
+            setDuplicateWarningOpen(true);
+            setRunLoading(false);
+            setOperationStatus("paused");
+            setRunError("Audit paused. Duplicate decision required.");
+            addLog(`${formatNumber(duplicateCount)} duplicate conversation(s) need a decision.`, "warning");
+            return;
+          }
+        }
+      }
+
+      const batches = splitIntoBatches(queuedConversations, AUDIT_BATCH_SIZE);
+      const allResults = [];
+      const storedRunIds = [];
+      let completed = 0;
+      let totalSkipped = 0;
+      let totalOverwritten = 0;
+      let totalMapped = 0;
+      let totalUnmapped = 0;
+      let totalSuccess = 0;
+      let totalErrors = 0;
+
+      setAuditProgress({
+        completed: 0,
+        total: queuedConversations.length,
+        batchIndex: 1,
+        totalBatches: batches.length,
+        percent: 5,
+        label: "Starting Batch Audit",
+        detail: `${formatNumber(batches.length)} batch(es) created. ${formatNumber(AUDIT_BATCH_SIZE)} conversation(s) per batch.`,
+      });
+
+      for (let index = 0; index < batches.length; index += 1) {
+        if (cancelRequestedRef.current) {
+          throw new Error("Audit cancelled by user.");
+        }
+
+        const batchNumber = index + 1;
+        const batch = batches[index];
+
+        setAuditProgress({
+          completed,
+          total: queuedConversations.length,
+          batchIndex: batchNumber,
+          totalBatches: batches.length,
+          percent: Math.max(6, Math.round((completed / queuedConversations.length) * 100)),
+          label: `Running Batch ${batchNumber} of ${batches.length}`,
+          detail: `Auditing ${formatNumber(batch.length)} conversation(s) in this batch.`,
+        });
+
+        addLog(`Batch ${batchNumber}/${batches.length} started with ${formatNumber(batch.length)} conversation(s).`, "info");
+
+        const batchData = await runSingleBatch({
+          batch,
+          batchIndex: batchNumber,
+          totalBatches: batches.length,
+          totalCount: queuedConversations.length,
+          duplicateMode: modeToUse,
+        });
+
+        const batchResults = Array.isArray(batchData?.results) ? batchData.results : [];
+        allResults.push(...batchResults);
+
+        if (batchData?.meta?.storedRunId) storedRunIds.push(batchData.meta.storedRunId);
+
+        completed += Number(batchData?.meta?.auditedCount || batch.length);
+        totalSkipped += Number(batchData?.meta?.skippedCount || 0);
+        totalOverwritten += Number(batchData?.meta?.overwrittenCount || 0);
+        totalMapped += Number(batchData?.meta?.mappedCount || 0);
+        totalUnmapped += Number(batchData?.meta?.unmappedCount || 0);
+        totalSuccess += batchResults.filter((item) => !item?.error).length;
+        totalErrors += batchResults.filter((item) => item?.error).length;
+
+        setAuditProgress({
+          completed: Math.min(completed, queuedConversations.length),
+          total: queuedConversations.length,
+          batchIndex: batchNumber,
+          totalBatches: batches.length,
+          percent: Math.min(100, Math.round((completed / queuedConversations.length) * 100)),
+          label: `Batch ${batchNumber} Saved`,
+          detail: `${formatNumber(completed)} of ${formatNumber(queuedConversations.length)} conversation(s) completed.`,
+        });
+
+        addLog(
+          `Batch ${batchNumber}/${batches.length} saved. Completed ${formatNumber(completed)}/${formatNumber(queuedConversations.length)}.`,
+          "success"
+        );
+      }
+
+      const finalData = {
+        ok: true,
+        message: "Batch audit completed successfully.",
+        meta: {
+          requestedBy: session?.user?.email || "",
+          receivedCount: queuedConversations.length,
+          auditedCount: allResults.length,
+          successCount: totalSuccess,
+          errorCount: totalErrors,
+          duplicateModeApplied: modeToUse || "none",
+          skippedCount: totalSkipped,
+          overwrittenCount: totalOverwritten,
+          mappedCount: totalMapped,
+          unmappedCount: totalUnmapped,
+          auditMode: "live_gpt_batch_client",
+          storageStatus: "saved_to_supabase_in_batches",
+          storedRunIds,
+          batchSize: AUDIT_BATCH_SIZE,
+          totalBatches: batches.length,
+        },
+        results: allResults,
+      };
+
+      setRunData(finalData);
+      setRunSuccess(
+        `Audit completed in ${formatNumber(batches.length)} batch(es). ${formatNumber(allResults.length)} result row(s) returned.`
+      );
+      setOperationStatus("completed");
+      setAuditProgress({
+        completed: queuedConversations.length,
+        total: queuedConversations.length,
+        batchIndex: batches.length,
+        totalBatches: batches.length,
+        percent: 100,
+        label: "Audit Completed",
+        detail: "All batches finished and saved to Results.",
+      });
+
+      addLog("Batch audit completed successfully.", "success");
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setRunError("Audit cancelled. Completed batches may already be saved in Results.");
+        setOperationStatus("cancelled");
+        addLog("Audit request was aborted.", "warning");
+      } else {
+        const message = error instanceof Error ? error.message : "Audit run failed.";
+        setRunError(message);
+        setOperationStatus(message.includes("cancelled") ? "cancelled" : "failed");
+        addLog(message, "danger");
+      }
+    } finally {
+      setRunLoading(false);
+      setDuplicateDecisionLoading(false);
+      runAbortRef.current = null;
+    }
   }
 
   async function handleFetchConversations() {
@@ -627,6 +997,7 @@ export default function RunPage() {
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
+    setPendingDuplicateConversations([]);
 
     if (!session?.access_token) {
       setFetchError("Your login session is missing. Please sign in again.");
@@ -648,11 +1019,13 @@ export default function RunPage() {
 
     const controller = new AbortController();
     fetchAbortRef.current = controller;
+    cancelRequestedRef.current = false;
 
     setFetchLoading(true);
     setFetchStartedAt(Date.now());
-    setFetchProgressIndex(0);
+    setFetchStepIndex(0);
     setOperationStatus("fetching");
+
     addLog(`Fetch started for ${startDate} to ${endDate}.`, "info");
 
     try {
@@ -672,14 +1045,14 @@ export default function RunPage() {
         signal: controller.signal,
       });
 
-      const data = await response.json();
+      const data = await readJsonSafely(response);
 
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || "Conversation fetch failed.");
       }
 
       setFetchData(data);
-      setFetchProgressIndex(FETCH_PROGRESS_STEPS.length - 1);
+      setFetchStepIndex(FETCH_STEPS.length - 1);
 
       const fetchedCount = Number(data?.meta?.fetchedCount || 0);
 
@@ -697,8 +1070,8 @@ export default function RunPage() {
       fetchAbortRef.current = null;
 
       if (autoRunAfterFetch && fetchedCount > 0) {
-        addLog("Auto-run enabled. Starting audit automatically.", "success");
-        await executeRunAudit({
+        addLog("Auto-run enabled. Starting batch audit automatically.", "success");
+        await startBatchAudit({
           conversationsOverride: Array.isArray(data?.conversations) ? data.conversations : [],
           duplicateMode: "",
           autoTriggered: true,
@@ -708,166 +1081,21 @@ export default function RunPage() {
       if (error?.name === "AbortError") {
         setFetchError("Fetch cancelled.");
         addLog("Fetch request was aborted.", "warning");
+        setOperationStatus("cancelled");
       } else {
-        setFetchError(error instanceof Error ? error.message : "Conversation fetch failed.");
-        addLog(error instanceof Error ? error.message : "Conversation fetch failed.", "danger");
+        const message = error instanceof Error ? error.message : "Conversation fetch failed.";
+        setFetchError(message);
+        addLog(message, "danger");
+        setOperationStatus("failed");
       }
-
-      setOperationStatus("failed");
     } finally {
       setFetchLoading(false);
       fetchAbortRef.current = null;
     }
   }
 
-  async function executeRunAudit({
-    conversationsOverride = null,
-    duplicateMode = "",
-    autoTriggered = false,
-  } = {}) {
-    setRunError("");
-    setRunSuccess("");
-    setRunData(null);
-    setRunProgressIndex(0);
-    setRunStartedAt(Date.now());
-    setShowAllResults(false);
-
-    const conversations = Array.isArray(conversationsOverride)
-      ? conversationsOverride
-      : Array.isArray(fetchData?.conversations)
-      ? fetchData.conversations
-      : [];
-
-    if (!conversations.length) {
-      setRunError("Please fetch conversations first.");
-      return;
-    }
-
-    if (!session?.access_token) {
-      setRunError("Your login session is missing. Please sign in again.");
-      return;
-    }
-
-    const controller = new AbortController();
-    runAbortRef.current = controller;
-
-    setRunLoading(true);
-    setOperationStatus("auditing");
-
-    const modeLabel =
-      duplicateMode === "overwrite_existing"
-        ? "overwrite existing"
-        : duplicateMode === "skip_existing"
-        ? "skip existing"
-        : "duplicate check";
-
-    addLog(
-      `Audit started for ${formatNumber(conversations.length)} conversation(s). Mode: ${modeLabel}.`,
-      "info"
-    );
-
-    try {
-      const response = await fetch("/api/audits/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          conversations,
-          limiterEnabled,
-          limitCount,
-          startDate,
-          endDate,
-          duplicateMode,
-        }),
-        signal: controller.signal,
-      });
-
-      const data = await response.json();
-
-      if (response.status === 409 && data?.requiresDuplicateDecision) {
-        const count = Number(data?.duplicateSummary?.duplicateCount || 0);
-
-        if (autoTriggered) {
-          const autoDuplicateMode =
-            count < AUTO_DUPLICATE_OVERWRITE_LIMIT ? "overwrite_existing" : "skip_existing";
-
-          addLog(
-            `${formatNumber(count)} duplicate(s) found. Auto-${
-              autoDuplicateMode === "overwrite_existing" ? "overwrite" : "skip"
-            } applied.`,
-            count < AUTO_DUPLICATE_OVERWRITE_LIMIT ? "warning" : "notice"
-          );
-
-          setRunLoading(false);
-          runAbortRef.current = null;
-
-          await executeRunAudit({
-            conversationsOverride: conversations,
-            duplicateMode: autoDuplicateMode,
-            autoTriggered: true,
-          });
-
-          return;
-        }
-
-        setDuplicateSummary(data.duplicateSummary || null);
-        setDuplicateWarningOpen(true);
-        setRunLoading(false);
-        setOperationStatus("paused");
-        setRunError("Audit paused. Duplicate decision required.");
-        addLog(`${formatNumber(count)} duplicate conversation(s) need a decision.`, "warning");
-        return;
-      }
-
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Audit run failed.");
-      }
-
-      setDuplicateWarningOpen(false);
-      setDuplicateSummary(null);
-      setRunData(data);
-      setRunProgressIndex(AUDIT_PROGRESS_STEPS.length - 1);
-
-      if (data?.meta?.duplicateModeApplied === "skip_existing") {
-        setRunSuccess(
-          `Audit completed. ${formatNumber(data.meta.skippedCount || 0)} duplicate conversation(s) skipped.`
-        );
-      } else if (data?.meta?.duplicateModeApplied === "overwrite_existing") {
-        setRunSuccess(
-          `Audit completed. ${formatNumber(data.meta.overwrittenCount || 0)} duplicate conversation(s) overwritten.`
-        );
-      } else {
-        setRunSuccess(data?.message || "Audit run completed.");
-      }
-
-      setOperationStatus("completed");
-      addLog(
-        `Audit completed. ${formatNumber(data?.meta?.auditedCount || 0)} conversation(s) processed.`,
-        "success"
-      );
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        setRunError(
-          "Audit cancelled on this page. If the server had already started processing, check Results before rerunning."
-        );
-        addLog("Audit request was aborted from the browser.", "warning");
-        setOperationStatus("cancelled");
-      } else {
-        const message = error instanceof Error ? error.message : "Audit run failed.";
-        setRunError(message);
-        addLog(message, "danger");
-        setOperationStatus("failed");
-      }
-    } finally {
-      setRunLoading(false);
-      runAbortRef.current = null;
-    }
-  }
-
   async function handleRunAudit() {
-    await executeRunAudit({ duplicateMode: "", autoTriggered: false });
+    await startBatchAudit({ duplicateMode: "", autoTriggered: false });
   }
 
   async function handleDuplicateSkip() {
@@ -878,11 +1106,11 @@ export default function RunPage() {
     setRunError("");
     addLog("Manual duplicate choice: skip existing.", "notice");
 
-    try {
-      await executeRunAudit({ duplicateMode: "skip_existing", autoTriggered: false });
-    } finally {
-      setDuplicateDecisionLoading(false);
-    }
+    await startBatchAudit({
+      conversationsOverride: pendingDuplicateConversations,
+      duplicateMode: "skip_existing",
+      autoTriggered: false,
+    });
   }
 
   async function handleDuplicateOverwrite() {
@@ -893,11 +1121,11 @@ export default function RunPage() {
     setRunError("");
     addLog("Manual duplicate choice: overwrite existing.", "warning");
 
-    try {
-      await executeRunAudit({ duplicateMode: "overwrite_existing", autoTriggered: false });
-    } finally {
-      setDuplicateDecisionLoading(false);
-    }
+    await startBatchAudit({
+      conversationsOverride: pendingDuplicateConversations,
+      duplicateMode: "overwrite_existing",
+      autoTriggered: false,
+    });
   }
 
   function handleDuplicateCancel() {
@@ -913,12 +1141,13 @@ export default function RunPage() {
     if (authLoading) return "Checking access.";
     if (!session?.user) return "Sign in to continue.";
     if (profile && !canRunTests) return "This account does not have test-run access.";
-    if (fetchLoading) return currentFetchStep.detail;
-    if (runLoading) return currentRunStep.detail;
+    if (fetchLoading) return FETCH_STEPS[fetchStepIndex] || "Fetching.";
+    if (runLoading) return auditProgress.detail;
     if (operationStatus === "cancelled") return "Current operation was cancelled.";
     if (operationStatus === "paused") return "Audit is paused and needs your decision.";
+    if (operationStatus === "failed") return "The last operation failed.";
     if (runData?.meta?.auditedCount >= 0) {
-      return `Latest audit processed ${formatNumber(runData.meta.auditedCount)} conversation(s).`;
+      return `Latest audit processed ${formatNumber(runData.meta.auditedCount)} result row(s).`;
     }
     if (fetchData?.meta?.fetchedCount > 0) {
       return `${formatNumber(fetchData.meta.fetchedCount)} conversation(s) are ready for audit.`;
@@ -937,14 +1166,14 @@ export default function RunPage() {
     fetchLoading,
     runLoading,
     operationStatus,
-    currentFetchStep,
-    currentRunStep,
+    auditProgress,
     runData,
     fetchData,
     startDate,
     endDate,
     limiterEnabled,
     limitCount,
+    fetchStepIndex,
   ]);
 
   const statCards = [
@@ -957,7 +1186,7 @@ export default function RunPage() {
     {
       label: "Audit",
       value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "Pending",
-      subtext: "Processed conversations",
+      subtext: "Processed result rows",
       tone: runData?.meta?.auditedCount ? "success" : "neutral",
     },
     {
@@ -967,20 +1196,10 @@ export default function RunPage() {
       tone: autoRunAfterFetch ? "success" : "neutral",
     },
     {
-      label: "Status",
-      value:
-        operationStatus === "idle"
-          ? "Idle"
-          : operationStatus.charAt(0).toUpperCase() + operationStatus.slice(1),
-      subtext: "Current state",
-      tone:
-        operationStatus === "failed" || operationStatus === "cancelled"
-          ? "danger"
-          : operationStatus === "paused"
-          ? "warning"
-          : operationStatus === "completed"
-          ? "success"
-          : "notice",
+      label: "Batch Size",
+      value: String(AUDIT_BATCH_SIZE),
+      subtext: "Conversations per request",
+      tone: "notice",
     },
   ];
 
@@ -1004,7 +1223,7 @@ export default function RunPage() {
         </div>
 
         <span className={`live-pill ${isBusy ? "busy" : "ready"}`}>
-          {fetchLoading ? "Fetching" : runLoading ? "Auditing" : duplicateWarningOpen ? "Paused" : "Run Audit"}
+          {fetchLoading ? "Fetching" : runLoading ? "Batch Auditing" : duplicateWarningOpen ? "Paused" : "Run Audit"}
         </span>
       </nav>
 
@@ -1012,7 +1231,7 @@ export default function RunPage() {
         <div>
           <div className="hero-badge">Run Audit</div>
           <h1>Audit Control</h1>
-          <p>Fetch low-CSAT conversations, run GPT audits, and save results.</p>
+          <p>Fetch low-CSAT conversations, run GPT audits in batches, and save results.</p>
         </div>
 
         <div className="hero-panel">
@@ -1217,22 +1436,30 @@ export default function RunPage() {
 
           {fetchLoading ? (
             <ProgressPanel
-              title="Fetch Progress"
-              step={currentFetchStep}
-              percent={currentFetchStep.percent}
+              type="Fetch Progress"
+              label={FETCH_STEPS[fetchStepIndex] || "Fetching"}
+              detail="Fetching and hydrating eligible Intercom conversations."
+              percent={Math.min(96, ((fetchStepIndex + 1) / FETCH_STEPS.length) * 100)}
               elapsed={formatElapsed(fetchStartedAt)}
-              countLabel="Searching Intercom"
+              completed={0}
+              total={0}
+              batchIndex={0}
+              totalBatches={0}
               onCancel={handleCancelFetch}
             />
           ) : null}
 
           {runLoading ? (
             <ProgressPanel
-              title="Audit Progress"
-              step={currentRunStep}
-              percent={currentRunStep.percent}
+              type="Audit Progress"
+              label={auditProgress.label}
+              detail={auditProgress.detail}
+              percent={auditProgress.percent}
               elapsed={formatElapsed(runStartedAt)}
-              countLabel={`${formatNumber(fetchedConversations.length)} conversation(s) queued`}
+              completed={auditProgress.completed}
+              total={auditProgress.total}
+              batchIndex={auditProgress.batchIndex}
+              totalBatches={auditProgress.totalBatches}
               onCancel={handleCancelAudit}
             />
           ) : null}
@@ -1284,8 +1511,8 @@ export default function RunPage() {
                   <strong>{fetchData?.meta?.limiterEnabled ? `On (${fetchData?.meta?.limitCount})` : "Off"}</strong>
                 </div>
                 <div>
-                  <span>Auto-run</span>
-                  <strong>{autoRunAfterFetch ? "Enabled" : "Disabled"}</strong>
+                  <span>Batch Size</span>
+                  <strong>{AUDIT_BATCH_SIZE}</strong>
                 </div>
               </div>
             ) : null}
@@ -1328,17 +1555,6 @@ export default function RunPage() {
             ))}
           </div>
         )}
-
-        {fetchedConversations.length > 12 ? (
-          <details className="details-panel">
-            <summary>Show all fetched conversation IDs</summary>
-            <div className="id-list">
-              {fetchedConversations.map((item, index) => (
-                <span key={item?.conversationId || index}>{item?.conversationId || "-"}</span>
-              ))}
-            </div>
-          </details>
-        ) : null}
       </section>
 
       <section className="panel output-panel">
@@ -1364,7 +1580,7 @@ export default function RunPage() {
               <div><span>Duplicate Handling</span><strong>{runData?.meta?.duplicateModeApplied || "none"}</strong></div>
               <div><span>Storage</span><strong>{runData?.meta?.storageStatus || "-"}</strong></div>
               <div><span>Mapped</span><strong>{formatNumber(runData?.meta?.mappedCount || 0)}</strong></div>
-              <div><span>Unmapped</span><strong>{formatNumber(runData?.meta?.unmappedCount || 0)}</strong></div>
+              <div><span>Batches</span><strong>{formatNumber(runData?.meta?.totalBatches || 0)}</strong></div>
             </div>
 
             <div className="results-grid">
@@ -1404,7 +1620,7 @@ export default function RunPage() {
               })}
             </div>
 
-            {results.length > 6 ? (
+            {results.length > 8 ? (
               <div className="show-more-row">
                 <button type="button" className="secondary-btn" onClick={() => setShowAllResults((prev) => !prev)}>
                   {showAllResults ? "Show Less" : `Show More (${formatNumber(results.length - visibleResults.length)} more)`}
@@ -1424,18 +1640,6 @@ export default function RunPage() {
               <div><span>Max Pages / Day</span><strong>{fetchData?.debug?.maxFetchPagesPerDay ?? "-"}</strong></div>
               <div><span>Daily Summaries</span><strong>{formatNumber(dailySummary.length)}</strong></div>
             </div>
-
-            {dailySummary.length ? (
-              <div className="diagnostics-days">
-                {dailySummary.map((day, index) => (
-                  <div key={`${day?.date || "day"}-${index}`}>
-                    <strong>{day?.date || "-"}</strong>
-                    <span>Fetched: {day?.fetchedCount ?? 0}</span>
-                    <span>Pages: {Array.isArray(day?.pages) ? day.pages.length : 0}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
           </details>
         </section>
       ) : null}
@@ -1450,34 +1654,6 @@ export default function RunPage() {
         </button>
       ) : null}
     </main>
-  );
-}
-
-function ProgressPanel({ title, step, percent, elapsed, countLabel, onCancel }) {
-  return (
-    <div className="progress-panel">
-      <div className="progress-head">
-        <div>
-          <span>{title}</span>
-          <strong>{step.label}</strong>
-          <small>{step.detail}</small>
-        </div>
-        <div className="progress-percent">{Math.round(percent)}%</div>
-      </div>
-
-      <div className="progress-shell">
-        <div className="progress-bar" style={{ width: `${percent}%` }} />
-      </div>
-
-      <div className="progress-foot">
-        <span>{countLabel}</span>
-        <span>Elapsed: {elapsed}</span>
-      </div>
-
-      <button type="button" className="danger-btn compact" onClick={onCancel}>
-        Cancel
-      </button>
-    </div>
   );
 }
 
@@ -1702,6 +1878,7 @@ const runStyles = `
   .stat-card.success::before { background: rgba(16,185,129,0.15); }
   .stat-card.warning::before { background: rgba(245,158,11,0.15); }
   .stat-card.danger::before { background: rgba(244,63,94,0.15); }
+  .stat-card.notice::before { background: rgba(34,211,238,0.14); }
 
   .stat-card p {
     margin: 0 0 10px;
@@ -1764,7 +1941,6 @@ const runStyles = `
   .run-meta-card,
   .verdict-box,
   .findings-box,
-  .details-panel,
   .empty-box {
     border: 1px solid rgba(255,255,255,0.08);
     background: rgba(255,255,255,0.03);
@@ -2331,33 +2507,6 @@ const runStyles = `
     margin-bottom: 14px;
   }
 
-  .details-panel {
-    margin-top: 14px;
-    padding: 14px;
-  }
-
-  .details-panel summary {
-    cursor: pointer;
-    color: #dbe7ff;
-    font-weight: 900;
-  }
-
-  .id-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding-top: 14px;
-  }
-
-  .id-list span {
-    padding: 7px 10px;
-    border-radius: 999px;
-    color: #dbe7ff;
-    background: rgba(255,255,255,0.05);
-    font-size: 12px;
-    font-weight: 800;
-  }
-
   .result-metrics {
     display: flex;
     gap: 10px;
@@ -2410,29 +2559,6 @@ const runStyles = `
     margin-top: 14px;
   }
 
-  .diagnostics-days {
-    display: grid;
-    gap: 10px;
-    margin-top: 14px;
-  }
-
-  .diagnostics-days div {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    padding: 12px;
-    border-radius: 14px;
-    background: rgba(255,255,255,0.03);
-  }
-
-  .diagnostics-days strong {
-    color: #f5f7ff;
-  }
-
-  .diagnostics-days span {
-    color: #a9b4d0;
-  }
-
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -2470,7 +2596,9 @@ const runStyles = `
   }
 
   .duplicate-modal h2 {
-    margin-bottom: 10px;
+    margin: 0 0 10px;
+    font-size: 34px;
+    letter-spacing: -0.04em;
   }
 
   .duplicate-modal p {
