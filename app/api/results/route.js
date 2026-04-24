@@ -2,12 +2,18 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const PAGE_SIZE = 1000;
+const MAX_RESULT_ROWS = 50000;
+const MAX_RUN_ROWS = 10000;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
     status: init.status || 200,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
       ...(init.headers || {}),
     },
   });
@@ -44,6 +50,104 @@ function canReadResults(profile) {
   );
 }
 
+function uniqueValues(values) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+function chunkArray(items, size = 500) {
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function toTime(value) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function sortResultsForArchive(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const bSavedAt = toTime(b?.created_at);
+    const aSavedAt = toTime(a?.created_at);
+
+    if (bSavedAt !== aSavedAt) return bSavedAt - aSavedAt;
+
+    const bReplyAt = toTime(b?.replied_at);
+    const aReplyAt = toTime(a?.replied_at);
+
+    return bReplyAt - aReplyAt;
+  });
+}
+
+async function fetchAllAuditResults(adminClient) {
+  const allRows = [];
+  let from = 0;
+
+  while (from < MAX_RESULT_ROWS) {
+    const to = from + PAGE_SIZE - 1;
+
+    const { data, error } = await adminClient
+      .from("audit_results")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(error.message || "Could not load audit results.");
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    allRows.push(...rows);
+
+    if (rows.length < PAGE_SIZE) break;
+
+    from += PAGE_SIZE;
+  }
+
+  return allRows;
+}
+
+async function fetchRunsForResults(adminClient, results) {
+  const runIds = uniqueValues((results || []).map((row) => row?.run_id));
+
+  if (!runIds.length) return [];
+
+  const allRuns = [];
+
+  for (const chunk of chunkArray(runIds, 500)) {
+    const { data, error } = await adminClient
+      .from("audit_runs")
+      .select("*")
+      .in("id", chunk)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message || "Could not load audit runs.");
+    }
+
+    allRuns.push(...(Array.isArray(data) ? data : []));
+  }
+
+  return allRuns
+    .sort((a, b) => toTime(b?.created_at) - toTime(a?.created_at))
+    .slice(0, MAX_RUN_ROWS);
+}
+
+async function countTableRows(adminClient, tableName) {
+  const { count, error } = await adminClient
+    .from(tableName)
+    .select("id", { count: "exact", head: true });
+
+  if (error) return null;
+
+  return Number.isFinite(count) ? count : null;
+}
+
 export async function GET(request) {
   try {
     const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -54,7 +158,7 @@ export async function GET(request) {
       return json(
         {
           ok: false,
-          error: "Missing required environment variables.",
+          error: "Missing required Supabase environment variables.",
         },
         { status: 500 }
       );
@@ -129,37 +233,34 @@ export async function GET(request) {
       );
     }
 
-    const [runsResponse, resultsResponse] = await Promise.all([
-      adminClient
-        .from("audit_runs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(500),
-      adminClient
-        .from("audit_results")
-        .select("*")
-        .order("replied_at", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(5000),
+    const [totalResultsCount, rawResults] = await Promise.all([
+      countTableRows(adminClient, "audit_results"),
+      fetchAllAuditResults(adminClient),
     ]);
 
-    if (runsResponse.error) {
-      throw new Error(runsResponse.error.message || "Could not load audit runs.");
-    }
+    const results = sortResultsForArchive(rawResults);
+    const runs = await fetchRunsForResults(adminClient, results);
 
-    if (resultsResponse.error) {
-      throw new Error(resultsResponse.error.message || "Could not load audit results.");
-    }
+    const uniqueConversationCount = uniqueValues(
+      results.map((row) => row?.conversation_id)
+    ).length;
 
     return json({
       ok: true,
-      runs: Array.isArray(runsResponse.data) ? runsResponse.data : [],
-      results: Array.isArray(resultsResponse.data) ? resultsResponse.data : [],
+      runs,
+      results,
       meta: {
         requestedBy: email,
-        runsCount: Array.isArray(runsResponse.data) ? runsResponse.data.length : 0,
-        resultsCount: Array.isArray(resultsResponse.data) ? resultsResponse.data.length : 0,
-        source: "server_api_results_route",
+        runsCount: runs.length,
+        resultsCount: results.length,
+        uniqueConversationCount,
+        totalResultsCount,
+        resultRowsReturnedCap: MAX_RESULT_ROWS,
+        truncated:
+          typeof totalResultsCount === "number"
+            ? results.length < totalResultsCount
+            : results.length >= MAX_RESULT_ROWS,
+        source: "server_api_results_route_paginated",
       },
     });
   } catch (error) {
