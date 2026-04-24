@@ -3,68 +3,48 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-function CalendarButton({ onClick, label }) {
+const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
+
+const DATE_PRESET_OPTIONS = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "past_week", label: "Past Week" },
+  { key: "month_to_date", label: "Month to Date" },
+  { key: "past_4_weeks", label: "Past 4 Weeks" },
+  { key: "past_12_weeks", label: "Past 12 Weeks" },
+  { key: "year_to_date", label: "Year to Date" },
+  { key: "past_6_months", label: "Past 6 Months" },
+  { key: "past_12_months", label: "Past 12 Months" },
+  { key: "custom", label: "Custom" },
+];
+
+const FETCH_PROGRESS_STEPS = [
+  { label: "Preparing", detail: "Checking date range and limiter settings.", percent: 8 },
+  { label: "Authenticating", detail: "Verifying your signed-in session.", percent: 18 },
+  { label: "Connecting", detail: "Connecting to Intercom securely.", percent: 32 },
+  { label: "Searching", detail: "Scanning the selected date window.", percent: 50 },
+  { label: "Hydrating", detail: "Collecting conversation, agent, and client details.", percent: 72 },
+  { label: "Finalizing", detail: "Preparing the fetched conversation queue.", percent: 92 },
+];
+
+const AUDIT_PROGRESS_STEPS = [
+  { label: "Preparing Queue", detail: "Preparing conversations for GPT audit.", percent: 8 },
+  { label: "Checking Duplicates", detail: "Checking Results archive for existing conversations.", percent: 18 },
+  { label: "Fetching Details", detail: "Loading full Intercom conversation transcripts.", percent: 34 },
+  { label: "Building Transcripts", detail: "Formatting messages for GPT analysis.", percent: 48 },
+  { label: "Running GPT", detail: "Auditing conversations with the live prompt.", percent: 66 },
+  { label: "Mapping Agents", detail: "Attaching employee and team mapping data.", percent: 80 },
+  { label: "Saving Results", detail: "Saving audit run and result rows to Supabase.", percent: 92 },
+];
+
+function CalendarIcon() {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      style={{
-        width: "42px",
-        height: "42px",
-        borderRadius: "12px",
-        border: "1px solid rgba(255,255,255,0.08)",
-        background:
-          "linear-gradient(180deg, rgba(15,22,43,0.95), rgba(8,12,26,0.98))",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "pointer",
-        boxShadow: "0 8px 20px rgba(0,0,0,0.28)",
-        flexShrink: 0,
-      }}
-    >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
-        <rect
-          x="3.5"
-          y="4.5"
-          width="17"
-          height="16"
-          rx="3"
-          stroke="url(#calendarGradient)"
-          strokeWidth="1.5"
-        />
-        <circle cx="8.5" cy="13" r="1" fill="#8B5CF6" />
-        <circle cx="12" cy="13" r="1" fill="#2563EB" />
-        <circle cx="15.5" cy="13" r="1" fill="#DB2777" />
-        <circle cx="8.5" cy="16.5" r="1" fill="#2563EB" />
-        <circle cx="12" cy="16.5" r="1" fill="#06B6D4" />
-        <circle cx="15.5" cy="16.5" r="1" fill="#8B5CF6" />
-        <defs>
-          <linearGradient
-            id="calendarGradient"
-            x1="3.5"
-            y1="4.5"
-            x2="20.5"
-            y2="20.5"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop stopColor="#60A5FA" />
-            <stop offset="0.5" stopColor="#8B5CF6" />
-            <stop offset="1" stopColor="#EC4899" />
-          </linearGradient>
-        </defs>
-      </svg>
-    </button>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M8 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M16 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.5 9H20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <rect x="3.5" y="4.5" width="17" height="16" rx="3" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
   );
 }
 
@@ -85,135 +65,13 @@ function buildFallbackProfile(user) {
   return null;
 }
 
-function statusPillStyles(value) {
-  if (value === "Resolved") {
-    return {
-      border: "1px solid rgba(16,185,129,0.22)",
-      background: "rgba(16,185,129,0.12)",
-      color: "#bbf7d0",
-    };
-  }
-
-  if (value === "Pending") {
-    return {
-      border: "1px solid rgba(59,130,246,0.22)",
-      background: "rgba(59,130,246,0.12)",
-      color: "#bfdbfe",
-    };
-  }
-
-  if (value === "Unresolved") {
-    return {
-      border: "1px solid rgba(244,63,94,0.22)",
-      background: "rgba(244,63,94,0.12)",
-      color: "#fecdd3",
-    };
-  }
-
-  if (value === "Error") {
-    return {
-      border: "1px solid rgba(244,63,94,0.22)",
-      background: "rgba(244,63,94,0.12)",
-      color: "#fecdd3",
-    };
-  }
-
-  return {
-    border: "1px solid rgba(168,85,247,0.22)",
-    background: "rgba(168,85,247,0.12)",
-    color: "#e9d5ff",
-  };
-}
-
-const FETCH_PROGRESS_MESSAGES = [
-  "Preparing low-CSAT conversation search...",
-  "Checking your access and server session...",
-  "Connecting to Intercom securely...",
-  "Searching selected date window...",
-  "Collecting eligible low-CSAT conversations...",
-  "Finalizing fetched conversation list...",
-];
-
-const RUN_PROGRESS_MESSAGES = [
-  "Preparing the selected conversations for audit...",
-  "Loading the full Intercom conversation details...",
-  "Building transcripts for GPT review...",
-  "Sending conversations to GPT for analysis...",
-  "Collecting audit output and preparing the result cards...",
-];
-
-const DATE_PRESET_OPTIONS = [
-  { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
-  { key: "past_week", label: "Past week" },
-  { key: "month_to_date", label: "Month to date" },
-  { key: "past_4_weeks", label: "Past 4 weeks" },
-  { key: "past_12_weeks", label: "Past 12 weeks" },
-  { key: "year_to_date", label: "Year to date" },
-  { key: "past_6_months", label: "Past 6 months" },
-  { key: "past_12_months", label: "Past 12 months" },
-  { key: "custom", label: "Custom" },
-];
-
-function formatRepliedAt(value) {
-  if (value === null || value === undefined || value === "") return "-";
-
-  const numericValue =
-    typeof value === "number" ? value : Number(String(value).trim());
-
-  let date = null;
-
-  if (Number.isFinite(numericValue) && numericValue > 0) {
-    if (numericValue > 1000000000000) {
-      date = new Date(numericValue);
-    } else if (numericValue > 1000000000) {
-      date = new Date(numericValue * 1000);
-    }
-  } else {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      date = parsed;
-    }
-  }
-
-  if (!date || Number.isNaN(date.getTime())) {
-    return String(value);
-  }
-
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getResultStatusLabel(item) {
-  if (item?.error) return "Error";
-  if (item?.resolutionStatus) return item.resolutionStatus;
-  return "Completed";
-}
-
-function getResultSummary(item) {
-  if (item?.error) return item.error;
-  if (item?.aiVerdict) return item.aiVerdict;
-  if (item?.summary) return item.summary;
-  return "Audit completed.";
-}
-
-function getFindingsList(item) {
-  const findings = [];
-
-  if (item?.reviewSentiment) findings.push(`Review Sentiment: ${item.reviewSentiment}`);
-  if (item?.clientSentiment) findings.push(`Client Sentiment: ${item.clientSentiment}`);
-  if (item?.resolutionStatus) findings.push(`Resolution Status: ${item.resolutionStatus}`);
-
-  if (Array.isArray(item?.findings) && item.findings.length > 0) {
-    findings.push(...item.findings);
-  }
-
-  return findings;
+function canRunAudits(profile) {
+  return Boolean(
+    profile?.is_active === true &&
+      (profile?.role === "master_admin" ||
+        profile?.role === "admin" ||
+        profile?.can_run_tests === true)
+  );
 }
 
 function normalizeToStartOfDay(date) {
@@ -253,95 +111,95 @@ function getPresetRange(key) {
 
   switch (key) {
     case "today":
-      return {
-        startDate: formatDateInput(today),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(today), endDate: formatDateInput(today) };
     case "yesterday": {
       const yesterday = shiftDays(today, -1);
-      return {
-        startDate: formatDateInput(yesterday),
-        endDate: formatDateInput(yesterday),
-      };
+      return { startDate: formatDateInput(yesterday), endDate: formatDateInput(yesterday) };
     }
     case "past_week":
-      return {
-        startDate: formatDateInput(shiftDays(today, -6)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -6)), endDate: formatDateInput(today) };
     case "month_to_date":
-      return {
-        startDate: formatDateInput(startOfMonth(today)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(startOfMonth(today)), endDate: formatDateInput(today) };
     case "past_4_weeks":
-      return {
-        startDate: formatDateInput(shiftDays(today, -27)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -27)), endDate: formatDateInput(today) };
     case "past_12_weeks":
-      return {
-        startDate: formatDateInput(shiftDays(today, -83)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -83)), endDate: formatDateInput(today) };
     case "year_to_date":
-      return {
-        startDate: formatDateInput(startOfYear(today)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(startOfYear(today)), endDate: formatDateInput(today) };
     case "past_6_months":
-      return {
-        startDate: formatDateInput(shiftMonths(today, -6)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftMonths(today, -6)), endDate: formatDateInput(today) };
     case "past_12_months":
-      return {
-        startDate: formatDateInput(shiftMonths(today, -12)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftMonths(today, -12)), endDate: formatDateInput(today) };
     default:
       return null;
   }
 }
 
-function PresetCalendarIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ flexShrink: 0 }}
-    >
-      <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
-      <rect
-        x="3.5"
-        y="4.5"
-        width="17"
-        height="16"
-        rx="3"
-        stroke="url(#presetCalendarGradient)"
-        strokeWidth="1.5"
-      />
-      <defs>
-        <linearGradient
-          id="presetCalendarGradient"
-          x1="3.5"
-          y1="4.5"
-          x2="20.5"
-          y2="20.5"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="#60A5FA" />
-          <stop offset="0.5" stopColor="#8B5CF6" />
-          <stop offset="1" stopColor="#EC4899" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
+function safeText(value, fallback = "-") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function formatClock(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatElapsed(startedAt) {
+  if (!startedAt) return "0s";
+  const diff = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const minutes = Math.floor(diff / 60);
+  const seconds = diff % 60;
+
+  if (!minutes) return `${seconds}s`;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function getStatusTone(value) {
+  if (value === "Resolved" || value === "Completed") return "success";
+  if (value === "Pending") return "notice";
+  if (value === "Unresolved" || value === "Error") return "danger";
+  return "neutral";
+}
+
+function getResultStatusLabel(item) {
+  if (item?.error) return "Error";
+  if (item?.resolutionStatus) return item.resolutionStatus;
+  return "Completed";
+}
+
+function getResultSummary(item) {
+  if (item?.error) return item.error;
+  if (item?.aiVerdict) return item.aiVerdict;
+  if (item?.summary) return item.summary;
+  return "Audit completed.";
+}
+
+function getFindingsList(item) {
+  const findings = [];
+
+  if (item?.reviewSentiment) findings.push(`Review Sentiment: ${item.reviewSentiment}`);
+  if (item?.clientSentiment) findings.push(`Client Sentiment: ${item.clientSentiment}`);
+  if (item?.resolutionStatus) findings.push(`Resolution Status: ${item.resolutionStatus}`);
+
+  if (Array.isArray(item?.findings) && item.findings.length > 0) {
+    findings.push(...item.findings);
+  }
+
+  return findings;
 }
 
 function DuplicateWarningModal({
@@ -358,190 +216,39 @@ function DuplicateWarningModal({
     ? duplicateSummary.sampleConversationIds
     : [];
 
+  const duplicateCount = Number(duplicateSummary?.duplicateCount || 0);
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 2000,
-        background: "rgba(2,6,23,0.72)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px",
-      }}
-    >
-      <div
-        style={{
-          width: "min(760px, 100%)",
-          borderRadius: "28px",
-          border: "1px solid rgba(255,255,255,0.08)",
-          background:
-            "linear-gradient(180deg, rgba(15,22,43,0.96), rgba(7,10,24,0.98))",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
-          padding: "28px",
-        }}
-      >
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "8px 12px",
-            borderRadius: "999px",
-            background: "rgba(245,158,11,0.12)",
-            border: "1px solid rgba(251,191,36,0.18)",
-            color: "#fde68a",
-            fontSize: "12px",
-            fontWeight: 700,
-            marginBottom: "16px",
-          }}
-        >
-          Duplicate Audit Warning
-        </div>
-
-        <h2
-          style={{
-            margin: "0 0 12px",
-            fontSize: "34px",
-            lineHeight: 1.05,
-            letterSpacing: "-0.04em",
-          }}
-        >
-          Some selected conversations already exist in Results.
-        </h2>
-
-        <p
-          style={{
-            margin: "0 0 18px",
-            color: "#a9b4d0",
-            fontSize: "16px",
-            lineHeight: 1.7,
-          }}
-        >
-          {duplicateSummary?.duplicateCount || 0} conversation audit(s) already exist in your
-          stored Results archive. Choose whether to skip those existing records or overwrite them
-          with a fresh audit.
+    <div className="modal-backdrop">
+      <div className="duplicate-modal">
+        <div className="modal-badge warning">Duplicate Audit Warning</div>
+        <h2>Duplicates Found</h2>
+        <p>
+          {formatNumber(duplicateCount)} selected conversation audit(s) already exist in Results.
         </p>
 
-        <div
-          style={{
-            borderRadius: "18px",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(255,255,255,0.03)",
-            padding: "18px",
-            marginBottom: "18px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "12px",
-              color: "#8ea0d6",
-              textTransform: "uppercase",
-              letterSpacing: "0.12em",
-              marginBottom: "10px",
-            }}
-          >
-            Sample conversation IDs
-          </div>
-
+        <div className="duplicate-sample-box">
+          <span>Sample Conversation IDs</span>
           {sampleIds.length ? (
-            <div
-              style={{
-                display: "grid",
-                gap: "8px",
-                maxHeight: "220px",
-                overflow: "auto",
-              }}
-            >
+            <div className="duplicate-list">
               {sampleIds.map((id) => (
-                <div
-                  key={id}
-                  style={{
-                    borderRadius: "12px",
-                    background: "rgba(0,0,0,0.16)",
-                    padding: "10px 12px",
-                    color: "#e5ebff",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                  }}
-                >
-                  {id}
-                </div>
+                <strong key={id}>{id}</strong>
               ))}
             </div>
           ) : (
-            <div style={{ color: "#a9b4d0", fontSize: "14px" }}>
-              No sample conversation IDs were returned.
-            </div>
+            <small>No sample conversation IDs were returned.</small>
           )}
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: "12px",
-          }}
-        >
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={processing}
-            style={{
-              borderRadius: "16px",
-              padding: "14px 18px",
-              fontSize: "15px",
-              fontWeight: 700,
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.03)",
-              color: "#e5ebff",
-              cursor: processing ? "not-allowed" : "pointer",
-              opacity: processing ? 0.6 : 1,
-            }}
-          >
+        <div className="modal-actions">
+          <button type="button" className="secondary-btn" onClick={onCancel} disabled={processing}>
             Cancel
           </button>
-
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={processing}
-            style={{
-              borderRadius: "16px",
-              padding: "14px 18px",
-              fontSize: "15px",
-              fontWeight: 700,
-              border: "1px solid rgba(59,130,246,0.18)",
-              background: "rgba(59,130,246,0.12)",
-              color: "#dbeafe",
-              cursor: processing ? "not-allowed" : "pointer",
-              opacity: processing ? 0.6 : 1,
-            }}
-          >
-            {processing ? "Working..." : "Skip Existing"}
+          <button type="button" className="secondary-btn" onClick={onSkip} disabled={processing}>
+            Skip Existing
           </button>
-
-          <button
-            type="button"
-            onClick={onOverwrite}
-            disabled={processing}
-            style={{
-              borderRadius: "16px",
-              padding: "14px 18px",
-              fontSize: "15px",
-              fontWeight: 700,
-              border: "1px solid rgba(244,63,94,0.18)",
-              background:
-                "linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88))",
-              color: "#ffffff",
-              cursor: processing ? "not-allowed" : "pointer",
-              opacity: processing ? 0.6 : 1,
-              boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
-            }}
-          >
-            {processing ? "Working..." : "Overwrite Existing"}
+          <button type="button" className="primary-btn" onClick={onOverwrite} disabled={processing}>
+            Overwrite Existing
           </button>
         </div>
       </div>
@@ -557,6 +264,7 @@ export default function RunPage() {
 
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
+  const [autoRunAfterFetch, setAutoRunAfterFetch] = useState(false);
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -564,17 +272,21 @@ export default function RunPage() {
   const [authMessage, setAuthMessage] = useState("");
 
   const [fetchLoading, setFetchLoading] = useState(false);
-  const [fetchMessageIndex, setFetchMessageIndex] = useState(0);
+  const [fetchProgressIndex, setFetchProgressIndex] = useState(0);
+  const [fetchStartedAt, setFetchStartedAt] = useState(null);
   const [fetchError, setFetchError] = useState("");
   const [fetchSuccess, setFetchSuccess] = useState("");
   const [fetchData, setFetchData] = useState(null);
 
   const [runLoading, setRunLoading] = useState(false);
-  const [runMessageIndex, setRunMessageIndex] = useState(0);
+  const [runProgressIndex, setRunProgressIndex] = useState(0);
+  const [runStartedAt, setRunStartedAt] = useState(null);
   const [runError, setRunError] = useState("");
   const [runSuccess, setRunSuccess] = useState("");
   const [runData, setRunData] = useState(null);
 
+  const [operationStatus, setOperationStatus] = useState("idle");
+  const [executionLog, setExecutionLog] = useState([]);
   const [showAllResults, setShowAllResults] = useState(false);
   const [showJumpTop, setShowJumpTop] = useState(false);
 
@@ -585,6 +297,42 @@ export default function RunPage() {
   const startDateRef = useRef(null);
   const endDateRef = useRef(null);
   const presetMenuRef = useRef(null);
+  const fetchAbortRef = useRef(null);
+  const runAbortRef = useRef(null);
+
+  const canRunTests = canRunAudits(profile);
+  const isBusy = fetchLoading || runLoading || duplicateDecisionLoading;
+
+  const fetchedConversations = Array.isArray(fetchData?.conversations)
+    ? fetchData.conversations
+    : [];
+
+  const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
+    ? fetchData.debug.dailySummary
+    : [];
+
+  const results = Array.isArray(runData?.results) ? runData.results : [];
+  const successCount = results.filter((item) => !item?.error).length;
+  const errorCount = results.filter((item) => item?.error).length;
+  const visibleResults = showAllResults ? results : results.slice(0, 6);
+  const selectedPresetLabel =
+    DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
+
+  const currentFetchStep = FETCH_PROGRESS_STEPS[fetchProgressIndex] || FETCH_PROGRESS_STEPS[0];
+  const currentRunStep = AUDIT_PROGRESS_STEPS[runProgressIndex] || AUDIT_PROGRESS_STEPS[0];
+
+  function addLog(message, tone = "info") {
+    const now = new Date();
+    const time = now.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    setExecutionLog((prev) =>
+      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 30)
+    );
+  }
 
   function resetRunStateForInputChange() {
     setFetchData(null);
@@ -597,6 +345,7 @@ export default function RunPage() {
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
+    setOperationStatus("idle");
   }
 
   function openPicker(inputRef) {
@@ -636,9 +385,7 @@ export default function RunPage() {
     const email = user?.email?.toLowerCase() || "";
     const domain = email.split("@")[1] || "";
 
-    if (!user) {
-      return { profile: null, message: "" };
-    }
+    if (!user) return { profile: null, message: "" };
 
     if (domain !== "nextventures.io") {
       await supabase.auth.signOut();
@@ -657,22 +404,15 @@ export default function RunPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (data) {
-        return { profile: data, message: "" };
-      }
-
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
+      if (data) return { profile: data, message: "" };
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
         profile: null,
         message: "Signed in, but no profile record is available yet.",
       };
     } catch (_error) {
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
         profile: null,
@@ -755,11 +495,10 @@ export default function RunPage() {
     if (!fetchLoading) return undefined;
 
     const interval = setInterval(() => {
-      setFetchMessageIndex((prev) => {
-        if (prev >= FETCH_PROGRESS_MESSAGES.length - 1) return prev;
-        return prev + 1;
-      });
-    }, 1400);
+      setFetchProgressIndex((prev) =>
+        prev >= FETCH_PROGRESS_STEPS.length - 1 ? prev : prev + 1
+      );
+    }, 1300);
 
     return () => clearInterval(interval);
   }, [fetchLoading]);
@@ -768,14 +507,23 @@ export default function RunPage() {
     if (!runLoading) return undefined;
 
     const interval = setInterval(() => {
-      setRunMessageIndex((prev) => {
-        if (prev >= RUN_PROGRESS_MESSAGES.length - 1) return prev;
-        return prev + 1;
-      });
+      setRunProgressIndex((prev) =>
+        prev >= AUDIT_PROGRESS_STEPS.length - 1 ? prev : prev + 1
+      );
     }, 1800);
 
     return () => clearInterval(interval);
   }, [runLoading]);
+
+  useEffect(() => {
+    function tickElapsed() {
+      if (fetchLoading) setFetchStartedAt((prev) => prev || Date.now());
+      if (runLoading) setRunStartedAt((prev) => prev || Date.now());
+    }
+
+    const interval = setInterval(tickElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [fetchLoading, runLoading]);
 
   useEffect(() => {
     function handleScroll() {
@@ -799,6 +547,13 @@ export default function RunPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (fetchAbortRef.current) fetchAbortRef.current.abort();
+      if (runAbortRef.current) runAbortRef.current.abort();
+    };
+  }, []);
+
   async function handleGoogleLogin() {
     setAuthMessage("");
 
@@ -816,7 +571,11 @@ export default function RunPage() {
   }
 
   async function handleLogout() {
+    if (fetchAbortRef.current) fetchAbortRef.current.abort();
+    if (runAbortRef.current) runAbortRef.current.abort();
+
     await supabase.auth.signOut();
+
     setSession(null);
     setProfile(null);
     setAuthMessage("");
@@ -831,6 +590,30 @@ export default function RunPage() {
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
+    setOperationStatus("idle");
+    addLog("Signed out.", "neutral");
+  }
+
+  function handleCancelFetch() {
+    if (fetchAbortRef.current) fetchAbortRef.current.abort();
+
+    setFetchLoading(false);
+    setFetchError("Fetch cancelled.");
+    setOperationStatus("cancelled");
+    addLog("Fetch cancelled by user.", "warning");
+  }
+
+  function handleCancelAudit() {
+    if (runAbortRef.current) runAbortRef.current.abort();
+
+    setRunLoading(false);
+    setDuplicateDecisionLoading(false);
+    setDuplicateWarningOpen(false);
+    setRunError(
+      "Audit cancelled on this page. If the server had already started processing, a partial save may still finish."
+    );
+    setOperationStatus("cancelled");
+    addLog("Audit cancelled by user. Check Results before rerunning the same batch.", "warning");
   }
 
   async function handleFetchConversations() {
@@ -863,8 +646,14 @@ export default function RunPage() {
       }
     }
 
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     setFetchLoading(true);
-    setFetchMessageIndex(0);
+    setFetchStartedAt(Date.now());
+    setFetchProgressIndex(0);
+    setOperationStatus("fetching");
+    addLog(`Fetch started for ${startDate} to ${endDate}.`, "info");
 
     try {
       const response = await fetch("/api/audits/fetch-conversations", {
@@ -880,6 +669,7 @@ export default function RunPage() {
           limitCount,
           debug: true,
         }),
+        signal: controller.signal,
       });
 
       const data = await response.json();
@@ -889,31 +679,62 @@ export default function RunPage() {
       }
 
       setFetchData(data);
+      setFetchProgressIndex(FETCH_PROGRESS_STEPS.length - 1);
 
-      if ((data?.meta?.fetchedCount || 0) > 0) {
-        setFetchSuccess(
-          `Intercom connection successful. ${data.meta.fetchedCount} low-CSAT conversation(s) fetched.`
-        );
+      const fetchedCount = Number(data?.meta?.fetchedCount || 0);
+
+      if (fetchedCount > 0) {
+        setFetchSuccess(`${formatNumber(fetchedCount)} low-CSAT conversation(s) fetched.`);
+        setOperationStatus("fetched");
+        addLog(`${formatNumber(fetchedCount)} conversation(s) fetched.`, "success");
       } else {
         setFetchSuccess(data?.message || "Fetch completed with no conversations found.");
+        setOperationStatus("completed");
+        addLog("Fetch completed with no conversations found.", "neutral");
+      }
+
+      setFetchLoading(false);
+      fetchAbortRef.current = null;
+
+      if (autoRunAfterFetch && fetchedCount > 0) {
+        addLog("Auto-run enabled. Starting audit automatically.", "success");
+        await executeRunAudit({
+          conversationsOverride: Array.isArray(data?.conversations) ? data.conversations : [],
+          duplicateMode: "",
+          autoTriggered: true,
+        });
       }
     } catch (error) {
-      setFetchError(
-        error instanceof Error ? error.message : "Conversation fetch failed."
-      );
+      if (error?.name === "AbortError") {
+        setFetchError("Fetch cancelled.");
+        addLog("Fetch request was aborted.", "warning");
+      } else {
+        setFetchError(error instanceof Error ? error.message : "Conversation fetch failed.");
+        addLog(error instanceof Error ? error.message : "Conversation fetch failed.", "danger");
+      }
+
+      setOperationStatus("failed");
     } finally {
       setFetchLoading(false);
+      fetchAbortRef.current = null;
     }
   }
 
-  async function executeRunAudit(duplicateMode = "") {
+  async function executeRunAudit({
+    conversationsOverride = null,
+    duplicateMode = "",
+    autoTriggered = false,
+  } = {}) {
     setRunError("");
     setRunSuccess("");
     setRunData(null);
-    setRunMessageIndex(0);
+    setRunProgressIndex(0);
+    setRunStartedAt(Date.now());
     setShowAllResults(false);
 
-    const conversations = Array.isArray(fetchData?.conversations)
+    const conversations = Array.isArray(conversationsOverride)
+      ? conversationsOverride
+      : Array.isArray(fetchData?.conversations)
       ? fetchData.conversations
       : [];
 
@@ -927,7 +748,23 @@ export default function RunPage() {
       return;
     }
 
+    const controller = new AbortController();
+    runAbortRef.current = controller;
+
     setRunLoading(true);
+    setOperationStatus("auditing");
+
+    const modeLabel =
+      duplicateMode === "overwrite_existing"
+        ? "overwrite existing"
+        : duplicateMode === "skip_existing"
+        ? "skip existing"
+        : "duplicate check";
+
+    addLog(
+      `Audit started for ${formatNumber(conversations.length)} conversation(s). Mode: ${modeLabel}.`,
+      "info"
+    );
 
     try {
       const response = await fetch("/api/audits/run", {
@@ -944,14 +781,43 @@ export default function RunPage() {
           endDate,
           duplicateMode,
         }),
+        signal: controller.signal,
       });
 
       const data = await response.json();
 
       if (response.status === 409 && data?.requiresDuplicateDecision) {
+        const count = Number(data?.duplicateSummary?.duplicateCount || 0);
+
+        if (autoTriggered) {
+          const autoDuplicateMode =
+            count < AUTO_DUPLICATE_OVERWRITE_LIMIT ? "overwrite_existing" : "skip_existing";
+
+          addLog(
+            `${formatNumber(count)} duplicate(s) found. Auto-${
+              autoDuplicateMode === "overwrite_existing" ? "overwrite" : "skip"
+            } applied.`,
+            count < AUTO_DUPLICATE_OVERWRITE_LIMIT ? "warning" : "notice"
+          );
+
+          setRunLoading(false);
+          runAbortRef.current = null;
+
+          await executeRunAudit({
+            conversationsOverride: conversations,
+            duplicateMode: autoDuplicateMode,
+            autoTriggered: true,
+          });
+
+          return;
+        }
+
         setDuplicateSummary(data.duplicateSummary || null);
         setDuplicateWarningOpen(true);
         setRunLoading(false);
+        setOperationStatus("paused");
+        setRunError("Audit paused. Duplicate decision required.");
+        addLog(`${formatNumber(count)} duplicate conversation(s) need a decision.`, "warning");
         return;
       }
 
@@ -962,2320 +828,1756 @@ export default function RunPage() {
       setDuplicateWarningOpen(false);
       setDuplicateSummary(null);
       setRunData(data);
+      setRunProgressIndex(AUDIT_PROGRESS_STEPS.length - 1);
 
       if (data?.meta?.duplicateModeApplied === "skip_existing") {
         setRunSuccess(
-          `Audit completed. ${data.meta.skippedCount || 0} duplicate conversation(s) were skipped.`
+          `Audit completed. ${formatNumber(data.meta.skippedCount || 0)} duplicate conversation(s) skipped.`
         );
       } else if (data?.meta?.duplicateModeApplied === "overwrite_existing") {
         setRunSuccess(
-          `Audit completed. ${data.meta.overwrittenCount || 0} duplicate conversation(s) were overwritten.`
+          `Audit completed. ${formatNumber(data.meta.overwrittenCount || 0)} duplicate conversation(s) overwritten.`
         );
       } else {
         setRunSuccess(data?.message || "Audit run completed.");
       }
+
+      setOperationStatus("completed");
+      addLog(
+        `Audit completed. ${formatNumber(data?.meta?.auditedCount || 0)} conversation(s) processed.`,
+        "success"
+      );
     } catch (error) {
-      setRunError(error instanceof Error ? error.message : "Audit run failed.");
+      if (error?.name === "AbortError") {
+        setRunError(
+          "Audit cancelled on this page. If the server had already started processing, check Results before rerunning."
+        );
+        addLog("Audit request was aborted from the browser.", "warning");
+        setOperationStatus("cancelled");
+      } else {
+        const message = error instanceof Error ? error.message : "Audit run failed.";
+        setRunError(message);
+        addLog(message, "danger");
+        setOperationStatus("failed");
+      }
     } finally {
       setRunLoading(false);
+      runAbortRef.current = null;
     }
   }
 
   async function handleRunAudit() {
-    await executeRunAudit("");
+    await executeRunAudit({ duplicateMode: "", autoTriggered: false });
   }
 
   async function handleDuplicateSkip() {
+    if (duplicateDecisionLoading) return;
+
     setDuplicateDecisionLoading(true);
-    await executeRunAudit("skip_existing");
-    setDuplicateDecisionLoading(false);
+    setDuplicateWarningOpen(false);
+    setRunError("");
+    addLog("Manual duplicate choice: skip existing.", "notice");
+
+    try {
+      await executeRunAudit({ duplicateMode: "skip_existing", autoTriggered: false });
+    } finally {
+      setDuplicateDecisionLoading(false);
+    }
   }
 
   async function handleDuplicateOverwrite() {
+    if (duplicateDecisionLoading) return;
+
     setDuplicateDecisionLoading(true);
-    await executeRunAudit("overwrite_existing");
-    setDuplicateDecisionLoading(false);
+    setDuplicateWarningOpen(false);
+    setRunError("");
+    addLog("Manual duplicate choice: overwrite existing.", "warning");
+
+    try {
+      await executeRunAudit({ duplicateMode: "overwrite_existing", autoTriggered: false });
+    } finally {
+      setDuplicateDecisionLoading(false);
+    }
   }
 
   function handleDuplicateCancel() {
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
-    setRunError("Audit run paused. Duplicate conversations need your decision.");
+    setDuplicateDecisionLoading(false);
+    setRunError("Audit paused. Duplicate conversations need your decision.");
+    setOperationStatus("paused");
+    addLog("Duplicate decision modal cancelled.", "warning");
   }
 
-  const canRunTests =
-    profile?.is_active === true &&
-    (profile?.role === "master_admin" ||
-      profile?.role === "admin" ||
-      profile?.can_run_tests === true);
-
-  const isMasterAdmin = profile?.role === "master_admin";
-
-  const fetchedConversations = Array.isArray(fetchData?.conversations)
-    ? fetchData.conversations
-    : [];
-  const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
-    ? fetchData.debug.dailySummary
-    : [];
-  const results = Array.isArray(runData?.results) ? runData.results : [];
-  const successCount = results.filter((item) => !item?.error).length;
-  const errorCount = results.filter((item) => item?.error).length;
-  const visibleResults = showAllResults ? results : results.slice(0, 3);
-  const selectedPresetLabel =
-    DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
-
-  const statCards = [
-    {
-      label: "Authentication",
-      value: session?.user ? "Google Connected" : "Google Login Required",
-      subtext: "Only nextventures.io users can enter",
-    },
-    {
-      label: "Access Control",
-      value: isMasterAdmin ? "Master Admin Active" : "Permission Controlled",
-      subtext: "faiyaz@nextventures.io stays permanent admin",
-    },
-    {
-      label: "Intercom Fetch",
-      value: fetchData?.meta?.fetchedCount > 0 ? "Connection Confirmed" : "Awaiting Fetch",
-      subtext: fetchData?.meta?.fetchedCount
-        ? `${fetchData.meta.fetchedCount} low-CSAT conversation(s) fetched`
-        : "Use Fetch Conversations to verify retrieval",
-    },
-    {
-      label: "AI Processing",
-      value: runData?.meta?.auditedCount ? "Audit Completed" : "Awaiting Run",
-      subtext: runData?.meta?.auditedCount
-        ? `${runData.meta.auditedCount} conversation(s) processed`
-        : "Run Audit appears after a successful fetch",
-    },
-  ];
-
-  const controlCards = [
-    {
-      eyebrow: "Access Model",
-      title: "Google login + nextventures.io restriction",
-      description:
-        "Only approved users with a @nextventures.io email will be allowed into the system.",
-    },
-    {
-      eyebrow: "Admin Control",
-      title: "Master admin + test runner permissions",
-      description:
-        "You will stay the permanent master admin, and the admin panel will control who can run tests during development.",
-    },
-    {
-      eyebrow: "Development Limiter",
-      title: "Run only the number you choose",
-      description:
-        "When limiter is on, the fetch step and audit step will only use that many conversations. When limiter is off, the system will fetch all eligible conversations in the selected date range.",
-    },
-    {
-      eyebrow: "Prompt Control",
-      title: "Edit the live GPT prompt from admin",
-      description:
-        "Prompt logic should live in Admin/Supabase so future prompt updates do not require code changes.",
-    },
-  ];
-
   const summaryText = useMemo(() => {
-    if (authLoading) {
-      return "Checking login and access status.";
-    }
-
-    if (!session?.user) {
-      return "Sign in with your Google account to continue.";
-    }
-
-    if (profile && !canRunTests) {
-      return "You are signed in, but test-run access is not enabled for this account yet.";
-    }
-
-    if (!startDate && !endDate) {
-      return "Choose a preset or set a custom start date and end date to prepare a controlled audit run.";
-    }
-
-    if (fetchLoading) {
-      return FETCH_PROGRESS_MESSAGES[fetchMessageIndex];
-    }
-
-    if (runLoading) {
-      return RUN_PROGRESS_MESSAGES[runMessageIndex];
-    }
-
-    if (duplicateWarningOpen && duplicateSummary?.duplicateCount) {
-      return `${duplicateSummary.duplicateCount} duplicate conversation audit(s) were found. Choose whether to skip or overwrite them.`;
-    }
-
+    if (authLoading) return "Checking access.";
+    if (!session?.user) return "Sign in to continue.";
+    if (profile && !canRunTests) return "This account does not have test-run access.";
+    if (fetchLoading) return currentFetchStep.detail;
+    if (runLoading) return currentRunStep.detail;
+    if (operationStatus === "cancelled") return "Current operation was cancelled.";
+    if (operationStatus === "paused") return "Audit is paused and needs your decision.";
     if (runData?.meta?.auditedCount >= 0) {
-      if (runData?.meta?.duplicateModeApplied === "skip_existing") {
-        return `Latest run completed ${runData.meta.auditedCount} conversation(s). ${runData.meta.skippedCount || 0} duplicate conversation(s) were skipped.`;
-      }
-
-      if (runData?.meta?.duplicateModeApplied === "overwrite_existing") {
-        return `Latest run completed ${runData.meta.auditedCount} conversation(s). ${runData.meta.overwrittenCount || 0} duplicate conversation(s) were overwritten.`;
-      }
-
-      return `Latest run completed ${runData.meta.auditedCount} conversation(s).`;
+      return `Latest audit processed ${formatNumber(runData.meta.auditedCount)} conversation(s).`;
     }
-
-    if (fetchData?.meta?.fetchedCount > 0 && !runData) {
-      return `Fetch completed. ${fetchData.meta.fetchedCount} low-CSAT conversation(s) are ready for audit from ${fetchData.meta.startDate} to ${fetchData.meta.endDate}.`;
+    if (fetchData?.meta?.fetchedCount > 0) {
+      return `${formatNumber(fetchData.meta.fetchedCount)} conversation(s) are ready for audit.`;
     }
-
-    if (startDate && endDate && limiterEnabled) {
-      return `Ready to fetch low-CSAT conversations from ${startDate} to ${endDate} with limiter enabled for ${limitCount || "0"} conversation(s).`;
-    }
-
     if (startDate && endDate) {
-      return `Ready to fetch all eligible low-CSAT conversations from ${startDate} to ${endDate}.`;
+      return limiterEnabled
+        ? `Ready to fetch ${formatNumber(limitCount || 0)} conversation(s) from ${startDate} to ${endDate}.`
+        : `Ready to fetch all eligible conversations from ${startDate} to ${endDate}.`;
     }
-
-    return "Choose a preset or set a custom start date and end date to prepare a controlled audit run.";
+    return "Choose a date range to start.";
   }, [
     authLoading,
     session,
     profile,
     canRunTests,
+    fetchLoading,
+    runLoading,
+    operationStatus,
+    currentFetchStep,
+    currentRunStep,
+    runData,
+    fetchData,
     startDate,
     endDate,
     limiterEnabled,
     limitCount,
-    fetchLoading,
-    fetchMessageIndex,
-    runLoading,
-    runMessageIndex,
-    fetchData,
-    runData,
-    duplicateWarningOpen,
-    duplicateSummary,
   ]);
 
-  const inputBaseStyle = {
-    width: "100%",
-    height: "52px",
-    borderRadius: "14px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(5,8,18,0.92)",
-    color: "#e7ecff",
-    padding: "0 16px",
-    fontSize: "15px",
-    outline: "none",
-    boxSizing: "border-box",
-    appearance: "none",
-    WebkitAppearance: "none",
-    MozAppearance: "none",
-    colorScheme: "dark",
-  };
+  const statCards = [
+    {
+      label: "Fetch",
+      value: fetchData?.meta?.fetchedCount ? formatNumber(fetchData.meta.fetchedCount) : "Ready",
+      subtext: "Conversation queue",
+      tone: fetchData?.meta?.fetchedCount ? "success" : "neutral",
+    },
+    {
+      label: "Audit",
+      value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "Pending",
+      subtext: "Processed conversations",
+      tone: runData?.meta?.auditedCount ? "success" : "neutral",
+    },
+    {
+      label: "Auto-run",
+      value: autoRunAfterFetch ? "On" : "Off",
+      subtext: autoRunAfterFetch ? "Starts after fetch" : "Manual start",
+      tone: autoRunAfterFetch ? "success" : "neutral",
+    },
+    {
+      label: "Status",
+      value:
+        operationStatus === "idle"
+          ? "Idle"
+          : operationStatus.charAt(0).toUpperCase() + operationStatus.slice(1),
+      subtext: "Current state",
+      tone:
+        operationStatus === "failed" || operationStatus === "cancelled"
+          ? "danger"
+          : operationStatus === "paused"
+          ? "warning"
+          : operationStatus === "completed"
+          ? "success"
+          : "notice",
+    },
+  ];
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 22%), radial-gradient(circle at top right, rgba(168,85,247,0.14), transparent 20%), radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 22%), linear-gradient(180deg, #040714 0%, #060b1d 45%, #04060d 100%)",
-        color: "#f5f7ff",
-        padding: "32px 20px 60px",
-        fontFamily:
-          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      }}
-    >
+    <main className="run-page">
+      <style>{runStyles}</style>
+
       <DuplicateWarningModal
         open={duplicateWarningOpen}
         duplicateSummary={duplicateSummary}
-        processing={duplicateDecisionLoading || runLoading}
+        processing={duplicateDecisionLoading}
         onCancel={handleDuplicateCancel}
         onSkip={handleDuplicateSkip}
         onOverwrite={handleDuplicateOverwrite}
       />
 
-      <div style={{ maxWidth: "1280px", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            padding: "18px 20px",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(9, 13, 29, 0.72)",
-            backdropFilter: "blur(14px)",
-            borderRadius: "22px",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
-            marginBottom: "28px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "8px",
-              }}
-            >
-              NEXT Ventures
-            </div>
-            <div
-              style={{
-                fontSize: "24px",
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-              }}
-            >
-              Review Approach &amp; Client Sentiment Tracking
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "10px 14px",
-              borderRadius: "999px",
-              border: "1px solid rgba(96,165,250,0.25)",
-              background:
-                "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(168,85,247,0.14))",
-              color: "#dbe7ff",
-              fontSize: "14px",
-              fontWeight: 600,
-              boxShadow: "0 0 24px rgba(59,130,246,0.15)",
-            }}
-          >
-            <span
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "999px",
-                background: fetchLoading || runLoading ? "#f59e0b" : "#34d399",
-                boxShadow:
-                  fetchLoading || runLoading ? "0 0 12px #f59e0b" : "0 0 12px #34d399",
-                display: "inline-block",
-              }}
-            />
-            {fetchLoading
-              ? "Fetching Conversations"
-              : runLoading
-              ? "Running Audit"
-              : "Run Analysis"}
-          </div>
+      <nav className="topbar">
+        <div>
+          <p className="eyebrow">NEXT Ventures</p>
+          <strong>Review Approach & Client Sentiment Tracking</strong>
         </div>
 
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.35fr) minmax(320px, 0.85fr)",
-            gap: "24px",
-            marginBottom: "24px",
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid rgba(255,255,255,0.08)",
-              background:
-                "linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96))",
-              borderRadius: "28px",
-              padding: "32px",
-              boxShadow:
-                "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-            }}
-          >
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "8px 12px",
-                borderRadius: "999px",
-                background: "rgba(99,102,241,0.14)",
-                border: "1px solid rgba(129,140,248,0.2)",
-                color: "#cdd7ff",
-                fontSize: "12px",
-                fontWeight: 600,
-                marginBottom: "18px",
-              }}
-            >
-              Premium Internal Tool
+        <span className={`live-pill ${isBusy ? "busy" : "ready"}`}>
+          {fetchLoading ? "Fetching" : runLoading ? "Auditing" : duplicateWarningOpen ? "Paused" : "Run Audit"}
+        </span>
+      </nav>
+
+      <section className="hero">
+        <div>
+          <div className="hero-badge">Run Audit</div>
+          <h1>Audit Control</h1>
+          <p>Fetch low-CSAT conversations, run GPT audits, and save results.</p>
+        </div>
+
+        <div className="hero-panel">
+          <span>Current State</span>
+          <strong>{summaryText}</strong>
+        </div>
+      </section>
+
+      <section className="stats-grid">
+        {statCards.map((card) => (
+          <article key={card.label} className={`stat-card ${card.tone}`}>
+            <p>{card.label}</p>
+            <strong>{card.value}</strong>
+            <span>{card.subtext}</span>
+          </article>
+        ))}
+      </section>
+
+      <section className="main-grid">
+        <div className="panel control-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Controls</p>
+              <h2>Setup</h2>
             </div>
-
-            <h1
-              style={{
-                fontSize: "54px",
-                lineHeight: 1.02,
-                letterSpacing: "-0.05em",
-                margin: "0 0 18px",
-                maxWidth: "780px",
+            <button
+              type="button"
+              className={autoRunAfterFetch ? "toggle-chip on" : "toggle-chip"}
+              onClick={() => {
+                setAutoRunAfterFetch((prev) => !prev);
+                addLog(`Auto-run ${!autoRunAfterFetch ? "enabled" : "disabled"}.`, !autoRunAfterFetch ? "success" : "neutral");
               }}
             >
-              Audit Intercom conversations by date range with controlled GPT execution.
-            </h1>
+              <span />
+              {autoRunAfterFetch ? "Auto-run enabled" : "Auto-run after fetch"}
+            </button>
+          </div>
 
-            <p
-              style={{
-                margin: "0 0 20px",
-                color: "#a9b4d0",
-                fontSize: "18px",
-                lineHeight: 1.7,
-                maxWidth: "760px",
-              }}
-            >
-              First fetch eligible low-CSAT conversations, confirm the Intercom connection,
-              then run the GPT audit only after the fetch step completes successfully.
-            </p>
+          <div className="auth-card">
+            <span>Login</span>
+            {authLoading ? (
+              <strong>Checking session...</strong>
+            ) : session?.user ? (
+              <>
+                <strong>{session.user.email}</strong>
+                <small>Role: {profile?.role || "viewer"} | Can run tests: {canRunTests ? "Yes" : "No"}</small>
+              </>
+            ) : (
+              <strong>Not signed in</strong>
+            )}
+            {authMessage ? <em>{authMessage}</em> : null}
+          </div>
 
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.03)",
-                padding: "16px",
-                marginBottom: "18px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "12px",
-                  color: "#8ea0d6",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "8px",
-                }}
-              >
-                Login Status
-              </div>
+          <div ref={presetMenuRef} className="preset-box">
+            <label>Date Range Preset</label>
+            <button type="button" className="preset-button" onClick={() => setShowPresetMenu((prev) => !prev)}>
+              <span><CalendarIcon /> {selectedPresetLabel}</span>
+              <small>{startDate && endDate ? `${startDate} - ${endDate}` : "Select range"}</small>
+              <b>{showPresetMenu ? "▲" : "▼"}</b>
+            </button>
 
-              {authLoading ? (
-                <div style={{ color: "#dbe7ff", fontSize: "15px" }}>
-                  Checking your session...
-                </div>
-              ) : session?.user ? (
-                <div style={{ display: "grid", gap: "8px" }}>
-                  <div style={{ color: "#dbe7ff", fontSize: "15px", fontWeight: 600 }}>
-                    Signed in as {session.user.email}
-                  </div>
-                  <div style={{ color: "#a9b4d0", fontSize: "14px" }}>
-                    Role: {profile?.role || "viewer"} | Can run tests: {canRunTests ? "Yes" : "No"}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ color: "#dbe7ff", fontSize: "15px" }}>
-                  You are not signed in yet.
-                </div>
-              )}
-
-              {authMessage ? (
-                <div
-                  style={{
-                    marginTop: "12px",
-                    color: "#fda4af",
-                    fontSize: "14px",
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {authMessage}
-                </div>
-              ) : null}
-            </div>
-
-            <div
-              ref={presetMenuRef}
-              style={{
-                position: "relative",
-                borderRadius: "18px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.03)",
-                padding: "16px",
-                marginBottom: "14px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "12px",
-                  color: "#8ea0d6",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "8px",
-                }}
-              >
-                Date Range Presets
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowPresetMenu((prev) => !prev)}
-                style={{
-                  width: "100%",
-                  minHeight: "54px",
-                  borderRadius: "16px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background:
-                    "linear-gradient(180deg, rgba(5,8,18,0.94), rgba(9,13,26,0.98))",
-                  color: "#e7ecff",
-                  padding: "0 16px",
-                  fontSize: "15px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  boxShadow: "0 10px 24px rgba(0,0,0,0.24)",
-                }}
-              >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    minWidth: 0,
-                  }}
-                >
-                  <PresetCalendarIcon />
-                  <span style={{ fontWeight: 600 }}>{selectedPresetLabel}</span>
-                  {startDate && endDate ? (
-                    <span
-                      style={{
-                        color: "#9fb0d6",
-                        fontSize: "13px",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {startDate} - {endDate}
-                    </span>
-                  ) : null}
-                </span>
-
-                <span
-                  style={{
-                    color: "#9fb0d6",
-                    fontSize: "14px",
-                    transform: showPresetMenu ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.18s ease",
-                  }}
-                >
-                  ▼
-                </span>
-              </button>
-
-              {showPresetMenu && (
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "16px",
-                    right: "16px",
-                    top: "calc(100% - 2px)",
-                    marginTop: "8px",
-                    zIndex: 50,
-                    borderRadius: "18px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background:
-                      "linear-gradient(180deg, rgba(10,15,32,0.98), rgba(6,9,20,0.99))",
-                    boxShadow:
-                      "0 26px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-                    overflow: "hidden",
-                  }}
-                >
-                  {DATE_PRESET_OPTIONS.map((item, index) => {
-                    const active = item.key === selectedDatePreset;
-                    const isLast = index === DATE_PRESET_OPTIONS.length - 1;
-
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => applyDatePreset(item.key)}
-                        style={{
-                          width: "100%",
-                          minHeight: "46px",
-                          border: "none",
-                          borderBottom: isLast
-                            ? "none"
-                            : "1px solid rgba(255,255,255,0.05)",
-                          background: active
-                            ? "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(168,85,247,0.16))"
-                            : "transparent",
-                          color: active ? "#ffffff" : "#dbe7ff",
-                          cursor: "pointer",
-                          padding: "0 16px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          textAlign: "left",
-                        }}
-                      >
-                        <span style={{ fontSize: "14px", fontWeight: active ? 700 : 500 }}>
-                          {item.label}
-                        </span>
-                        {active && (
-                          <span style={{ color: "#34d399", fontSize: "13px", fontWeight: 700 }}>
-                            ✓
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: "14px",
-                marginBottom: "14px",
-              }}
-            >
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                }}
-              >
-                <label
-                  htmlFor="start-date"
-                  style={{
-                    display: "block",
-                    fontSize: "12px",
-                    color: "#8ea0d6",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    marginBottom: "8px",
-                  }}
-                >
-                  Start Date
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                  }}
-                >
-                  <input
-                    ref={startDateRef}
-                    id="start-date"
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      setStartDate(e.target.value);
-                      setSelectedDatePreset("custom");
-                      resetRunStateForInputChange();
-                    }}
-                    onFocus={() => openPicker(startDateRef)}
-                    style={inputBaseStyle}
-                  />
-                  <CalendarButton
-                    onClick={() => openPicker(startDateRef)}
-                    label="Open start date picker"
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                }}
-              >
-                <label
-                  htmlFor="end-date"
-                  style={{
-                    display: "block",
-                    fontSize: "12px",
-                    color: "#8ea0d6",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    marginBottom: "8px",
-                  }}
-                >
-                  End Date
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                  }}
-                >
-                  <input
-                    ref={endDateRef}
-                    id="end-date"
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      setEndDate(e.target.value);
-                      setSelectedDatePreset("custom");
-                      resetRunStateForInputChange();
-                    }}
-                    onFocus={() => openPicker(endDateRef)}
-                    style={inputBaseStyle}
-                  />
-                  <CalendarButton
-                    onClick={() => openPicker(endDateRef)}
-                    label="Open end date picker"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(255,255,255,0.03)",
-                padding: "16px",
-                marginBottom: "14px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "16px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#8ea0d6",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.12em",
-                      marginBottom: "8px",
-                    }}
+            {showPresetMenu ? (
+              <div className="preset-menu">
+                {DATE_PRESET_OPTIONS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={item.key === selectedDatePreset ? "active" : ""}
+                    onClick={() => applyDatePreset(item.key)}
                   >
-                    Development Limiter
-                  </div>
-                  <div
-                    style={{
-                      color: "#e7ecff",
-                      fontSize: "16px",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {limiterEnabled ? "Limiter is ON" : "Limiter is OFF"}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLimiterEnabled((prev) => !prev);
-                    resetRunStateForInputChange();
-                  }}
-                  style={{
-                    position: "relative",
-                    width: "72px",
-                    height: "40px",
-                    borderRadius: "999px",
-                    border: limiterEnabled
-                      ? "1px solid rgba(96,165,250,0.45)"
-                      : "1px solid rgba(255,255,255,0.12)",
-                    background: limiterEnabled
-                      ? "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(168,85,247,0.85))"
-                      : "rgba(255,255,255,0.08)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: "4px",
-                      left: limiterEnabled ? "36px" : "4px",
-                      width: "30px",
-                      height: "30px",
-                      borderRadius: "999px",
-                      background: "#ffffff",
-                      boxShadow: "0 6px 14px rgba(0,0,0,0.35)",
-                    }}
-                  />
-                </button>
+                    {item.label}
+                  </button>
+                ))}
               </div>
-            </div>
+            ) : null}
+          </div>
 
-            {limiterEnabled && (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                  marginBottom: "20px",
-                }}
-              >
-                <label
-                  htmlFor="limit-count"
-                  style={{
-                    display: "block",
-                    fontSize: "12px",
-                    color: "#8ea0d6",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    marginBottom: "8px",
-                  }}
-                >
-                  Number of Conversations to Use
-                </label>
+          <div className="form-grid two">
+            <label>
+              <span>Start Date</span>
+              <div className="date-control">
                 <input
-                  id="limit-count"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={limitCount}
-                  onChange={(e) => {
-                    setLimitCount(e.target.value);
+                  ref={startDateRef}
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => {
+                    setStartDate(event.target.value);
+                    setSelectedDatePreset("custom");
                     resetRunStateForInputChange();
                   }}
-                  placeholder="Enter a number"
-                  style={inputBaseStyle}
+                  onFocus={() => openPicker(startDateRef)}
                 />
+                <button type="button" className="icon-btn" onClick={() => openPicker(startDateRef)}>
+                  <CalendarIcon />
+                </button>
               </div>
-            )}
+            </label>
 
-            <div
-              style={{
-                display: "flex",
-                gap: "14px",
-                flexWrap: "wrap",
-                marginBottom: "22px",
+            <label>
+              <span>End Date</span>
+              <div className="date-control">
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => {
+                    setEndDate(event.target.value);
+                    setSelectedDatePreset("custom");
+                    resetRunStateForInputChange();
+                  }}
+                  onFocus={() => openPicker(endDateRef)}
+                />
+                <button type="button" className="icon-btn" onClick={() => openPicker(endDateRef)}>
+                  <CalendarIcon />
+                </button>
+              </div>
+            </label>
+          </div>
+
+          <div className="limiter-card">
+            <div>
+              <span>Limiter</span>
+              <strong>{limiterEnabled ? "On" : "Off"}</strong>
+            </div>
+
+            <button
+              type="button"
+              className={limiterEnabled ? "switch on" : "switch"}
+              onClick={() => {
+                setLimiterEnabled((prev) => !prev);
+                resetRunStateForInputChange();
               }}
             >
-              {!session?.user ? (
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  style={{
-                    border: "none",
-                    borderRadius: "16px",
-                    padding: "14px 20px",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    color: "#ffffff",
-                    cursor: "pointer",
-                    background:
-                      "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                    boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
-                  }}
-                >
-                  Sign in with Google
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  style={{
-                    border: "none",
-                    borderRadius: "16px",
-                    padding: "14px 20px",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    color: "#ffffff",
-                    cursor: "pointer",
-                    background:
-                      "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                    boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
-                  }}
-                >
-                  Sign out
-                </button>
-              )}
+              <span />
+            </button>
+          </div>
 
+          {limiterEnabled ? (
+            <label>
+              <span>Conversation Limit</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={limitCount}
+                onChange={(event) => {
+                  setLimitCount(event.target.value);
+                  resetRunStateForInputChange();
+                }}
+                placeholder="Enter number"
+              />
+            </label>
+          ) : null}
+
+          <div className="button-row">
+            {!session?.user ? (
+              <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
+                Sign in with Google
+              </button>
+            ) : (
+              <button type="button" className="secondary-btn" onClick={handleLogout} disabled={isBusy}>
+                Sign out
+              </button>
+            )}
+
+            {!fetchLoading ? (
               <button
                 type="button"
+                className="primary-btn"
                 onClick={handleFetchConversations}
-                disabled={
-                  !canRunTests ||
-                  !session?.user ||
-                  !startDate ||
-                  !endDate ||
-                  fetchLoading ||
-                  runLoading
-                }
-                style={{
-                  borderRadius: "16px",
-                  padding: "14px 20px",
-                  fontSize: "15px",
-                  fontWeight: 700,
-                  color:
-                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
-                      ? "rgba(229,235,255,0.45)"
-                      : "#ffffff",
-                  cursor:
-                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
-                      ? "not-allowed"
-                      : "pointer",
-                  background:
-                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
-                      ? "rgba(255,255,255,0.03)"
-                      : "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  opacity:
-                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
-                      ? 0.6
-                      : 1,
-                  boxShadow:
-                    !canRunTests || !session?.user || !startDate || !endDate || fetchLoading || runLoading
-                      ? "none"
-                      : "0 14px 30px rgba(91,33,182,0.35)",
-                }}
+                disabled={!canRunTests || !session?.user || !startDate || !endDate || runLoading}
               >
-                {fetchLoading ? "Fetching..." : "Fetch Conversations"}
+                Fetch Conversations
               </button>
-
-              {fetchData?.meta?.fetchedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={handleRunAudit}
-                  disabled={runLoading || fetchLoading}
-                  style={{
-                    borderRadius: "16px",
-                    padding: "14px 20px",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    color: runLoading ? "rgba(229,235,255,0.45)" : "#e5ebff",
-                    cursor: runLoading ? "not-allowed" : "pointer",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    opacity: runLoading ? 0.6 : 1,
-                  }}
-                >
-                  {runLoading ? "Running Audit..." : "Run Audit"}
-                </button>
-              )}
-            </div>
-
-            {(fetchError || fetchSuccess) && (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: fetchError
-                    ? "1px solid rgba(244,63,94,0.22)"
-                    : "1px solid rgba(16,185,129,0.22)",
-                  background: fetchError
-                    ? "rgba(244,63,94,0.08)"
-                    : "rgba(16,185,129,0.08)",
-                  padding: "14px 16px",
-                  marginBottom: "14px",
-                  color: fetchError ? "#fecdd3" : "#bbf7d0",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {fetchError || fetchSuccess}
-              </div>
-            )}
-
-            {fetchLoading && (
-              <div
-                style={{
-                  borderRadius: "20px",
-                  border: "1px solid rgba(96,165,250,0.22)",
-                  background: "rgba(37,99,235,0.08)",
-                  padding: "18px",
-                  marginBottom: "14px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#93c5fd",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.14em",
-                    marginBottom: "10px",
-                  }}
-                >
-                  Fetch Progress
-                </div>
-
-                <div
-                  style={{
-                    fontSize: "18px",
-                    fontWeight: 700,
-                    color: "#dbeafe",
-                    marginBottom: "10px",
-                  }}
-                >
-                  {FETCH_PROGRESS_MESSAGES[fetchMessageIndex]}
-                </div>
-
-                <div
-                  style={{
-                    height: "10px",
-                    borderRadius: "999px",
-                    background: "rgba(255,255,255,0.06)",
-                    overflow: "hidden",
-                    marginBottom: "10px",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${((fetchMessageIndex + 1) / FETCH_PROGRESS_MESSAGES.length) * 100}%`,
-                      borderRadius: "999px",
-                      background:
-                        "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                      transition: "width 0.4s ease",
-                    }}
-                  />
-                </div>
-
-                <div style={{ color: "#bfdbfe", fontSize: "13px", lineHeight: 1.6 }}>
-                  You can keep scrolling on this page while the fetch completes.
-                </div>
-              </div>
-            )}
-
-            {(runError || runSuccess) && (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: runError
-                    ? "1px solid rgba(244,63,94,0.22)"
-                    : "1px solid rgba(16,185,129,0.22)",
-                  background: runError
-                    ? "rgba(244,63,94,0.08)"
-                    : "rgba(16,185,129,0.08)",
-                  padding: "14px 16px",
-                  marginBottom: "14px",
-                  color: runError ? "#fecdd3" : "#bbf7d0",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {runError || runSuccess}
-              </div>
-            )}
-
-            {runLoading && (
-              <div
-                style={{
-                  borderRadius: "20px",
-                  border: "1px solid rgba(168,85,247,0.22)",
-                  background: "rgba(124,58,237,0.08)",
-                  padding: "18px",
-                  marginBottom: "18px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#c4b5fd",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.14em",
-                    marginBottom: "10px",
-                  }}
-                >
-                  Audit Progress
-                </div>
-
-                <div
-                  style={{
-                    fontSize: "18px",
-                    fontWeight: 700,
-                    color: "#ede9fe",
-                    marginBottom: "10px",
-                  }}
-                >
-                  {RUN_PROGRESS_MESSAGES[runMessageIndex]}
-                </div>
-
-                <div
-                  style={{
-                    height: "10px",
-                    borderRadius: "999px",
-                    background: "rgba(255,255,255,0.06)",
-                    overflow: "hidden",
-                    marginBottom: "10px",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${((runMessageIndex + 1) / RUN_PROGRESS_MESSAGES.length) * 100}%`,
-                      borderRadius: "999px",
-                      background:
-                        "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-                      transition: "width 0.4s ease",
-                    }}
-                  />
-                </div>
-
-                <div style={{ color: "#ddd6fe", fontSize: "13px", lineHeight: 1.6 }}>
-                  This audit is running inline on this page. Leaving the page may interrupt it until a background job system is built.
-                </div>
-              </div>
-            )}
-
-            <div
-              style={{
-                borderRadius: "22px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background:
-                  "linear-gradient(180deg, rgba(8,12,27,0.9), rgba(10,14,30,0.95))",
-                padding: "22px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "13px",
-                  color: "#8ea0d6",
-                  marginBottom: "12px",
-                }}
-              >
-                Current run summary
-              </div>
-
-              <div
-                style={{
-                  color: "#d8e2ff",
-                  fontSize: "15px",
-                  lineHeight: 1.7,
-                }}
-              >
-                {summaryText}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gap: "18px", alignSelf: "start" }}>
-            {controlCards.map((card) => (
-              <div
-                key={card.title}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background:
-                    "linear-gradient(180deg, rgba(14,20,40,0.9), rgba(8,12,26,0.95))",
-                  borderRadius: "24px",
-                  padding: "22px",
-                  boxShadow: "0 18px 50px rgba(0,0,0,0.35)",
-                }}
-              >
-                <div
-                  style={{
-                    color: "#8ea0d6",
-                    fontSize: "13px",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {card.eyebrow}
-                </div>
-                <div
-                  style={{
-                    fontSize: "22px",
-                    fontWeight: 700,
-                    marginBottom: "8px",
-                  }}
-                >
-                  {card.title}
-                </div>
-                <p
-                  style={{
-                    margin: 0,
-                    color: "#a9b4d0",
-                    lineHeight: 1.7,
-                    fontSize: "15px",
-                  }}
-                >
-                  {card.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          {statCards.map((item) => (
-            <div
-              key={item.label}
-              style={{
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(9, 13, 28, 0.84)",
-                borderRadius: "22px",
-                padding: "22px",
-                boxShadow:
-                  "0 14px 30px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
-              }}
-            >
-              <div
-                style={{
-                  color: "#8ea0d6",
-                  fontSize: "12px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "10px",
-                }}
-              >
-                {item.label}
-              </div>
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight: 700,
-                  marginBottom: "8px",
-                }}
-              >
-                {item.value}
-              </div>
-              <div
-                style={{
-                  color: "#a9b4d0",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {item.subtext}
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
-            gap: "24px",
-            marginBottom: "24px",
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid rgba(255,255,255,0.08)",
-              background:
-                "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
-              borderRadius: "28px",
-              padding: "28px",
-              boxShadow:
-                "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "10px",
-              }}
-            >
-              Fetched Conversations
-            </div>
-
-            <h2
-              style={{
-                margin: "0 0 18px",
-                fontSize: "34px",
-                lineHeight: 1.05,
-                letterSpacing: "-0.04em",
-              }}
-            >
-              Fetch stage output
-            </h2>
-
-            {!fetchData ? (
-              <div
-                style={{
-                  borderRadius: "22px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "24px",
-                  color: "#a9b4d0",
-                  lineHeight: 1.7,
-                  fontSize: "15px",
-                }}
-              >
-                No fetch has been completed yet. Select your date range, choose the limiter if needed,
-                and click Fetch Conversations first.
-              </div>
             ) : (
-              <div style={{ display: "grid", gap: "16px" }}>
-                <div
-                  style={{
-                    borderRadius: "20px",
-                    border: "1px solid rgba(16,185,129,0.18)",
-                    background: "rgba(16,185,129,0.08)",
-                    padding: "18px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.14em",
-                      color: "#86efac",
-                      marginBottom: "8px",
-                    }}
-                  >
-                    Connection Status
-                  </div>
-                  <div style={{ fontSize: "22px", fontWeight: 700, color: "#dcfce7" }}>
-                    {fetchData?.meta?.fetchedCount > 0
-                      ? "Intercom connection successful"
-                      : "Fetch completed but no conversations returned"}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                    gap: "12px",
-                  }}
-                >
-                  <div
-                    style={{
-                      borderRadius: "18px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "16px",
-                    }}
-                  >
-                    <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                      Fetched Count
-                    </div>
-                    <div style={{ fontSize: "30px", fontWeight: 700 }}>
-                      {fetchData?.meta?.fetchedCount || 0}
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      borderRadius: "18px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "16px",
-                    }}
-                  >
-                    <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                      Date Window
-                    </div>
-                    <div style={{ fontSize: "16px", fontWeight: 700 }}>
-                      {fetchData?.meta?.startDate || "-"} to {fetchData?.meta?.endDate || "-"}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    borderRadius: "18px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(255,255,255,0.03)",
-                    padding: "16px",
-                    color: "#d8e2ff",
-                    fontSize: "14px",
-                    lineHeight: 1.7,
-                  }}
-                >
-                  <strong>Limiter:</strong>{" "}
-                  {fetchData?.meta?.limiterEnabled
-                    ? `ON (${fetchData?.meta?.limitCount})`
-                    : "OFF"}
-                  <br />
-                  <strong>Searched dates:</strong>{" "}
-                  {Array.isArray(fetchData?.meta?.searchedDates)
-                    ? fetchData.meta.searchedDates.join(", ")
-                    : "-"}
-                </div>
-              </div>
+              <button type="button" className="danger-btn" onClick={handleCancelFetch}>
+                Cancel Fetch
+              </button>
             )}
+
+            {fetchedConversations.length > 0 && !runLoading ? (
+              <button type="button" className="secondary-btn" onClick={handleRunAudit} disabled={fetchLoading}>
+                Run Audit
+              </button>
+            ) : null}
+
+            {runLoading ? (
+              <button type="button" className="danger-btn" onClick={handleCancelAudit}>
+                Cancel Audit
+              </button>
+            ) : null}
           </div>
 
-          <div
-            style={{
-              border: "1px solid rgba(255,255,255,0.08)",
-              background:
-                "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
-              borderRadius: "28px",
-              padding: "28px",
-              boxShadow:
-                "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "10px",
-              }}
-            >
-              Fetched Preview
+          {(fetchError || fetchSuccess || runError || runSuccess) ? (
+            <div className="message-stack">
+              {fetchError ? <div className="message error">{fetchError}</div> : null}
+              {fetchSuccess ? <div className="message success">{fetchSuccess}</div> : null}
+              {runError ? <div className="message error">{runError}</div> : null}
+              {runSuccess ? <div className="message success">{runSuccess}</div> : null}
+            </div>
+          ) : null}
+
+          {fetchLoading ? (
+            <ProgressPanel
+              title="Fetch Progress"
+              step={currentFetchStep}
+              percent={currentFetchStep.percent}
+              elapsed={formatElapsed(fetchStartedAt)}
+              countLabel="Searching Intercom"
+              onCancel={handleCancelFetch}
+            />
+          ) : null}
+
+          {runLoading ? (
+            <ProgressPanel
+              title="Audit Progress"
+              step={currentRunStep}
+              percent={currentRunStep.percent}
+              elapsed={formatElapsed(runStartedAt)}
+              countLabel={`${formatNumber(fetchedConversations.length)} conversation(s) queued`}
+              onCancel={handleCancelAudit}
+            />
+          ) : null}
+        </div>
+
+        <div className="side-stack">
+          <section className="panel log-panel">
+            <div className="section-head compact">
+              <div>
+                <p className="eyebrow">Execution Log</p>
+                <h2>Activity</h2>
+              </div>
+              <button type="button" className="secondary-btn small" onClick={() => setExecutionLog([])}>
+                Clear
+              </button>
             </div>
 
-            <h2
-              style={{
-                margin: "0 0 18px",
-                fontSize: "34px",
-                lineHeight: 1.05,
-                letterSpacing: "-0.04em",
-              }}
-            >
-              Conversation preview list
-            </h2>
-
-            {fetchedConversations.length === 0 ? (
-              <div
-                style={{
-                  borderRadius: "22px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "24px",
-                  color: "#a9b4d0",
-                  lineHeight: 1.7,
-                  fontSize: "15px",
-                }}
-              >
-                Once conversations are fetched, a preview list will appear here before audit begins.
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gap: "14px",
-                  maxHeight: "640px",
-                  overflow: "auto",
-                  paddingRight: "4px",
-                }}
-              >
-                {fetchedConversations.map((item, index) => (
-                  <div
-                    key={item?.conversationId || `fetched-${index}`}
-                    style={{
-                      borderRadius: "18px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "16px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        marginBottom: "10px",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            marginBottom: "6px",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                          }}
-                        >
-                          Conversation
-                        </div>
-                        <div style={{ fontSize: "18px", fontWeight: 700 }}>
-                          {item?.conversationId || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          ...statusPillStyles("Pending"),
-                          borderRadius: "999px",
-                          padding: "9px 12px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          alignSelf: "flex-start",
-                        }}
-                      >
-                        Low CSAT Candidate
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                        gap: "10px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          background: "rgba(0,0,0,0.14)",
-                          padding: "12px",
-                        }}
-                      >
-                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
-                          Agent
-                        </div>
-                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {item?.agentName || "Unassigned"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          background: "rgba(0,0,0,0.14)",
-                          padding: "12px",
-                        }}
-                      >
-                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
-                          Client Email
-                        </div>
-                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {item?.clientEmail || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          background: "rgba(0,0,0,0.14)",
-                          padding: "12px",
-                        }}
-                      >
-                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
-                          CSAT Score
-                        </div>
-                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {item?.csatScore || "-"}
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          background: "rgba(0,0,0,0.14)",
-                          padding: "12px",
-                        }}
-                      >
-                        <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "6px" }}>
-                          Replied At
-                        </div>
-                        <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                          {formatRepliedAt(item?.repliedAt)}
-                        </div>
-                      </div>
-                    </div>
+            {executionLog.length ? (
+              <div className="log-list">
+                {executionLog.map((item) => (
+                  <div key={item.id} className={`log-item ${item.tone}`}>
+                    <span>{item.time}</span>
+                    <strong>{item.message}</strong>
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="empty-box small">No activity yet.</div>
             )}
-          </div>
-        </section>
+          </section>
 
-        <section
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background:
-              "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
-            borderRadius: "28px",
-            padding: "28px",
-            boxShadow:
-              "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
-            marginBottom: "24px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "12px",
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-              color: "#8ea0d6",
-              marginBottom: "10px",
-            }}
-          >
-            Debug Output
-          </div>
+          <section className="panel fetch-summary">
+            <p className="eyebrow">Current Run</p>
+            <h2>Summary</h2>
+            <p>{summaryText}</p>
 
-          <h2
-            style={{
-              margin: "0 0 18px",
-              fontSize: "34px",
-              lineHeight: 1.05,
-              letterSpacing: "-0.04em",
-            }}
-          >
-            Raw Intercom fetch diagnostics
-          </h2>
-
-          {!fetchData ? (
-            <div
-              style={{
-                borderRadius: "22px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "24px",
-                color: "#a9b4d0",
-                lineHeight: 1.7,
-                fontSize: "15px",
-              }}
-            >
-              Run Fetch Conversations first. This panel will then show the exact low-CSAT search diagnostics returned by the backend.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: "16px" }}>
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                  color: "#d8e2ff",
-                  fontSize: "14px",
-                  lineHeight: 1.7,
-                }}
-              >
-                <strong>intercomPerPage:</strong> {fetchData?.debug?.intercomPerPage ?? "-"}
-                <br />
-                <strong>maxFetchPagesPerDay:</strong> {fetchData?.debug?.maxFetchPagesPerDay ?? "-"}
-                <br />
-                <strong>Fetched count:</strong> {fetchData?.meta?.fetchedCount ?? 0}
-              </div>
-
-              {dailySummary.length === 0 ? (
-                <div
-                  style={{
-                    borderRadius: "18px",
-                    border: "1px dashed rgba(255,255,255,0.12)",
-                    background: "rgba(255,255,255,0.02)",
-                    padding: "20px",
-                    color: "#a9b4d0",
-                    fontSize: "14px",
-                    lineHeight: 1.7,
-                  }}
-                >
-                  No daily debug summary was returned.
+            {fetchData ? (
+              <div className="mini-grid">
+                <div>
+                  <span>Fetched</span>
+                  <strong>{formatNumber(fetchData?.meta?.fetchedCount || 0)}</strong>
                 </div>
-              ) : (
-                dailySummary.map((day, dayIndex) => (
-                  <div
-                    key={`${day?.date || "day"}-${dayIndex}`}
-                    style={{
-                      borderRadius: "20px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "18px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        marginBottom: "12px",
-                      }}
-                    >
+                <div>
+                  <span>Range</span>
+                  <strong>{fetchData?.meta?.startDate || "-"} to {fetchData?.meta?.endDate || "-"}</strong>
+                </div>
+                <div>
+                  <span>Limiter</span>
+                  <strong>{fetchData?.meta?.limiterEnabled ? `On (${fetchData?.meta?.limitCount})` : "Off"}</strong>
+                </div>
+                <div>
+                  <span>Auto-run</span>
+                  <strong>{autoRunAfterFetch ? "Enabled" : "Disabled"}</strong>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </section>
+
+      <section className="panel preview-panel">
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">Fetched Conversations</p>
+            <h2>Preview</h2>
+          </div>
+          <span className="count-pill">{formatNumber(fetchedConversations.length)} found</span>
+        </div>
+
+        {!fetchData ? (
+          <div className="empty-box">Fetch conversations first.</div>
+        ) : fetchedConversations.length === 0 ? (
+          <div className="empty-box">No conversations were returned for this range.</div>
+        ) : (
+          <div className="conversation-grid">
+            {fetchedConversations.slice(0, 12).map((item, index) => (
+              <article key={item?.conversationId || `fetched-${index}`} className="conversation-card">
+                <div className="conversation-head">
+                  <div>
+                    <span>Conversation</span>
+                    <strong>{item?.conversationId || "-"}</strong>
+                  </div>
+                  <span className="pill notice">Low CSAT</span>
+                </div>
+
+                <div className="conversation-details">
+                  <div><span>Agent</span><strong>{item?.agentName || "Unassigned"}</strong></div>
+                  <div><span>Client</span><strong>{item?.clientEmail || "-"}</strong></div>
+                  <div><span>CSAT</span><strong>{item?.csatScore || "-"}</strong></div>
+                  <div><span>Replied</span><strong>{formatClock(item?.repliedAt)}</strong></div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {fetchedConversations.length > 12 ? (
+          <details className="details-panel">
+            <summary>Show all fetched conversation IDs</summary>
+            <div className="id-list">
+              {fetchedConversations.map((item, index) => (
+                <span key={item?.conversationId || index}>{item?.conversationId || "-"}</span>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </section>
+
+      <section className="panel output-panel">
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">Audit Output</p>
+            <h2>Result Cards</h2>
+          </div>
+
+          <div className="result-metrics">
+            <span>{formatNumber(runData?.meta?.auditedCount || 0)} audited</span>
+            <span>{formatNumber(successCount)} success</span>
+            <span>{formatNumber(errorCount)} errors</span>
+          </div>
+        </div>
+
+        {!runData ? (
+          <div className="empty-box">Audit results will appear here after Run Audit completes.</div>
+        ) : (
+          <>
+            <div className="run-meta-card">
+              <div><span>Requested By</span><strong>{runData?.meta?.requestedBy || "-"}</strong></div>
+              <div><span>Duplicate Handling</span><strong>{runData?.meta?.duplicateModeApplied || "none"}</strong></div>
+              <div><span>Storage</span><strong>{runData?.meta?.storageStatus || "-"}</strong></div>
+              <div><span>Mapped</span><strong>{formatNumber(runData?.meta?.mappedCount || 0)}</strong></div>
+              <div><span>Unmapped</span><strong>{formatNumber(runData?.meta?.unmappedCount || 0)}</strong></div>
+            </div>
+
+            <div className="results-grid">
+              {visibleResults.map((item, index) => {
+                const statusLabel = getResultStatusLabel(item);
+                const findings = getFindingsList(item);
+
+                return (
+                  <article key={item?.conversationId || `result-${index}`} className={item?.error ? "result-card error" : "result-card"}>
+                    <div className="conversation-head">
                       <div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            marginBottom: "6px",
-                          }}
-                        >
-                          Date
-                        </div>
-                        <div style={{ fontSize: "20px", fontWeight: 700 }}>
-                          {day?.date || "-"}
-                        </div>
+                        <span>Conversation</span>
+                        <strong>{item?.conversationId || "Unknown"}</strong>
                       </div>
-
-                      <div
-                        style={{
-                          borderRadius: "999px",
-                          border: "1px solid rgba(96,165,250,0.22)",
-                          background: "rgba(96,165,250,0.1)",
-                          padding: "8px 12px",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                          color: "#bfdbfe",
-                          alignSelf: "flex-start",
-                        }}
-                      >
-                        fetchedCount: {day?.fetchedCount ?? 0}
-                      </div>
+                      <span className={`pill ${getStatusTone(statusLabel)}`}>{statusLabel}</span>
                     </div>
 
-                    <div
-                      style={{
-                        borderRadius: "16px",
-                        background: "rgba(0,0,0,0.16)",
-                        padding: "14px",
-                        color: "#d8e2ff",
-                        fontSize: "13px",
-                        lineHeight: 1.7,
-                        marginBottom: "12px",
-                      }}
-                    >
-                      <strong>sinceTs:</strong> {day?.sinceTs ?? "-"}
-                      <br />
-                      <strong>untilTs:</strong> {day?.untilTs ?? "-"}
+                    <div className="conversation-details four">
+                      <div><span>Agent</span><strong>{item?.agentName || "Unassigned"}</strong></div>
+                      <div><span>Client</span><strong>{item?.clientEmail || "-"}</strong></div>
+                      <div><span>CSAT</span><strong>{item?.csatScore || "-"}</strong></div>
+                      <div><span>Replied</span><strong>{formatClock(item?.repliedAt)}</strong></div>
                     </div>
 
-                    {Array.isArray(day?.pages) && day.pages.length > 0 ? (
-                      <div style={{ display: "grid", gap: "12px" }}>
-                        {day.pages.map((page, pageIndex) => (
-                          <div
-                            key={`${day?.date || "page"}-${pageIndex}`}
-                            style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(255,255,255,0.08)",
-                              background: "rgba(0,0,0,0.14)",
-                              padding: "14px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                                gap: "10px",
-                                marginBottom: "10px",
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Page
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {page?.pageIndex ?? "-"}
-                                </div>
-                              </div>
+                    <div className="verdict-box">
+                      <span>{item?.error ? "Error" : "AI Verdict"}</span>
+                      <p>{getResultSummary(item)}</p>
+                    </div>
 
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  HTTP Status
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {page?.httpStatus ?? "-"}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  OK
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {String(page?.ok)}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Returned Count
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                                  {page?.returnedCount ?? 0}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div style={{ fontSize: "11px", color: "#8ea0d6", marginBottom: "5px" }}>
-                                  Next Cursor
-                                </div>
-                                <div style={{ fontSize: "14px", fontWeight: 600, wordBreak: "break-all" }}>
-                                  {page?.nextCursor || "None"}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                borderRadius: "12px",
-                                background: "rgba(255,255,255,0.03)",
-                                padding: "12px",
-                                color: "#d8e2ff",
-                                fontSize: "12px",
-                                lineHeight: 1.7,
-                                marginBottom: "10px",
-                              }}
-                            >
-                              <strong>Sample IDs:</strong>{" "}
-                              {Array.isArray(page?.sampleIds) && page.sampleIds.length > 0
-                                ? page.sampleIds.join(", ")
-                                : "None"}
-                            </div>
-
-                            <div
-                              style={{
-                                borderRadius: "12px",
-                                background: "rgba(255,255,255,0.03)",
-                                padding: "12px",
-                                color: "#d8e2ff",
-                                fontSize: "12px",
-                                lineHeight: 1.7,
-                                marginBottom: "10px",
-                                wordBreak: "break-word",
-                              }}
-                            >
-                              <strong>Content-Type:</strong> {page?.contentType || "None"}
-                              <br />
-                              <strong>Response Excerpt:</strong>{" "}
-                              {page?.responseExcerpt ? page.responseExcerpt : "None"}
-                            </div>
-
-                            <details>
-                              <summary
-                                style={{
-                                  cursor: "pointer",
-                                  color: "#c7d2fe",
-                                  fontSize: "13px",
-                                  fontWeight: 600,
-                                }}
-                              >
-                                View request payload
-                              </summary>
-                              <pre
-                                style={{
-                                  marginTop: "10px",
-                                  whiteSpace: "pre-wrap",
-                                  wordBreak: "break-word",
-                                  fontSize: "12px",
-                                  lineHeight: 1.7,
-                                  color: "#dbe7ff",
-                                  background: "rgba(255,255,255,0.03)",
-                                  borderRadius: "12px",
-                                  padding: "12px",
-                                  overflowX: "auto",
-                                }}
-                              >
-                                {JSON.stringify(page?.request || {}, null, 2)}
-                              </pre>
-                            </details>
-                          </div>
-                        ))}
+                    {!item?.error ? (
+                      <div className="findings-box">
+                        {findings.length ? findings.join(" | ") : "No additional findings."}
                       </div>
-                    ) : (
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          border: "1px dashed rgba(255,255,255,0.12)",
-                          background: "rgba(255,255,255,0.02)",
-                          padding: "14px",
-                          color: "#a9b4d0",
-                          fontSize: "13px",
-                          lineHeight: 1.7,
-                        }}
-                      >
-                        No page-level debug entries were returned for this day.
-                      </div>
-                    )}
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+
+            {results.length > 6 ? (
+              <div className="show-more-row">
+                <button type="button" className="secondary-btn" onClick={() => setShowAllResults((prev) => !prev)}>
+                  {showAllResults ? "Show Less" : `Show More (${formatNumber(results.length - visibleResults.length)} more)`}
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
+
+      {fetchData ? (
+        <section className="panel diagnostics-panel">
+          <details>
+            <summary>Fetch Diagnostics</summary>
+            <div className="diagnostics-grid">
+              <div><span>Intercom Per Page</span><strong>{fetchData?.debug?.intercomPerPage ?? "-"}</strong></div>
+              <div><span>Max Pages / Day</span><strong>{fetchData?.debug?.maxFetchPagesPerDay ?? "-"}</strong></div>
+              <div><span>Daily Summaries</span><strong>{formatNumber(dailySummary.length)}</strong></div>
+            </div>
+
+            {dailySummary.length ? (
+              <div className="diagnostics-days">
+                {dailySummary.map((day, index) => (
+                  <div key={`${day?.date || "day"}-${index}`}>
+                    <strong>{day?.date || "-"}</strong>
+                    <span>Fetched: {day?.fetchedCount ?? 0}</span>
+                    <span>Pages: {Array.isArray(day?.pages) ? day.pages.length : 0}</span>
                   </div>
-                ))
-              )}
-            </div>
-          )}
+                ))}
+              </div>
+            ) : null}
+          </details>
         </section>
+      ) : null}
 
-        <section
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            background:
-              "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
-            borderRadius: "28px",
-            padding: "28px",
-            boxShadow:
-              "0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "16px",
-              flexWrap: "wrap",
-              marginBottom: "20px",
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  fontSize: "12px",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: "#8ea0d6",
-                  marginBottom: "10px",
-                }}
-              >
-                Audit Output
-              </div>
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: "34px",
-                  lineHeight: 1.05,
-                  letterSpacing: "-0.04em",
-                }}
-              >
-                Audit result cards
-              </h2>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(140px, 1fr))",
-                gap: "12px",
-                minWidth: "min(100%, 460px)",
-              }}
-            >
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                }}
-              >
-                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Audited
-                </div>
-                <div style={{ fontSize: "26px", fontWeight: 700 }}>
-                  {runData?.meta?.auditedCount ?? 0}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                }}
-              >
-                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Success
-                </div>
-                <div style={{ fontSize: "26px", fontWeight: 700, color: "#bbf7d0" }}>
-                  {successCount}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "16px",
-                }}
-              >
-                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                  Errors
-                </div>
-                <div style={{ fontSize: "26px", fontWeight: 700, color: "#fecdd3" }}>
-                  {errorCount}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {!runData ? (
-            <div
-              style={{
-                borderRadius: "22px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "24px",
-                color: "#a9b4d0",
-                lineHeight: 1.7,
-                fontSize: "15px",
-              }}
-            >
-              Fetch conversations first. After a successful fetch, the Run Audit button will appear and audit result cards will show here.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: "18px" }}>
-              <div
-                style={{
-                  borderRadius: "20px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  padding: "18px",
-                  color: "#d8e2ff",
-                  fontSize: "14px",
-                  lineHeight: 1.7,
-                }}
-              >
-                <strong>Requested by:</strong> {runData?.meta?.requestedBy || "-"}
-                <br />
-                <strong>Limiter:</strong>{" "}
-                {runData?.meta?.limiterEnabled ? `ON (${runData?.meta?.limitCount})` : "OFF"}
-                <br />
-                <strong>Mode:</strong> {runData?.meta?.auditMode || "-"}
-                <br />
-                <strong>Duplicate handling:</strong>{" "}
-                {runData?.meta?.duplicateModeApplied || "none"}
-                <br />
-                {runData?.meta?.skippedCount ? (
-                  <>
-                    <strong>Skipped duplicates:</strong> {runData.meta.skippedCount}
-                    <br />
-                  </>
-                ) : null}
-                {runData?.meta?.overwrittenCount ? (
-                  <>
-                    <strong>Overwritten duplicates:</strong> {runData.meta.overwrittenCount}
-                    <br />
-                  </>
-                ) : null}
-                <strong>Storage:</strong> {runData?.meta?.storageStatus || "-"}
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "24px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "16px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                    marginBottom: "14px",
-                  }}
-                >
-                  <div style={{ color: "#dbe7ff", fontSize: "15px", fontWeight: 700 }}>
-                    Showing {visibleResults.length} of {results.length} result card(s)
-                  </div>
-
-                  {results.length > 3 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllResults((prev) => !prev)}
-                      style={{
-                        borderRadius: "14px",
-                        padding: "10px 14px",
-                        fontSize: "14px",
-                        fontWeight: 700,
-                        color: "#e5ebff",
-                        cursor: "pointer",
-                        background: "rgba(255,255,255,0.03)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    >
-                      {showAllResults ? "Show Less" : "Show More"}
-                    </button>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gap: "18px",
-                    maxHeight: "900px",
-                    overflowY: "auto",
-                    paddingRight: "6px",
-                  }}
-                >
-                  {visibleResults.map((item, index) => {
-                    const findings = getFindingsList(item);
-                    const hasError = Boolean(item?.error);
-                    const statusLabel = getResultStatusLabel(item);
-
-                    return (
-                      <div
-                        key={item?.conversationId || `result-${index}`}
-                        style={{
-                          borderRadius: "22px",
-                          border: hasError
-                            ? "1px solid rgba(244,63,94,0.18)"
-                            : "1px solid rgba(255,255,255,0.08)",
-                          background: hasError
-                            ? "linear-gradient(180deg, rgba(40,10,18,0.92), rgba(18,8,12,0.96))"
-                            : "linear-gradient(180deg, rgba(12,18,38,0.92), rgba(8,12,24,0.96))",
-                          padding: "20px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: "16px",
-                            flexWrap: "wrap",
-                            marginBottom: "14px",
-                          }}
-                        >
-                          <div>
-                            <div
-                              style={{
-                                fontSize: "12px",
-                                color: "#8ea0d6",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.14em",
-                                marginBottom: "8px",
-                              }}
-                            >
-                              Conversation
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "22px",
-                                fontWeight: 700,
-                                letterSpacing: "-0.03em",
-                              }}
-                            >
-                              {item?.conversationId || "Unknown Conversation"}
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              ...statusPillStyles(statusLabel),
-                              borderRadius: "999px",
-                              padding: "9px 12px",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              alignSelf: "flex-start",
-                            }}
-                          >
-                            {statusLabel}
-                          </div>
-                        </div>
-
-                        {hasError ? (
-                          <div
-                            style={{
-                              color: "#fecdd3",
-                              fontSize: "14px",
-                              lineHeight: 1.7,
-                            }}
-                          >
-                            {item.error}
-                          </div>
-                        ) : (
-                          <div style={{ display: "grid", gap: "16px" }}>
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                                gap: "12px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Agent
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.agentName || "Unassigned"}
-                                </div>
-                              </div>
-
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Client Email
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.clientEmail || "-"}
-                                </div>
-                              </div>
-
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  CSAT
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.csatScore || "-"}
-                                </div>
-                              </div>
-
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Replied At
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {formatRepliedAt(item?.repliedAt)}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                borderRadius: "18px",
-                                border: "1px solid rgba(255,255,255,0.08)",
-                                background: "rgba(255,255,255,0.03)",
-                                padding: "16px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  fontSize: "12px",
-                                  color: "#8ea0d6",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.12em",
-                                  marginBottom: "10px",
-                                }}
-                              >
-                                AI Verdict
-                              </div>
-                              <div
-                                style={{
-                                  color: "#e7ecff",
-                                  fontSize: "15px",
-                                  lineHeight: 1.7,
-                                }}
-                              >
-                                {getResultSummary(item)}
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                                gap: "12px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Review Sentiment
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.reviewSentiment || "-"}
-                                </div>
-                              </div>
-
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Client Sentiment
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.clientSentiment || "-"}
-                                </div>
-                              </div>
-
-                              <div
-                                style={{
-                                  borderRadius: "16px",
-                                  border: "1px solid rgba(255,255,255,0.08)",
-                                  background: "rgba(255,255,255,0.03)",
-                                  padding: "14px",
-                                }}
-                              >
-                                <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                  Resolution Status
-                                </div>
-                                <div style={{ fontSize: "15px", fontWeight: 600 }}>
-                                  {item?.resolutionStatus || "-"}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                borderRadius: "16px",
-                                border: "1px solid rgba(255,255,255,0.08)",
-                                background: "rgba(255,255,255,0.03)",
-                                padding: "14px",
-                              }}
-                            >
-                              <div style={{ fontSize: "12px", color: "#8ea0d6", marginBottom: "8px" }}>
-                                Findings
-                              </div>
-                              <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.7 }}>
-                                {findings.length > 0 ? findings.join(" | ") : "No additional findings."}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
-
-      {showJumpTop && (
+      {showJumpTop ? (
         <button
           type="button"
+          className="jump-top"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          style={{
-            position: "fixed",
-            right: "24px",
-            bottom: "24px",
-            zIndex: 1100,
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "999px",
-            padding: "14px 16px",
-            color: "#ffffff",
-            fontWeight: 700,
-            fontSize: "14px",
-            cursor: "pointer",
-            background:
-              "linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88))",
-            boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
-          }}
         >
           Jump to Top
         </button>
-      )}
+      ) : null}
     </main>
   );
 }
+
+function ProgressPanel({ title, step, percent, elapsed, countLabel, onCancel }) {
+  return (
+    <div className="progress-panel">
+      <div className="progress-head">
+        <div>
+          <span>{title}</span>
+          <strong>{step.label}</strong>
+          <small>{step.detail}</small>
+        </div>
+        <div className="progress-percent">{Math.round(percent)}%</div>
+      </div>
+
+      <div className="progress-shell">
+        <div className="progress-bar" style={{ width: `${percent}%` }} />
+      </div>
+
+      <div className="progress-foot">
+        <span>{countLabel}</span>
+        <span>Elapsed: {elapsed}</span>
+      </div>
+
+      <button type="button" className="danger-btn compact" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+const runStyles = `
+  .run-page {
+    min-height: 100vh;
+    padding: 32px 20px 64px;
+    color: #f5f7ff;
+    background:
+      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
+      radial-gradient(circle at top right, rgba(168,85,247,0.15), transparent 22%),
+      radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 24%),
+      linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .topbar,
+  .hero,
+  .stats-grid,
+  .main-grid,
+  .panel {
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .topbar,
+  .hero,
+  .panel,
+  .stat-card {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96));
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+    border-radius: 22px;
+    background: rgba(9,13,29,0.72);
+    backdrop-filter: blur(14px);
+  }
+
+  .topbar strong {
+    display: block;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+  }
+
+  .eyebrow,
+  label span,
+  .auth-card span,
+  .conversation-head span,
+  .conversation-details span,
+  .run-meta-card span,
+  .mini-grid span,
+  .verdict-box span,
+  .diagnostics-grid span {
+    margin: 0 0 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .live-pill,
+  .hero-badge,
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn,
+  .pill,
+  .count-pill,
+  .toggle-chip,
+  .modal-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    border-radius: 999px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .live-pill {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .live-pill.ready {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.24);
+    background: rgba(16,185,129,0.1);
+  }
+
+  .live-pill.busy {
+    color: #fde68a;
+    border: 1px solid rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.1);
+  }
+
+  .hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 30px;
+    margin-bottom: 18px;
+    border-radius: 28px;
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: auto -80px -120px auto;
+    width: 360px;
+    height: 360px;
+    border-radius: 50%;
+    background: rgba(124,58,237,0.18);
+    filter: blur(50px);
+    pointer-events: none;
+  }
+
+  .hero-badge {
+    padding: 8px 12px;
+    margin-bottom: 18px;
+    color: #dbe7ff;
+    border: 1px solid rgba(129,140,248,0.22);
+    background: rgba(99,102,241,0.14);
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  h1,
+  h2,
+  p {
+    position: relative;
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    font-size: clamp(42px, 5vw, 72px);
+    line-height: 0.98;
+    letter-spacing: -0.07em;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 30px;
+    letter-spacing: -0.04em;
+  }
+
+  .hero p {
+    margin: 0;
+    color: #a9b4d0;
+    font-size: 18px;
+    line-height: 1.6;
+  }
+
+  .hero-panel {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 100%);
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .hero-panel span {
+    display: block;
+    margin-bottom: 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .hero-panel strong {
+    color: #f5f7ff;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    left: -48px;
+    top: -48px;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    filter: blur(30px);
+    background: rgba(59,130,246,0.14);
+  }
+
+  .stat-card.success::before { background: rgba(16,185,129,0.15); }
+  .stat-card.warning::before { background: rgba(245,158,11,0.15); }
+  .stat-card.danger::before { background: rgba(244,63,94,0.15); }
+
+  .stat-card p {
+    margin: 0 0 10px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .stat-card strong {
+    display: block;
+    color: #f5f7ff;
+    font-size: 29px;
+    letter-spacing: -0.04em;
+    margin-bottom: 6px;
+  }
+
+  .stat-card span {
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .main-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .side-stack {
+    display: grid;
+    gap: 18px;
+    align-self: start;
+  }
+
+  .panel {
+    padding: 24px;
+    margin-bottom: 18px;
+    border-radius: 26px;
+  }
+
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .section-head.compact {
+    align-items: center;
+  }
+
+  .auth-card,
+  .preset-box,
+  .limiter-card,
+  .progress-panel,
+  .run-meta-card,
+  .verdict-box,
+  .findings-box,
+  .details-panel,
+  .empty-box {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+    border-radius: 18px;
+  }
+
+  .auth-card {
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .auth-card strong,
+  .auth-card small,
+  .auth-card em {
+    display: block;
+  }
+
+  .auth-card strong {
+    color: #f5f7ff;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .auth-card small {
+    margin-top: 6px;
+    color: #a9b4d0;
+    line-height: 1.5;
+  }
+
+  .auth-card em {
+    margin-top: 10px;
+    color: #fda4af;
+    font-style: normal;
+    line-height: 1.5;
+  }
+
+  .toggle-chip {
+    gap: 9px;
+    min-height: 40px;
+    padding: 0 13px;
+    color: #dbe7ff;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .toggle-chip span {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #94a3b8;
+  }
+
+  .toggle-chip.on {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.24);
+    background: rgba(16,185,129,0.1);
+  }
+
+  .toggle-chip.on span {
+    background: #34d399;
+    box-shadow: 0 0 14px rgba(52,211,153,0.8);
+  }
+
+  .preset-box {
+    position: relative;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .preset-box label {
+    display: block;
+  }
+
+  .preset-button {
+    width: 100%;
+    min-height: 52px;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 0 14px;
+    color: #e7ecff;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    background: rgba(5,8,18,0.9);
+    cursor: pointer;
+  }
+
+  .preset-button span {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 900;
+  }
+
+  .preset-button small,
+  .preset-button b {
+    color: #8ea0d6;
+    font-size: 12px;
+  }
+
+  .preset-menu {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: calc(100% - 4px);
+    z-index: 20;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    background: rgba(7,10,24,0.98);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  }
+
+  .preset-menu button {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 16px;
+    color: #dbe7ff;
+    border: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: transparent;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .preset-menu button.active,
+  .preset-menu button:hover {
+    color: #f5f3ff;
+    background: rgba(139,92,246,0.16);
+  }
+
+  .form-grid {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .form-grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  label {
+    display: block;
+  }
+
+  input,
+  button,
+  select {
+    font: inherit;
+  }
+
+  input {
+    width: 100%;
+    min-height: 50px;
+    box-sizing: border-box;
+    color: #e7ecff;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    outline: none;
+    background: rgba(5,8,18,0.9);
+    padding: 0 14px;
+    color-scheme: dark;
+  }
+
+  .date-control {
+    display: grid;
+    grid-template-columns: 1fr 48px;
+    gap: 10px;
+  }
+
+  .icon-btn {
+    min-height: 50px;
+    color: #bfdbfe;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.04);
+    cursor: pointer;
+  }
+
+  .limiter-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .limiter-card span,
+  .limiter-card strong {
+    display: block;
+  }
+
+  .limiter-card strong {
+    color: #f5f7ff;
+    font-size: 16px;
+  }
+
+  .switch {
+    position: relative;
+    width: 72px;
+    height: 40px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.08);
+    cursor: pointer;
+  }
+
+  .switch span {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+    transition: left 180ms ease;
+  }
+
+  .switch.on {
+    border-color: rgba(96,165,250,0.45);
+    background: linear-gradient(135deg, rgba(37,99,235,0.9), rgba(168,85,247,0.85));
+  }
+
+  .switch.on span {
+    left: 36px;
+  }
+
+  .button-row,
+  .message-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn {
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .primary-btn {
+    color: #fff;
+    border: 0;
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
+    box-shadow: 0 14px 30px rgba(91,33,182,0.35);
+  }
+
+  .secondary-btn {
+    color: #e5ebff;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .secondary-btn.small,
+  .danger-btn.compact {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .danger-btn {
+    color: #ffe4e6;
+    border: 1px solid rgba(251,113,133,0.2);
+    background: rgba(244,63,94,0.1);
+  }
+
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .message {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .message.error {
+    color: #fecdd3;
+    border: 1px solid rgba(244,63,94,0.23);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .message.success {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.23);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .progress-panel {
+    padding: 18px;
+    margin-top: 14px;
+  }
+
+  .progress-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .progress-head span,
+  .progress-head strong,
+  .progress-head small {
+    display: block;
+  }
+
+  .progress-head span {
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 8px;
+  }
+
+  .progress-head strong {
+    color: #f5f7ff;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+  }
+
+  .progress-head small {
+    margin-top: 6px;
+    color: #a9b4d0;
+    line-height: 1.5;
+  }
+
+  .progress-percent {
+    min-width: 70px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #cffafe;
+    border: 1px solid rgba(34,211,238,0.22);
+    border-radius: 999px;
+    background: rgba(34,211,238,0.1);
+    font-weight: 900;
+  }
+
+  .progress-shell {
+    height: 11px;
+    overflow: hidden;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.07);
+    margin-bottom: 12px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
+    box-shadow: 0 0 30px rgba(139,92,246,0.42);
+    transition: width 420ms ease;
+  }
+
+  .progress-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+
+  .log-list {
+    display: grid;
+    gap: 10px;
+    max-height: 460px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .log-item {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border-radius: 15px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .log-item span {
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .log-item strong {
+    color: #dbe7ff;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .log-item.success {
+    border-color: rgba(16,185,129,0.2);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .log-item.warning,
+  .log-item.notice {
+    border-color: rgba(245,158,11,0.2);
+    background: rgba(245,158,11,0.08);
+  }
+
+  .log-item.danger {
+    border-color: rgba(244,63,94,0.2);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .fetch-summary p {
+    margin: 0 0 16px;
+    color: #a9b4d0;
+    line-height: 1.7;
+  }
+
+  .mini-grid,
+  .conversation-details,
+  .run-meta-card,
+  .diagnostics-grid {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mini-grid div,
+  .conversation-details div,
+  .run-meta-card div,
+  .diagnostics-grid div {
+    padding: 12px;
+    border-radius: 15px;
+    background: rgba(0,0,0,0.16);
+  }
+
+  .mini-grid strong,
+  .conversation-details strong,
+  .run-meta-card strong,
+  .diagnostics-grid strong {
+    display: block;
+    color: #f5f7ff;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+
+  .empty-box {
+    padding: 22px;
+    color: #a9b4d0;
+    border-style: dashed;
+    line-height: 1.7;
+  }
+
+  .empty-box.small {
+    padding: 16px;
+  }
+
+  .preview-panel,
+  .output-panel,
+  .diagnostics-panel {
+    margin-bottom: 18px;
+  }
+
+  .count-pill,
+  .pill {
+    padding: 7px 11px;
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    color: #dbe7ff;
+  }
+
+  .pill.success {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.22);
+    background: rgba(16,185,129,0.1);
+  }
+
+  .pill.warning {
+    color: #fde68a;
+    border-color: rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.1);
+  }
+
+  .pill.danger {
+    color: #fecdd3;
+    border-color: rgba(244,63,94,0.24);
+    background: rgba(244,63,94,0.1);
+  }
+
+  .pill.notice,
+  .pill.neutral {
+    color: #bfdbfe;
+    border-color: rgba(96,165,250,0.24);
+    background: rgba(59,130,246,0.1);
+  }
+
+  .conversation-grid,
+  .results-grid {
+    display: grid;
+    gap: 14px;
+  }
+
+  .conversation-card,
+  .result-card {
+    padding: 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .result-card.error {
+    border-color: rgba(244,63,94,0.18);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .conversation-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .conversation-head strong {
+    display: block;
+    color: #f5f7ff;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    word-break: break-word;
+  }
+
+  .conversation-details {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .conversation-details.four {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 14px;
+  }
+
+  .details-panel {
+    margin-top: 14px;
+    padding: 14px;
+  }
+
+  .details-panel summary {
+    cursor: pointer;
+    color: #dbe7ff;
+    font-weight: 900;
+  }
+
+  .id-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 14px;
+  }
+
+  .id-list span {
+    padding: 7px 10px;
+    border-radius: 999px;
+    color: #dbe7ff;
+    background: rgba(255,255,255,0.05);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .result-metrics {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .result-metrics span {
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .run-meta-card {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+
+  .verdict-box {
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .verdict-box p {
+    margin: 0;
+    color: #dbe7ff;
+    line-height: 1.7;
+  }
+
+  .findings-box {
+    padding: 14px;
+    color: #dbe7ff;
+    line-height: 1.7;
+  }
+
+  .show-more-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
+  }
+
+  .diagnostics-panel summary {
+    cursor: pointer;
+    color: #dbe7ff;
+    font-weight: 900;
+  }
+
+  .diagnostics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 14px;
+  }
+
+  .diagnostics-days {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .diagnostics-days div {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .diagnostics-days strong {
+    color: #f5f7ff;
+  }
+
+  .diagnostics-days span {
+    color: #a9b4d0;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(2,6,23,0.72);
+    backdrop-filter: blur(12px);
+  }
+
+  .duplicate-modal {
+    width: min(760px, 100%);
+    max-height: 88vh;
+    overflow: auto;
+    padding: 28px;
+    border-radius: 28px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(180deg, rgba(15,22,43,0.98), rgba(7,10,24,0.98));
+    box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  }
+
+  .modal-badge {
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .modal-badge.warning {
+    color: #fde68a;
+    border: 1px solid rgba(251,191,36,0.18);
+    background: rgba(245,158,11,0.12);
+  }
+
+  .duplicate-modal h2 {
+    margin-bottom: 10px;
+  }
+
+  .duplicate-modal p {
+    margin: 0 0 18px;
+    color: #a9b4d0;
+    line-height: 1.7;
+  }
+
+  .duplicate-sample-box {
+    padding: 16px;
+    margin-bottom: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .duplicate-sample-box > span {
+    display: block;
+    margin-bottom: 10px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .duplicate-list {
+    display: grid;
+    gap: 8px;
+    max-height: 220px;
+    overflow: auto;
+  }
+
+  .duplicate-list strong {
+    padding: 10px 12px;
+    border-radius: 12px;
+    color: #e5ebff;
+    background: rgba(0,0,0,0.16);
+    font-size: 14px;
+  }
+
+  .modal-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .jump-top {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 1100;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 14px 16px;
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 14px;
+    cursor: pointer;
+    background: linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88));
+    box-shadow: 0 16px 36px rgba(0,0,0,0.35);
+  }
+
+  @media (max-width: 1100px) {
+    .main-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .run-meta-card,
+    .conversation-details,
+    .conversation-details.four,
+    .diagnostics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 760px) {
+    .topbar,
+    .hero,
+    .section-head,
+    .conversation-head,
+    .progress-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .stats-grid,
+    .form-grid.two,
+    .mini-grid,
+    .run-meta-card,
+    .conversation-details,
+    .conversation-details.four,
+    .diagnostics-grid,
+    .modal-actions {
+      grid-template-columns: 1fr;
+    }
+
+    .preset-button {
+      grid-template-columns: 1fr auto;
+    }
+
+    .preset-button small {
+      grid-column: 1 / -1;
+    }
+  }
+`;
