@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
 const AUDIT_BATCH_SIZE = 8;
+const SESSION_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -124,11 +125,6 @@ function getPresetRange(key) {
     default:
       return null;
   }
-}
-
-function safeText(value, fallback = "-") {
-  const text = String(value ?? "").trim();
-  return text || fallback;
 }
 
 function formatNumber(value) {
@@ -278,10 +274,13 @@ function ProgressPanel({
   detail,
   percent,
   elapsed,
-  completed,
+  handled,
   total,
   batchIndex,
   totalBatches,
+  savedRows,
+  skippedRows,
+  failedRows,
   onCancel,
 }) {
   return (
@@ -301,11 +300,14 @@ function ProgressPanel({
 
       <div className="progress-foot">
         <span>
-          {total ? `${formatNumber(completed)} / ${formatNumber(total)} completed` : "Preparing"}
+          {total ? `${formatNumber(handled)} / ${formatNumber(total)} handled` : "Preparing"}
         </span>
         <span>
           {totalBatches ? `Batch ${formatNumber(batchIndex)} of ${formatNumber(totalBatches)}` : ""}
         </span>
+        <span>Saved: {formatNumber(savedRows || 0)}</span>
+        <span>Skipped: {formatNumber(skippedRows || 0)}</span>
+        <span>Failed: {formatNumber(failedRows || 0)}</span>
         <span>Elapsed: {elapsed}</span>
       </div>
 
@@ -348,6 +350,7 @@ export default function RunPage() {
   const [executionLog, setExecutionLog] = useState([]);
   const [showAllResults, setShowAllResults] = useState(false);
   const [showJumpTop, setShowJumpTop] = useState(false);
+  const [_elapsedTick, setElapsedTick] = useState(0);
 
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
   const [duplicateSummary, setDuplicateSummary] = useState(null);
@@ -355,11 +358,14 @@ export default function RunPage() {
   const [pendingDuplicateConversations, setPendingDuplicateConversations] = useState([]);
 
   const [auditProgress, setAuditProgress] = useState({
-    completed: 0,
+    handled: 0,
     total: 0,
     batchIndex: 0,
     totalBatches: 0,
     percent: 0,
+    savedRows: 0,
+    skippedRows: 0,
+    failedRows: 0,
     label: "Ready",
     detail: "Audit has not started.",
   });
@@ -398,8 +404,41 @@ export default function RunPage() {
     });
 
     setExecutionLog((prev) =>
-      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 40)
+      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 50)
     );
+  }
+
+  async function getFreshAccessToken() {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error) {
+      throw new Error(error.message || "Could not check the current login session.");
+    }
+
+    let activeSession = data?.session || session;
+
+    if (!activeSession?.access_token) {
+      throw new Error("Your login session is missing. Please sign in again.");
+    }
+
+    const expiresAtMs = activeSession?.expires_at ? activeSession.expires_at * 1000 : 0;
+    const shouldRefresh = expiresAtMs && expiresAtMs - Date.now() < SESSION_REFRESH_BUFFER_MS;
+
+    if (shouldRefresh) {
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+
+      if (refreshError || !refreshData?.session?.access_token) {
+        throw new Error("Your login session expired during the audit. Please sign in again before continuing.");
+      }
+
+      activeSession = refreshData.session;
+      setSession(activeSession);
+      addLog("Session refreshed before the next batch.", "notice");
+    } else {
+      setSession(activeSession);
+    }
+
+    return activeSession.access_token;
   }
 
   function resetRunStateForInputChange() {
@@ -416,11 +455,14 @@ export default function RunPage() {
     setPendingDuplicateConversations([]);
     setOperationStatus("idle");
     setAuditProgress({
-      completed: 0,
+      handled: 0,
       total: 0,
       batchIndex: 0,
       totalBatches: 0,
       percent: 0,
+      savedRows: 0,
+      skippedRows: 0,
+      failedRows: 0,
       label: "Ready",
       detail: "Audit has not started.",
     });
@@ -576,12 +618,12 @@ export default function RunPage() {
   }, [fetchLoading]);
 
   useEffect(() => {
-    function tickElapsed() {
-      if (fetchLoading) setFetchStartedAt((prev) => prev || Date.now());
-      if (runLoading) setRunStartedAt((prev) => prev || Date.now());
-    }
+    if (!fetchLoading && !runLoading) return undefined;
 
-    const interval = setInterval(tickElapsed, 1000);
+    const interval = setInterval(() => {
+      setElapsedTick((prev) => prev + 1);
+    }, 1000);
+
     return () => clearInterval(interval);
   }, [fetchLoading, runLoading]);
 
@@ -690,6 +732,7 @@ export default function RunPage() {
   }
 
   async function checkDuplicates(conversations) {
+    const accessToken = await getFreshAccessToken();
     const controller = new AbortController();
     runAbortRef.current = controller;
 
@@ -697,7 +740,7 @@ export default function RunPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         conversations,
@@ -728,6 +771,7 @@ export default function RunPage() {
     totalCount,
     duplicateMode,
   }) {
+    const accessToken = await getFreshAccessToken();
     const controller = new AbortController();
     runAbortRef.current = controller;
 
@@ -735,7 +779,7 @@ export default function RunPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         conversations: batch,
@@ -757,7 +801,9 @@ export default function RunPage() {
     const data = await readJsonSafely(response);
 
     if (response.status === 409 && data?.requiresDuplicateDecision) {
-      throw new Error("A duplicate appeared during a batch after the duplicate check. Please retry with Skip Existing or Overwrite Existing.");
+      throw new Error(
+        "A duplicate appeared during a batch after the duplicate check. Please retry with Skip Existing or Overwrite Existing."
+      );
     }
 
     if (!response.ok || !data?.ok) {
@@ -765,6 +811,49 @@ export default function RunPage() {
     }
 
     return data;
+  }
+
+  function buildPartialRunData({
+    queuedConversations,
+    batches,
+    allResults,
+    storedRunIds,
+    modeToUse,
+    totalSkipped,
+    totalOverwritten,
+    totalMapped,
+    totalUnmapped,
+    handled,
+    failedCount,
+    partialReason,
+  }) {
+    const safeBatches = Array.isArray(batches) ? batches : [];
+
+    return {
+      ok: false,
+      partial: true,
+      message: "Partial batch audit saved before the run stopped.",
+      meta: {
+        requestedBy: session?.user?.email || "",
+        receivedCount: queuedConversations.length,
+        handledCount: handled,
+        auditedCount: allResults.length,
+        successCount: allResults.filter((item) => !item?.error).length,
+        errorCount: allResults.filter((item) => item?.error).length + failedCount,
+        duplicateModeApplied: modeToUse || "none",
+        skippedCount: totalSkipped,
+        overwrittenCount: totalOverwritten,
+        mappedCount: totalMapped,
+        unmappedCount: totalUnmapped,
+        auditMode: "live_gpt_batch_client_partial",
+        storageStatus: "partial_save_to_supabase",
+        storedRunIds,
+        batchSize: AUDIT_BATCH_SIZE,
+        totalBatches: safeBatches.length,
+        partialReason,
+      },
+      results: allResults,
+    };
   }
 
   async function startBatchAudit({
@@ -802,11 +891,14 @@ export default function RunPage() {
     setOperationStatus("auditing");
 
     setAuditProgress({
-      completed: 0,
+      handled: 0,
       total: queuedConversations.length,
       batchIndex: 0,
       totalBatches: 0,
       percent: 3,
+      savedRows: 0,
+      skippedRows: 0,
+      failedRows: 0,
       label: "Checking Duplicates",
       detail: "Checking stored Results before starting the batch audit.",
     });
@@ -818,9 +910,19 @@ export default function RunPage() {
       "info"
     );
 
-    try {
-      let modeToUse = duplicateMode;
+    let modeToUse = duplicateMode;
+    let batches = [];
+    const allResults = [];
+    const storedRunIds = [];
 
+    let handled = 0;
+    let totalSkipped = 0;
+    let totalOverwritten = 0;
+    let totalMapped = 0;
+    let totalUnmapped = 0;
+    let totalFailedRows = 0;
+
+    try {
       if (!modeToUse) {
         const duplicateCheck = await checkDuplicates(queuedConversations);
         const duplicateCount = Number(duplicateCheck?.duplicateSummary?.duplicateCount || 0);
@@ -851,23 +953,17 @@ export default function RunPage() {
         }
       }
 
-      const batches = splitIntoBatches(queuedConversations, AUDIT_BATCH_SIZE);
-      const allResults = [];
-      const storedRunIds = [];
-      let completed = 0;
-      let totalSkipped = 0;
-      let totalOverwritten = 0;
-      let totalMapped = 0;
-      let totalUnmapped = 0;
-      let totalSuccess = 0;
-      let totalErrors = 0;
+      batches = splitIntoBatches(queuedConversations, AUDIT_BATCH_SIZE);
 
       setAuditProgress({
-        completed: 0,
+        handled: 0,
         total: queuedConversations.length,
         batchIndex: 1,
         totalBatches: batches.length,
         percent: 5,
+        savedRows: 0,
+        skippedRows: 0,
+        failedRows: 0,
         label: "Starting Batch Audit",
         detail: `${formatNumber(batches.length)} batch(es) created. ${formatNumber(AUDIT_BATCH_SIZE)} conversation(s) per batch.`,
       });
@@ -881,11 +977,14 @@ export default function RunPage() {
         const batch = batches[index];
 
         setAuditProgress({
-          completed,
+          handled,
           total: queuedConversations.length,
           batchIndex: batchNumber,
           totalBatches: batches.length,
-          percent: Math.max(6, Math.round((completed / queuedConversations.length) * 100)),
+          percent: Math.max(6, Math.round((handled / queuedConversations.length) * 100)),
+          savedRows: allResults.length,
+          skippedRows: totalSkipped,
+          failedRows: totalFailedRows,
           label: `Running Batch ${batchNumber} of ${batches.length}`,
           detail: `Auditing ${formatNumber(batch.length)} conversation(s) in this batch.`,
         });
@@ -905,26 +1004,37 @@ export default function RunPage() {
 
         if (batchData?.meta?.storedRunId) storedRunIds.push(batchData.meta.storedRunId);
 
-        completed += Number(batchData?.meta?.auditedCount || batch.length);
-        totalSkipped += Number(batchData?.meta?.skippedCount || 0);
-        totalOverwritten += Number(batchData?.meta?.overwrittenCount || 0);
-        totalMapped += Number(batchData?.meta?.mappedCount || 0);
-        totalUnmapped += Number(batchData?.meta?.unmappedCount || 0);
-        totalSuccess += batchResults.filter((item) => !item?.error).length;
-        totalErrors += batchResults.filter((item) => item?.error).length;
+        const skippedThisBatch = Number(batchData?.meta?.skippedCount || 0);
+        const overwrittenThisBatch = Number(batchData?.meta?.overwrittenCount || 0);
+        const mappedThisBatch = Number(batchData?.meta?.mappedCount || 0);
+        const unmappedThisBatch = Number(batchData?.meta?.unmappedCount || 0);
+        const batchErrorRows = batchResults.filter((item) => item?.error).length;
+
+        totalSkipped += skippedThisBatch;
+        totalOverwritten += overwrittenThisBatch;
+        totalMapped += mappedThisBatch;
+        totalUnmapped += unmappedThisBatch;
+        totalFailedRows += batchErrorRows;
+
+        handled += batch.length;
 
         setAuditProgress({
-          completed: Math.min(completed, queuedConversations.length),
+          handled: Math.min(handled, queuedConversations.length),
           total: queuedConversations.length,
           batchIndex: batchNumber,
           totalBatches: batches.length,
-          percent: Math.min(100, Math.round((completed / queuedConversations.length) * 100)),
+          percent: Math.min(100, Math.round((handled / queuedConversations.length) * 100)),
+          savedRows: allResults.length,
+          skippedRows: totalSkipped,
+          failedRows: totalFailedRows,
           label: `Batch ${batchNumber} Saved`,
-          detail: `${formatNumber(completed)} of ${formatNumber(queuedConversations.length)} conversation(s) completed.`,
+          detail: `${formatNumber(handled)} of ${formatNumber(queuedConversations.length)} conversation(s) handled. ${formatNumber(allResults.length)} result row(s) returned.`,
         });
 
+        const skippedText = skippedThisBatch ? ` ${formatNumber(skippedThisBatch)} skipped.` : "";
+
         addLog(
-          `Batch ${batchNumber}/${batches.length} saved. Completed ${formatNumber(completed)}/${formatNumber(queuedConversations.length)}.`,
+          `Batch ${batchNumber}/${batches.length} saved. Handled ${formatNumber(handled)}/${formatNumber(queuedConversations.length)}.${skippedText}`,
           "success"
         );
       }
@@ -935,9 +1045,10 @@ export default function RunPage() {
         meta: {
           requestedBy: session?.user?.email || "",
           receivedCount: queuedConversations.length,
+          handledCount: handled,
           auditedCount: allResults.length,
-          successCount: totalSuccess,
-          errorCount: totalErrors,
+          successCount: allResults.filter((item) => !item?.error).length,
+          errorCount: allResults.filter((item) => item?.error).length,
           duplicateModeApplied: modeToUse || "none",
           skippedCount: totalSkipped,
           overwrittenCount: totalOverwritten,
@@ -954,31 +1065,72 @@ export default function RunPage() {
 
       setRunData(finalData);
       setRunSuccess(
-        `Audit completed in ${formatNumber(batches.length)} batch(es). ${formatNumber(allResults.length)} result row(s) returned.`
+        `Audit completed in ${formatNumber(batches.length)} batch(es). ${formatNumber(allResults.length)} result row(s) returned. ${formatNumber(totalSkipped)} skipped.`
       );
       setOperationStatus("completed");
       setAuditProgress({
-        completed: queuedConversations.length,
+        handled: queuedConversations.length,
         total: queuedConversations.length,
         batchIndex: batches.length,
         totalBatches: batches.length,
         percent: 100,
+        savedRows: allResults.length,
+        skippedRows: totalSkipped,
+        failedRows: finalData.meta.errorCount,
         label: "Audit Completed",
-        detail: "All batches finished and saved to Results.",
+        detail: "All batches finished. Completed batch results were saved to Results.",
       });
 
       addLog("Batch audit completed successfully.", "success");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Audit run failed.";
+
+      if (allResults.length || handled > 0) {
+        const partialData = buildPartialRunData({
+          queuedConversations,
+          batches,
+          allResults,
+          storedRunIds,
+          modeToUse,
+          totalSkipped,
+          totalOverwritten,
+          totalMapped,
+          totalUnmapped,
+          handled,
+          failedCount: totalFailedRows,
+          partialReason: message,
+        });
+
+        setRunData(partialData);
+        setRunSuccess(
+          `Partial save available: ${formatNumber(allResults.length)} result row(s) returned before the run stopped.`
+        );
+      }
+
       if (error?.name === "AbortError") {
         setRunError("Audit cancelled. Completed batches may already be saved in Results.");
         setOperationStatus("cancelled");
         addLog("Audit request was aborted.", "warning");
       } else {
-        const message = error instanceof Error ? error.message : "Audit run failed.";
         setRunError(message);
-        setOperationStatus(message.includes("cancelled") ? "cancelled" : "failed");
+        setOperationStatus(message.toLowerCase().includes("cancelled") ? "cancelled" : "failed");
         addLog(message, "danger");
       }
+
+      setAuditProgress((prev) => ({
+        ...prev,
+        handled,
+        total: queuedConversations.length,
+        savedRows: allResults.length,
+        skippedRows: totalSkipped,
+        failedRows: totalFailedRows,
+        label: message.toLowerCase().includes("cancelled") ? "Audit Cancelled" : "Audit Stopped",
+        detail:
+          allResults.length || handled
+            ? `Stopped after handling ${formatNumber(handled)} of ${formatNumber(queuedConversations.length)} conversation(s). Completed batch results may already be saved.`
+            : message,
+      }));
     } finally {
       setRunLoading(false);
       setDuplicateDecisionLoading(false);
@@ -999,11 +1151,6 @@ export default function RunPage() {
     setDuplicateDecisionLoading(false);
     setPendingDuplicateConversations([]);
 
-    if (!session?.access_token) {
-      setFetchError("Your login session is missing. Please sign in again.");
-      return;
-    }
-
     if (!startDate || !endDate) {
       setFetchError("Please choose both a start date and an end date.");
       return;
@@ -1015,6 +1162,18 @@ export default function RunPage() {
         setFetchError("Please enter a valid limiter number greater than 0.");
         return;
       }
+    }
+
+    let accessToken = "";
+
+    try {
+      accessToken = await getFreshAccessToken();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Your login session is missing. Please sign in again.";
+      setFetchError(message);
+      setAuthMessage(message);
+      addLog(message, "danger");
+      return;
     }
 
     const controller = new AbortController();
@@ -1033,7 +1192,7 @@ export default function RunPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           startDate,
@@ -1146,6 +1305,9 @@ export default function RunPage() {
     if (operationStatus === "cancelled") return "Current operation was cancelled.";
     if (operationStatus === "paused") return "Audit is paused and needs your decision.";
     if (operationStatus === "failed") return "The last operation failed.";
+    if (runData?.partial) {
+      return `Partial run: ${formatNumber(runData.meta?.auditedCount || 0)} result row(s) returned before the run stopped.`;
+    }
     if (runData?.meta?.auditedCount >= 0) {
       return `Latest audit processed ${formatNumber(runData.meta.auditedCount)} result row(s).`;
     }
@@ -1186,8 +1348,8 @@ export default function RunPage() {
     {
       label: "Audit",
       value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "Pending",
-      subtext: "Processed result rows",
-      tone: runData?.meta?.auditedCount ? "success" : "neutral",
+      subtext: runData?.partial ? "Partial result rows" : "Processed result rows",
+      tone: runData?.partial ? "warning" : runData?.meta?.auditedCount ? "success" : "neutral",
     },
     {
       label: "Auto-run",
@@ -1441,10 +1603,13 @@ export default function RunPage() {
               detail="Fetching and hydrating eligible Intercom conversations."
               percent={Math.min(96, ((fetchStepIndex + 1) / FETCH_STEPS.length) * 100)}
               elapsed={formatElapsed(fetchStartedAt)}
-              completed={0}
+              handled={0}
               total={0}
               batchIndex={0}
               totalBatches={0}
+              savedRows={0}
+              skippedRows={0}
+              failedRows={0}
               onCancel={handleCancelFetch}
             />
           ) : null}
@@ -1456,10 +1621,13 @@ export default function RunPage() {
               detail={auditProgress.detail}
               percent={auditProgress.percent}
               elapsed={formatElapsed(runStartedAt)}
-              completed={auditProgress.completed}
+              handled={auditProgress.handled}
               total={auditProgress.total}
               batchIndex={auditProgress.batchIndex}
               totalBatches={auditProgress.totalBatches}
+              savedRows={auditProgress.savedRows}
+              skippedRows={auditProgress.skippedRows}
+              failedRows={auditProgress.failedRows}
               onCancel={handleCancelAudit}
             />
           ) : null}
@@ -1565,7 +1733,9 @@ export default function RunPage() {
           </div>
 
           <div className="result-metrics">
-            <span>{formatNumber(runData?.meta?.auditedCount || 0)} audited</span>
+            <span>{formatNumber(runData?.meta?.auditedCount || 0)} result rows</span>
+            <span>{formatNumber(runData?.meta?.handledCount || 0)} handled</span>
+            <span>{formatNumber(runData?.meta?.skippedCount || 0)} skipped</span>
             <span>{formatNumber(successCount)} success</span>
             <span>{formatNumber(errorCount)} errors</span>
           </div>
