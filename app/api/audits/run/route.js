@@ -3,6 +3,7 @@ import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PROMPT_KEY = "audit_review_prompt";
@@ -312,6 +313,16 @@ function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function chunkArray(items, size = 500) {
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
 function extractConversationMeta(conversation, fallbackConversation = {}) {
   const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
     ? conversation.conversation_parts.conversation_parts
@@ -354,10 +365,7 @@ function extractConversationMeta(conversation, fallbackConversation = {}) {
   }
 
   return {
-    conversationId: firstNonEmpty(
-      conversation?.id,
-      fallbackConversation?.conversationId
-    ),
+    conversationId: firstNonEmpty(conversation?.id, fallbackConversation?.conversationId),
     clientEmail,
     agentName: agentName || "Unassigned",
     csatScore:
@@ -430,9 +438,7 @@ function normalizeTimestampForDb(value) {
   }
 
   const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString();
-  }
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
 
   return null;
 }
@@ -446,81 +452,118 @@ function normalizeDuplicateMode(value) {
   return "";
 }
 
+function normalizeBatchPayload(body) {
+  const batchMode = Boolean(body?.batchMode);
+  const batchIndex = Number(body?.batchIndex || 0);
+  const totalBatches = Number(body?.totalBatches || 0);
+  const batchSize = Number(body?.batchSize || 0);
+  const totalCount = Number(body?.totalCount || 0);
+  const batchLabel = String(body?.batchLabel || "").trim();
+
+  return {
+    batchMode,
+    batchIndex: Number.isFinite(batchIndex) ? batchIndex : 0,
+    totalBatches: Number.isFinite(totalBatches) ? totalBatches : 0,
+    batchSize: Number.isFinite(batchSize) ? batchSize : 0,
+    totalCount: Number.isFinite(totalCount) ? totalCount : 0,
+    batchLabel,
+  };
+}
+
 async function fetchExistingStoredResults(adminClient, conversationIds) {
-  if (!conversationIds.length) return [];
+  const ids = Array.from(new Set((conversationIds || []).filter(Boolean)));
+  if (!ids.length) return [];
 
-  const { data, error } = await adminClient
-    .from("audit_results")
-    .select("id, run_id, conversation_id, agent_name, client_email, created_at")
-    .in("conversation_id", conversationIds);
+  const allRows = [];
 
-  if (error) {
-    throw new Error(error.message || "Could not check existing stored results.");
+  for (const chunk of chunkArray(ids, 500)) {
+    const { data, error } = await adminClient
+      .from("audit_results")
+      .select("id, run_id, conversation_id, agent_name, client_email, created_at")
+      .in("conversation_id", chunk);
+
+    if (error) {
+      throw new Error(error.message || "Could not check existing stored results.");
+    }
+
+    allRows.push(...(Array.isArray(data) ? data : []));
   }
 
-  return Array.isArray(data) ? data : [];
+  return allRows;
 }
 
 async function removeStoredDuplicates(adminClient, conversationIds) {
-  if (!conversationIds.length) {
+  const ids = Array.from(new Set((conversationIds || []).filter(Boolean)));
+
+  if (!ids.length) {
     return { deletedResults: 0, deletedRuns: 0 };
   }
 
-  const { data: existingRows, error: existingRowsError } = await adminClient
-    .from("audit_results")
-    .select("id, run_id")
-    .in("conversation_id", conversationIds);
+  const existingRows = [];
 
-  if (existingRowsError) {
-    throw new Error(existingRowsError.message || "Could not inspect stored duplicates.");
+  for (const chunk of chunkArray(ids, 500)) {
+    const { data, error } = await adminClient
+      .from("audit_results")
+      .select("id, run_id")
+      .in("conversation_id", chunk);
+
+    if (error) {
+      throw new Error(error.message || "Could not inspect stored duplicates.");
+    }
+
+    existingRows.push(...(Array.isArray(data) ? data : []));
   }
 
-  const rows = Array.isArray(existingRows) ? existingRows : [];
-  if (!rows.length) {
+  if (!existingRows.length) {
     return { deletedResults: 0, deletedRuns: 0 };
   }
 
-  const runIds = Array.from(new Set(rows.map((item) => item.run_id).filter(Boolean)));
-  const resultIds = rows.map((item) => item.id).filter(Boolean);
+  const runIds = Array.from(
+    new Set(existingRows.map((item) => item.run_id).filter(Boolean))
+  );
 
-  const { error: deleteResultsError } = await adminClient
-    .from("audit_results")
-    .delete()
-    .in("id", resultIds);
+  const resultIds = existingRows.map((item) => item.id).filter(Boolean);
 
-  if (deleteResultsError) {
-    throw new Error(deleteResultsError.message || "Could not delete existing stored duplicates.");
+  for (const chunk of chunkArray(resultIds, 500)) {
+    const { error } = await adminClient.from("audit_results").delete().in("id", chunk);
+
+    if (error) {
+      throw new Error(error.message || "Could not delete existing stored duplicates.");
+    }
   }
 
   let deletedRuns = 0;
 
   if (runIds.length) {
-    const { data: remainingRows, error: remainingRowsError } = await adminClient
-      .from("audit_results")
-      .select("run_id")
-      .in("run_id", runIds);
+    const remainingRows = [];
 
-    if (remainingRowsError) {
-      throw new Error(remainingRowsError.message || "Could not verify remaining run rows.");
+    for (const chunk of chunkArray(runIds, 500)) {
+      const { data, error } = await adminClient
+        .from("audit_results")
+        .select("run_id")
+        .in("run_id", chunk);
+
+      if (error) {
+        throw new Error(error.message || "Could not verify remaining run rows.");
+      }
+
+      remainingRows.push(...(Array.isArray(data) ? data : []));
     }
 
     const stillUsedRunIds = new Set(
-      (remainingRows || []).map((item) => item.run_id).filter(Boolean)
+      remainingRows.map((item) => item.run_id).filter(Boolean)
     );
 
     const emptyRunIds = runIds.filter((id) => !stillUsedRunIds.has(id));
 
-    if (emptyRunIds.length) {
-      const { error: deleteRunsError } = await adminClient
-        .from("audit_runs")
-        .delete()
-        .in("id", emptyRunIds);
+    for (const chunk of chunkArray(emptyRunIds, 500)) {
+      const { error } = await adminClient.from("audit_runs").delete().in("id", chunk);
 
-      if (deleteRunsError) {
-        throw new Error(deleteRunsError.message || "Could not clean up duplicate audit runs.");
+      if (error) {
+        throw new Error(error.message || "Could not clean up duplicate audit runs.");
       }
 
-      deletedRuns = emptyRunIds.length;
+      deletedRuns += chunk.length;
     }
   }
 
@@ -560,9 +603,7 @@ async function loadLiveAuditPrompt(adminClient) {
     .maybeSingle();
 
   if (error) {
-    if (error.code === "42P01") {
-      return FALLBACK_AUDIT_PROMPT;
-    }
+    if (error.code === "42P01") return FALLBACK_AUDIT_PROMPT;
     throw new Error(error.message || "Could not load live audit prompt.");
   }
 
@@ -581,24 +622,22 @@ async function loadAgentMappings(adminClient, agentNames) {
 
   const mappingByName = new Map();
 
-  if (!normalizedNames.length) {
-    return mappingByName;
-  }
+  if (!normalizedNames.length) return mappingByName;
 
-  const { data, error } = await adminClient
-    .from("agent_mappings")
-    .select(
-      "intercom_agent_name, employee_name, employee_email, team_name, is_active"
-    )
-    .in("intercom_agent_name", normalizedNames);
+  for (const chunk of chunkArray(normalizedNames, 500)) {
+    const { data, error } = await adminClient
+      .from("agent_mappings")
+      .select("intercom_agent_name, employee_name, employee_email, team_name, is_active")
+      .in("intercom_agent_name", chunk);
 
-  if (error) {
-    throw new Error(error.message || "Could not load agent mappings.");
-  }
+    if (error) {
+      throw new Error(error.message || "Could not load agent mappings.");
+    }
 
-  for (const row of data || []) {
-    if (row?.is_active === false) continue;
-    mappingByName.set(normalizeKey(row.intercom_agent_name), row);
+    for (const row of data || []) {
+      if (row?.is_active === false) continue;
+      mappingByName.set(normalizeKey(row.intercom_agent_name), row);
+    }
   }
 
   return mappingByName;
@@ -667,6 +706,7 @@ async function runOpenAIAudit({
   }
 
   let parsed;
+
   try {
     parsed = JSON.parse(content);
   } catch {
@@ -679,6 +719,29 @@ async function runOpenAIAudit({
     clientSentiment: String(parsed?.clientSentiment || "").trim(),
     resolutionStatus: String(parsed?.resolutionStatus || "").trim(),
   };
+}
+
+function buildResultRows(runId, results) {
+  return results.map((item) => ({
+    run_id: runId,
+    conversation_id: item.conversationId || null,
+    replied_at: normalizeTimestampForDb(item.repliedAt),
+    csat_score:
+      item.csatScore === null || item.csatScore === undefined
+        ? null
+        : String(item.csatScore),
+    client_email: item.clientEmail || null,
+    agent_name: item.agentName || null,
+    employee_name: item.employeeName || null,
+    employee_email: item.employeeEmail || null,
+    team_name: item.teamName || null,
+    employee_match_status: item.employeeMatchStatus || "unmapped",
+    ai_verdict: item.aiVerdict || null,
+    review_sentiment: item.reviewSentiment || null,
+    client_sentiment: item.clientSentiment || null,
+    resolution_status: item.resolutionStatus || null,
+    error: item.error || null,
+  }));
 }
 
 async function persistAuditRunAndResults({
@@ -695,8 +758,13 @@ async function persistAuditRunAndResults({
   errorCount,
   promptSource,
   results,
+  batchInfo,
 }) {
   const runId = crypto.randomUUID();
+
+  const batchPromptSuffix = batchInfo?.batchMode
+    ? ` | batch ${batchInfo.batchIndex || 1}/${batchInfo.totalBatches || "?"}`
+    : "";
 
   const runPayload = {
     id: runId,
@@ -710,8 +778,8 @@ async function persistAuditRunAndResults({
     audited_count: auditedCount,
     success_count: successCount,
     error_count: errorCount,
-    audit_mode: "live_gpt",
-    prompt_source: promptSource,
+    audit_mode: batchInfo?.batchMode ? "live_gpt_batch" : "live_gpt",
+    prompt_source: `${promptSource}${batchPromptSuffix}`,
   };
 
   const { error: runInsertError } = await adminClient
@@ -732,180 +800,259 @@ async function persistAuditRunAndResults({
     throw new Error(runCheckError?.message || "Audit run row was not confirmed after insert.");
   }
 
-  const resultRows = results.map((item) => ({
-    run_id: runId,
-    conversation_id: item.conversationId || null,
-    replied_at: normalizeTimestampForDb(item.repliedAt),
-    csat_score:
-      item.csatScore === null || item.csatScore === undefined
-        ? null
-        : String(item.csatScore),
-    client_email: item.clientEmail || null,
-    agent_name: item.agentName || null,
-    employee_name: item.employeeName || null,
-    employee_email: item.employeeEmail || null,
-    team_name: item.teamName || null,
-    employee_match_status: item.employeeMatchStatus || "unmapped",
-    ai_verdict: item.aiVerdict || null,
-    review_sentiment: item.reviewSentiment || null,
-    client_sentiment: item.clientSentiment || null,
-    resolution_status: item.resolutionStatus || null,
-    error: item.error || null,
-  }));
+  const resultRows = buildResultRows(runId, results);
 
   if (resultRows.length) {
-    const { error: resultsInsertError } = await adminClient
-      .from("audit_results")
-      .insert(resultRows);
+    for (const chunk of chunkArray(resultRows, 500)) {
+      const { error: resultsInsertError } = await adminClient
+        .from("audit_results")
+        .insert(chunk);
 
-    if (resultsInsertError) {
-      await adminClient.from("audit_runs").delete().eq("id", runId);
-      throw new Error(resultsInsertError.message || "Could not save audit results.");
+      if (resultsInsertError) {
+        await adminClient.from("audit_results").delete().eq("run_id", runId);
+        await adminClient.from("audit_runs").delete().eq("id", runId);
+        throw new Error(resultsInsertError.message || "Could not save audit results.");
+      }
     }
   }
 
   return runId;
 }
 
-export async function POST(request) {
-  try {
-    const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
-    const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-    const supabaseServiceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const intercomApiKey = getEnv("INTERCOM_API_KEY");
-    const openAiApiKey = getEnv("OPENAI_API_KEY");
+async function authenticateRequest(request) {
+  const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const supabaseServiceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const intercomApiKey = getEnv("INTERCOM_API_KEY");
+  const openAiApiKey = getEnv("OPENAI_API_KEY");
 
-    if (
-      !supabaseUrl ||
-      !supabaseAnonKey ||
-      !supabaseServiceRoleKey ||
-      !intercomApiKey ||
-      !openAiApiKey
-    ) {
-      return json(
-        { ok: false, error: "Missing required environment variables." },
-        { status: 500 }
-      );
-    }
+  if (
+    !supabaseUrl ||
+    !supabaseAnonKey ||
+    !supabaseServiceRoleKey ||
+    !intercomApiKey ||
+    !openAiApiKey
+  ) {
+    throw new Error("Missing required environment variables.");
+  }
 
-    const authHeader = request.headers.get("authorization") || "";
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length).trim()
-      : "";
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : "";
 
-    if (!token) {
-      return json({ ok: false, error: "Missing access token." }, { status: 401 });
-    }
+  if (!token) {
+    return {
+      response: json({ ok: false, error: "Missing access token." }, { status: 401 }),
+    };
+  }
 
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
-    const {
-      data: { user },
-      error: userError,
-    } = await authClient.auth.getUser(token);
+  const {
+    data: { user },
+    error: userError,
+  } = await authClient.auth.getUser(token);
 
-    if (userError || !user) {
-      return json({ ok: false, error: "Invalid or expired session." }, { status: 401 });
-    }
+  if (userError || !user) {
+    return {
+      response: json({ ok: false, error: "Invalid or expired session." }, { status: 401 }),
+    };
+  }
 
-    const email = String(user.email || "").toLowerCase();
-    const domain = email.split("@")[1] || "";
+  const email = String(user.email || "").toLowerCase();
+  const domain = email.split("@")[1] || "";
 
-    if (domain !== "nextventures.io") {
-      return json(
+  if (domain !== "nextventures.io") {
+    return {
+      response: json(
         { ok: false, error: "Only nextventures.io accounts are allowed." },
         { status: 403 }
-      );
-    }
+      ),
+    };
+  }
 
-    const { data: profileData } = await adminClient
-      .from("profiles")
-      .select("id, email, full_name, role, can_run_tests, is_active")
-      .eq("id", user.id)
-      .maybeSingle();
+  const { data: profileData } = await adminClient
+    .from("profiles")
+    .select("id, email, full_name, role, can_run_tests, is_active")
+    .eq("id", user.id)
+    .maybeSingle();
 
-    const profile = profileData || buildFallbackProfile(user);
+  const profile = profileData || buildFallbackProfile(user);
 
-    if (!canRunAudits(profile)) {
-      return json(
-        { ok: false, error: "This account does not have permission to run tests." },
+  if (!canRunAudits(profile)) {
+    return {
+      response: json(
+        { ok: false, error: "This account does not have permission to run audits." },
         { status: 403 }
+      ),
+    };
+  }
+
+  return {
+    user,
+    email,
+    adminClient,
+    intercomApiKey,
+    openAiApiKey,
+  };
+}
+
+function applyLimiterIfNeeded(normalizedConversations, limiterEnabled, limitCount, batchInfo) {
+  if (batchInfo?.batchMode) {
+    return normalizedConversations;
+  }
+
+  if (!limiterEnabled) {
+    return normalizedConversations;
+  }
+
+  const parsedLimit = Number(limitCount);
+
+  if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+    throw new Error("Limiter is enabled but limitCount is invalid.");
+  }
+
+  return normalizedConversations.slice(0, parsedLimit);
+}
+
+async function auditConversations({
+  conversationsToAudit,
+  intercomApiKey,
+  openAiApiKey,
+  auditPrompt,
+}) {
+  const results = [];
+
+  for (const conversation of conversationsToAudit) {
+    try {
+      const fullConversation = await fetchFullConversation(
+        intercomApiKey,
+        conversation.conversationId
       );
+
+      const transcript = buildTranscript(fullConversation);
+      const meta = extractConversationMeta(fullConversation, conversation);
+
+      const audit = await runOpenAIAudit({
+        openAiApiKey,
+        transcript,
+        conversationId: meta.conversationId,
+        auditPrompt,
+      });
+
+      results.push({
+        conversationId: meta.conversationId,
+        repliedAt: meta.repliedAt,
+        csatScore: meta.csatScore,
+        clientEmail: meta.clientEmail,
+        agentName: meta.agentName,
+        aiVerdict: audit.aiVerdict,
+        reviewSentiment: audit.reviewSentiment,
+        clientSentiment: audit.clientSentiment,
+        resolutionStatus: audit.resolutionStatus,
+      });
+    } catch (error) {
+      results.push({
+        conversationId: conversation.conversationId,
+        repliedAt: conversation.repliedAt,
+        csatScore: conversation.csatScore,
+        clientEmail: conversation.clientEmail,
+        agentName: conversation.agentName,
+        error: error instanceof Error ? error.message : "Unknown processing error.",
+      });
+    }
+  }
+
+  return results;
+}
+
+export async function POST(request) {
+  try {
+    const auth = await authenticateRequest(request);
+
+    if (auth.response) {
+      return auth.response;
     }
 
+    const { user, email, adminClient, intercomApiKey, openAiApiKey } = auth;
     const body = await request.json();
-    const rawConversations = Array.isArray(body?.conversations) ? body.conversations : [];
+
+    const conversations = Array.isArray(body?.conversations) ? body.conversations : [];
     const limiterEnabled = Boolean(body?.limiterEnabled);
-    const requestedLimit = Number(body?.limitCount);
-    const startDate = String(body?.startDate || "").trim() || null;
-    const endDate = String(body?.endDate || "").trim() || null;
+    const limitCount = body?.limitCount ?? null;
+    const startDate = String(body?.startDate || "").trim();
+    const endDate = String(body?.endDate || "").trim();
     const duplicateMode = normalizeDuplicateMode(body?.duplicateMode);
+    const checkOnly = Boolean(body?.checkOnly);
+    const batchInfo = normalizeBatchPayload(body);
 
-    if (!rawConversations.length) {
-      return json(
-        { ok: false, error: "No fetched conversations were provided for audit." },
-        { status: 400 }
-      );
-    }
-
-    const normalizedConversations = rawConversations
+    const normalizedConversations = conversations
       .map(normalizeConversation)
       .filter((item) => item.conversationId);
 
     if (!normalizedConversations.length) {
       return json(
-        { ok: false, error: "No valid conversation IDs were found in the audit payload." },
+        { ok: false, error: "No valid conversations were provided for audit." },
         { status: 400 }
       );
     }
 
-    const limitCount = limiterEnabled
-      ? Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 5, 50))
-      : null;
-
-    const conversationsToAuditInitial = limiterEnabled
-      ? normalizedConversations.slice(0, limitCount)
-      : normalizedConversations;
-
-    const conversationIdsToCheck = Array.from(
-      new Set(
-        conversationsToAuditInitial
-          .map((item) => item.conversationId)
-          .filter(Boolean)
-      )
+    const conversationsToAuditInitial = applyLimiterIfNeeded(
+      normalizedConversations,
+      limiterEnabled,
+      limitCount,
+      batchInfo
     );
 
-    const existingStoredRows = await fetchExistingStoredResults(
-      adminClient,
-      conversationIdsToCheck
-    );
+    const conversationIds = conversationsToAuditInitial
+      .map((item) => item.conversationId)
+      .filter(Boolean);
 
+    const existingRows = await fetchExistingStoredResults(adminClient, conversationIds);
     const duplicateConversationIds = Array.from(
-      new Set(
-        existingStoredRows
-          .map((item) => String(item.conversation_id || "").trim())
-          .filter(Boolean)
-      )
+      new Set(existingRows.map((item) => item.conversation_id).filter(Boolean))
     );
+
+    const duplicateSummary = {
+      duplicateCount: duplicateConversationIds.length,
+      sampleConversationIds: duplicateConversationIds.slice(0, 25),
+      batchMode: batchInfo.batchMode,
+      batchIndex: batchInfo.batchIndex || null,
+      totalBatches: batchInfo.totalBatches || null,
+    };
+
+    if (checkOnly) {
+      return json({
+        ok: true,
+        checkOnly: true,
+        requiresDuplicateDecision: duplicateConversationIds.length > 0 && !duplicateMode,
+        duplicateSummary,
+        meta: {
+          requestedBy: email,
+          receivedCount: normalizedConversations.length,
+          checkedCount: conversationsToAuditInitial.length,
+          duplicateCount: duplicateConversationIds.length,
+          batchMode: batchInfo.batchMode,
+          batchIndex: batchInfo.batchIndex || null,
+          totalBatches: batchInfo.totalBatches || null,
+        },
+      });
+    }
 
     if (duplicateConversationIds.length && !duplicateMode) {
       return json(
         {
           ok: false,
           requiresDuplicateDecision: true,
-          error:
-            "Some of these conversation audits already exist in Results. Choose whether to skip them or overwrite them.",
-          duplicateSummary: {
-            duplicateCount: duplicateConversationIds.length,
-            sampleConversationIds: duplicateConversationIds.slice(0, 10),
-            duplicateConversationIds,
-          },
+          error: "Some selected conversations already exist in Results.",
+          duplicateSummary,
         },
         { status: 409 }
       );
@@ -923,6 +1070,7 @@ export async function POST(request) {
     }
 
     let conversationsToAudit = conversationsToAuditInitial;
+
     let duplicateActionMeta = {
       duplicateModeApplied: duplicateMode || "none",
       duplicateCount: duplicateConversationIds.length,
@@ -933,8 +1081,10 @@ export async function POST(request) {
     };
 
     if (duplicateConversationIds.length && duplicateMode === "skip_existing") {
+      const duplicateSet = new Set(duplicateConversationIds);
+
       conversationsToAudit = conversationsToAuditInitial.filter(
-        (item) => !duplicateConversationIds.includes(item.conversationId)
+        (item) => !duplicateSet.has(item.conversationId)
       );
 
       duplicateActionMeta = {
@@ -962,19 +1112,23 @@ export async function POST(request) {
     if (!conversationsToAudit.length) {
       return json({
         ok: true,
-        message:
-          "All selected conversations already exist in Results, so nothing new was audited.",
+        message: "All selected conversations already exist in Results, so nothing new was audited.",
         meta: {
           requestedBy: email,
           receivedCount: normalizedConversations.length,
           auditedCount: 0,
           limiterEnabled,
           limitCount,
-          auditMode: "live_gpt",
+          auditMode: batchInfo.batchMode ? "live_gpt_batch" : "live_gpt",
           promptSource: "not_needed",
           storageStatus: "no_new_results_saved",
           mappedCount: 0,
           unmappedCount: 0,
+          batchMode: batchInfo.batchMode,
+          batchIndex: batchInfo.batchIndex || null,
+          totalBatches: batchInfo.totalBatches || null,
+          batchSize: batchInfo.batchSize || conversationsToAuditInitial.length,
+          totalCount: batchInfo.totalCount || normalizedConversations.length,
           ...duplicateActionMeta,
         },
         results: [],
@@ -983,47 +1137,12 @@ export async function POST(request) {
 
     const auditPrompt = await loadLiveAuditPrompt(adminClient);
 
-    const results = [];
-
-    for (const conversation of conversationsToAudit) {
-      try {
-        const fullConversation = await fetchFullConversation(
-          intercomApiKey,
-          conversation.conversationId
-        );
-
-        const transcript = buildTranscript(fullConversation);
-        const meta = extractConversationMeta(fullConversation, conversation);
-
-        const audit = await runOpenAIAudit({
-          openAiApiKey,
-          transcript,
-          conversationId: meta.conversationId,
-          auditPrompt,
-        });
-
-        results.push({
-          conversationId: meta.conversationId,
-          repliedAt: meta.repliedAt,
-          csatScore: meta.csatScore,
-          clientEmail: meta.clientEmail,
-          agentName: meta.agentName,
-          aiVerdict: audit.aiVerdict,
-          reviewSentiment: audit.reviewSentiment,
-          clientSentiment: audit.clientSentiment,
-          resolutionStatus: audit.resolutionStatus,
-        });
-      } catch (error) {
-        results.push({
-          conversationId: conversation.conversationId,
-          repliedAt: conversation.repliedAt,
-          csatScore: conversation.csatScore,
-          clientEmail: conversation.clientEmail,
-          agentName: conversation.agentName,
-          error: error instanceof Error ? error.message : "Unknown processing error.",
-        });
-      }
-    }
+    const results = await auditConversations({
+      conversationsToAudit,
+      intercomApiKey,
+      openAiApiKey,
+      auditPrompt,
+    });
 
     const mappingByName = await loadAgentMappings(
       adminClient,
@@ -1037,6 +1156,7 @@ export async function POST(request) {
     const mappedCount = mappedResults.filter(
       (item) => item.employeeMatchStatus === "mapped"
     ).length;
+
     const unmappedCount = mappedResults.length - mappedCount;
 
     const promptSource =
@@ -1055,12 +1175,15 @@ export async function POST(request) {
       endDate,
       limiterEnabled,
       limitCount,
-      receivedCount: normalizedConversations.length,
+      receivedCount: batchInfo.batchMode
+        ? conversationsToAuditInitial.length
+        : normalizedConversations.length,
       auditedCount: mappedResults.length,
       successCount,
       errorCount,
       promptSource,
       results: mappedResults,
+      batchInfo,
     });
 
     return json({
@@ -1072,15 +1195,22 @@ export async function POST(request) {
       meta: {
         requestedBy: email,
         receivedCount: normalizedConversations.length,
+        batchReceivedCount: conversationsToAuditInitial.length,
         auditedCount: mappedResults.length,
         limiterEnabled,
         limitCount,
-        auditMode: "live_gpt",
+        auditMode: batchInfo.batchMode ? "live_gpt_batch" : "live_gpt",
         promptSource,
         storedRunId,
         storageStatus: "saved_to_supabase",
         mappedCount,
         unmappedCount,
+        batchMode: batchInfo.batchMode,
+        batchIndex: batchInfo.batchIndex || null,
+        totalBatches: batchInfo.totalBatches || null,
+        batchSize: batchInfo.batchSize || conversationsToAuditInitial.length,
+        totalCount: batchInfo.totalCount || normalizedConversations.length,
+        batchLabel: batchInfo.batchLabel || null,
         ...duplicateActionMeta,
       },
       results: mappedResults,
