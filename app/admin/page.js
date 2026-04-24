@@ -5,10 +5,8 @@ import { supabase } from "../../lib/supabase";
 
 function formatDateTime(value) {
   if (!value) return "-";
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-
   return date.toLocaleString(undefined, {
     year: "numeric",
     month: "short",
@@ -18,14 +16,18 @@ function formatDateTime(value) {
   });
 }
 
+function normalizeAgentKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
 function getHistoryLabel(item) {
   if (item?.prompt_type === "live_prompt") return "Live Prompt Update";
   if (item?.prompt_type === "original_prompt") return "Original Prompt Record";
   return item?.prompt_type || "Prompt Change";
-}
-
-function normalizeAgentKey(value) {
-  return String(value || "").trim().toLowerCase();
 }
 
 function buildFallbackProfile(user) {
@@ -64,6 +66,45 @@ function createEmptyMappingForm() {
   };
 }
 
+function getRowDate(row) {
+  return row?.replied_at || row?.created_at || null;
+}
+
+function buildStoredAgentStats(auditRows) {
+  const stats = new Map();
+
+  for (const row of auditRows || []) {
+    const agentName = String(row?.agent_name || "").trim();
+    const key = normalizeAgentKey(agentName);
+    if (!key) continue;
+
+    const current = stats.get(key) || {
+      agent_name: agentName,
+      appearances: 0,
+      mapped_result_count: 0,
+      unmapped_result_count: 0,
+      latest_seen_at: getRowDate(row),
+    };
+
+    current.appearances += 1;
+
+    const matchStatus = String(row?.employee_match_status || "").toLowerCase();
+    if (matchStatus === "mapped") current.mapped_result_count += 1;
+    if (matchStatus === "unmapped") current.unmapped_result_count += 1;
+
+    const previousSeen = new Date(current.latest_seen_at || 0).getTime();
+    const rowSeen = new Date(getRowDate(row) || 0).getTime();
+
+    if (rowSeen > previousSeen) {
+      current.latest_seen_at = getRowDate(row);
+    }
+
+    stats.set(key, current);
+  }
+
+  return stats;
+}
+
 function buildSuggestions(existingMappings, auditRows) {
   const existingKeys = new Set(
     (existingMappings || [])
@@ -75,36 +116,72 @@ function buildSuggestions(existingMappings, auditRows) {
 
   for (const row of auditRows || []) {
     const rawAgent = String(row?.agent_name || "").trim();
-    const agentKey = normalizeAgentKey(rawAgent);
+    const key = normalizeAgentKey(rawAgent);
+    if (!key || existingKeys.has(key)) continue;
 
-    if (!rawAgent || !agentKey) continue;
-    if (byAgent.has(agentKey)) continue;
-
-    byAgent.set(agentKey, {
+    const current = byAgent.get(key) || {
       intercom_agent_name: rawAgent,
-      employee_name: String(row?.employee_name || "").trim() || rawAgent,
-      employee_email: String(row?.employee_email || "").trim(),
-      team_name: String(row?.team_name || "").trim(),
-      notes: String(row?.employee_match_status || "").trim()
-        ? `Detected from stored audit results. Historical match status: ${row.employee_match_status}.`
-        : "Detected from stored audit results.",
-      source_created_at: row?.created_at || null,
-      result_count: 1,
-    });
+      employee_name: "",
+      employee_email: "",
+      team_name: "",
+      notes: "Detected from stored audit results.",
+      result_count: 0,
+      latest_seen_at: getRowDate(row),
+      mapped_result_count: 0,
+      unmapped_result_count: 0,
+    };
+
+    current.result_count += 1;
+
+    const matchStatus = String(row?.employee_match_status || "").toLowerCase();
+    if (matchStatus === "mapped") current.mapped_result_count += 1;
+    if (matchStatus === "unmapped") current.unmapped_result_count += 1;
+
+    const employeeName = String(row?.employee_name || "").trim();
+    const employeeEmail = String(row?.employee_email || "").trim();
+    const teamName = String(row?.team_name || "").trim();
+
+    if (!current.employee_name && employeeName) current.employee_name = employeeName;
+    if (!current.employee_email && employeeEmail) current.employee_email = employeeEmail;
+    if (!current.team_name && teamName) current.team_name = teamName;
+
+    const previousSeen = new Date(current.latest_seen_at || 0).getTime();
+    const rowSeen = new Date(getRowDate(row) || 0).getTime();
+
+    if (rowSeen > previousSeen) {
+      current.latest_seen_at = getRowDate(row);
+    }
+
+    byAgent.set(key, current);
   }
 
-  const suggestions = Array.from(byAgent.values()).filter(
-    (item) => !existingKeys.has(normalizeAgentKey(item.intercom_agent_name))
-  );
-
-  return suggestions.sort((a, b) =>
-    a.intercom_agent_name.localeCompare(b.intercom_agent_name)
-  );
+  return Array.from(byAgent.values())
+    .map((item) => ({
+      ...item,
+      employee_name: item.employee_name || item.intercom_agent_name,
+      notes: item.mapped_result_count
+        ? `Detected from stored audit results. ${item.mapped_result_count} historical mapped result(s) found; review before saving.`
+        : item.notes,
+    }))
+    .sort((a, b) => {
+      const latestA = new Date(a.latest_seen_at || 0).getTime();
+      const latestB = new Date(b.latest_seen_at || 0).getTime();
+      if (latestA !== latestB) return latestB - latestA;
+      return a.intercom_agent_name.localeCompare(b.intercom_agent_name);
+    });
 }
 
 function buildUnmappedRows(existingMappings, auditRows) {
-  const existingKeys = new Set(
+  const activeKeys = new Set(
     (existingMappings || [])
+      .filter((item) => item?.is_active !== false)
+      .map((item) => normalizeAgentKey(item?.intercom_agent_name))
+      .filter(Boolean)
+  );
+
+  const inactiveKeys = new Set(
+    (existingMappings || [])
+      .filter((item) => item?.is_active === false)
       .map((item) => normalizeAgentKey(item?.intercom_agent_name))
       .filter(Boolean)
   );
@@ -113,60 +190,119 @@ function buildUnmappedRows(existingMappings, auditRows) {
 
   for (const row of auditRows || []) {
     const rawAgent = String(row?.agent_name || "").trim();
-    const agentKey = normalizeAgentKey(rawAgent);
-    if (!rawAgent || !agentKey) continue;
+    const key = normalizeAgentKey(rawAgent);
+    if (!key || activeKeys.has(key)) continue;
 
-    const isStoredMapped =
-      String(row?.employee_match_status || "").trim().toLowerCase() === "mapped" &&
-      String(row?.employee_name || "").trim();
-
-    const hasMapping = existingKeys.has(agentKey);
-
-    if (hasMapping || isStoredMapped) continue;
-
-    const existing = grouped.get(agentKey) || {
+    const issueType = inactiveKeys.has(key) ? "inactive_mapping" : "missing_mapping";
+    const current = grouped.get(key) || {
       intercom_agent_name: rawAgent,
-      latest_seen_at: row?.created_at || row?.replied_at || null,
+      issue_type: issueType,
+      issue_label: issueType === "inactive_mapping" ? "Inactive mapping exists" : "No active mapping",
       appearances: 0,
+      latest_seen_at: getRowDate(row),
       sample_employee_name: String(row?.employee_name || "").trim(),
       sample_employee_email: String(row?.employee_email || "").trim(),
       sample_team_name: String(row?.team_name || "").trim(),
     };
 
-    existing.appearances += 1;
+    current.appearances += 1;
 
-    const currentSeen = new Date(existing.latest_seen_at || 0).getTime();
-    const rowSeen = new Date(row?.created_at || row?.replied_at || 0).getTime();
+    const previousSeen = new Date(current.latest_seen_at || 0).getTime();
+    const rowSeen = new Date(getRowDate(row) || 0).getTime();
 
-    if (rowSeen > currentSeen) {
-      existing.latest_seen_at = row?.created_at || row?.replied_at || null;
-      existing.sample_employee_name = String(row?.employee_name || "").trim();
-      existing.sample_employee_email = String(row?.employee_email || "").trim();
-      existing.sample_team_name = String(row?.team_name || "").trim();
+    if (rowSeen > previousSeen) {
+      current.latest_seen_at = getRowDate(row);
+      current.sample_employee_name = String(row?.employee_name || "").trim();
+      current.sample_employee_email = String(row?.employee_email || "").trim();
+      current.sample_team_name = String(row?.team_name || "").trim();
     }
 
-    grouped.set(agentKey, existing);
+    grouped.set(key, current);
   }
 
-  return Array.from(grouped.values()).sort((a, b) =>
-    a.intercom_agent_name.localeCompare(b.intercom_agent_name)
-  );
+  return Array.from(grouped.values()).sort((a, b) => {
+    if (a.issue_type !== b.issue_type) return a.issue_type === "missing_mapping" ? -1 : 1;
+    if (a.appearances !== b.appearances) return b.appearances - a.appearances;
+    return a.intercom_agent_name.localeCompare(b.intercom_agent_name);
+  });
+}
+
+function getMappingQuality(row, stats) {
+  if (row?.is_active === false) {
+    return {
+      key: "inactive",
+      label: "Inactive",
+      detail: "Future audits will not use this mapping until it is reactivated.",
+      tone: "warning",
+    };
+  }
+
+  const missingEmail = !String(row?.employee_email || "").trim();
+  const missingTeam = !String(row?.team_name || "").trim();
+
+  if (missingEmail && missingTeam) {
+    return {
+      key: "missing_email_team",
+      label: "Needs email and team",
+      detail: "Add employee email and team so filters, leaderboards, and ownership views stay clean.",
+      tone: "warning",
+    };
+  }
+
+  if (missingEmail) {
+    return {
+      key: "missing_email",
+      label: "Needs email",
+      detail: "Employee name is mapped, but the email is blank.",
+      tone: "notice",
+    };
+  }
+
+  if (missingTeam) {
+    return {
+      key: "missing_team",
+      label: "Needs team",
+      detail: "Employee identity is mapped, but team filtering will be incomplete.",
+      tone: "notice",
+    };
+  }
+
+  if (!stats?.appearances) {
+    return {
+      key: "no_stored_usage",
+      label: "Ready, no stored usage",
+      detail: "Mapping is complete but has not appeared in the latest stored audit sample.",
+      tone: "neutral",
+    };
+  }
+
+  return {
+    key: "healthy",
+    label: "Healthy",
+    detail: "Mapping is active and complete.",
+    tone: "success",
+  };
+}
+
+function toneClass(tone) {
+  if (tone === "success") return "tone success";
+  if (tone === "warning") return "tone warning";
+  if (tone === "danger") return "tone danger";
+  if (tone === "notice") return "tone notice";
+  return "tone neutral";
 }
 
 export default function AdminPage() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
-
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
-
   const [pageError, setPageError] = useState("");
   const [pageSuccess, setPageSuccess] = useState("");
 
   const [dbReady, setDbReady] = useState(false);
   const [promptData, setPromptData] = useState(null);
   const [historyRows, setHistoryRows] = useState([]);
-
   const [livePromptInput, setLivePromptInput] = useState("");
   const [changeNote, setChangeNote] = useState("");
   const [saveLoading, setSaveLoading] = useState(false);
@@ -176,17 +312,19 @@ export default function AdminPage() {
   const [mappingLoading, setMappingLoading] = useState(false);
   const [mappingForm, setMappingForm] = useState(createEmptyMappingForm());
   const [mappingSearch, setMappingSearch] = useState("");
+  const [mappingStatusFilter, setMappingStatusFilter] = useState("all");
+  const [mappingQualityFilter, setMappingQualityFilter] = useState("all");
   const [mappingSaveLoading, setMappingSaveLoading] = useState(false);
   const [mappingToggleLoadingId, setMappingToggleLoadingId] = useState("");
   const [seedLoading, setSeedLoading] = useState(false);
+
+  const isAdmin = canManageAdmin(profile);
 
   async function loadProfile(user) {
     const email = user?.email?.toLowerCase() || "";
     const domain = email.split("@")[1] || "";
 
-    if (!user) {
-      return { profile: null, message: "" };
-    }
+    if (!user) return { profile: null, message: "" };
 
     if (domain !== "nextventures.io") {
       await supabase.auth.signOut();
@@ -205,27 +343,16 @@ export default function AdminPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (data) {
-        return { profile: data, message: "" };
-      }
-
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
+      if (data) return { profile: data, message: "" };
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
         profile: null,
         message: "Signed in, but no profile record is available yet.",
       };
     } catch (_error) {
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
-
-      return {
-        profile: null,
-        message: "Signed in, but profile loading failed.",
-      };
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
+      return { profile: null, message: "Signed in, but profile loading failed." };
     }
   }
 
@@ -239,9 +366,7 @@ export default function AdminPage() {
 
     const response = await fetch("/api/admin/prompt", {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${activeSession.access_token}`,
-      },
+      headers: { Authorization: `Bearer ${activeSession.access_token}` },
     });
 
     const data = await response.json();
@@ -268,9 +393,7 @@ export default function AdminPage() {
           .order("intercom_agent_name", { ascending: true }),
         supabase
           .from("audit_results")
-          .select(
-            "id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at"
-          )
+          .select("id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at")
           .order("created_at", { ascending: false })
           .limit(5000),
       ]);
@@ -299,9 +422,7 @@ export default function AdminPage() {
       await Promise.all([loadPromptData(activeSession), loadMappingsData()]);
       setPageSuccess("Admin settings loaded successfully.");
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not load Admin settings."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not load Admin settings.");
     } finally {
       setLoading(false);
     }
@@ -317,7 +438,6 @@ export default function AdminPage() {
         } = await supabase.auth.getSession();
 
         if (!active) return;
-
         setSession(currentSession ?? null);
 
         if (!currentSession?.user) {
@@ -328,7 +448,6 @@ export default function AdminPage() {
         }
 
         const profileResult = await loadProfile(currentSession.user);
-
         if (!active) return;
 
         setProfile(profileResult.profile);
@@ -373,7 +492,6 @@ export default function AdminPage() {
       }
 
       const profileResult = await loadProfile(newSession.user);
-
       if (!active) return;
 
       setProfile(profileResult.profile);
@@ -394,8 +512,7 @@ export default function AdminPage() {
   }, []);
 
   async function handleReload() {
-    setPageError("");
-    setPageSuccess("");
+    if (!session) return;
     await loadAll(session);
   }
 
@@ -405,6 +522,11 @@ export default function AdminPage() {
 
     if (!session?.access_token) {
       setPageError("Please sign in first so Admin can save prompt settings.");
+      return;
+    }
+
+    if (!isAdmin) {
+      setPageError("Only Admin users can save prompt settings.");
       return;
     }
 
@@ -422,10 +544,7 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          livePrompt: livePromptInput,
-          changeNote,
-        }),
+        body: JSON.stringify({ livePrompt: livePromptInput, changeNote }),
       });
 
       const data = await response.json();
@@ -441,9 +560,7 @@ export default function AdminPage() {
       setChangeNote("");
       setPageSuccess(data?.message || "Live prompt saved successfully.");
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not save the live prompt."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not save the live prompt.");
     } finally {
       setSaveLoading(false);
     }
@@ -460,7 +577,7 @@ export default function AdminPage() {
       is_active: row?.is_active !== false,
     });
     setPageError("");
-    setPageSuccess("");
+    setPageSuccess("Mapping loaded into the form.");
   }
 
   function handleUseSuggestion(item) {
@@ -474,7 +591,7 @@ export default function AdminPage() {
       is_active: true,
     });
     setPageError("");
-    setPageSuccess("Mapping form was prefilled from a detected agent suggestion.");
+    setPageSuccess("Mapping form was prefilled from a detected agent.");
   }
 
   function handleResetMappingForm() {
@@ -492,9 +609,13 @@ export default function AdminPage() {
       return;
     }
 
+    if (!isAdmin) {
+      setPageError("Only Admin users can save agent mappings.");
+      return;
+    }
+
     const intercomAgentName = String(mappingForm.intercom_agent_name || "").trim();
-    const employeeName =
-      String(mappingForm.employee_name || "").trim() || intercomAgentName;
+    const employeeName = String(mappingForm.employee_name || "").trim() || intercomAgentName;
     const employeeEmail = String(mappingForm.employee_email || "").trim();
     const teamName = String(mappingForm.team_name || "").trim();
     const notes = String(mappingForm.notes || "").trim();
@@ -512,10 +633,9 @@ export default function AdminPage() {
     setMappingSaveLoading(true);
 
     try {
-      const existingMatch = mappingRows.find(
+      const duplicate = mappingRows.find(
         (item) =>
-          normalizeAgentKey(item?.intercom_agent_name) ===
-          normalizeAgentKey(intercomAgentName)
+          normalizeAgentKey(item?.intercom_agent_name) === normalizeAgentKey(intercomAgentName)
       );
 
       const payload = {
@@ -528,38 +648,23 @@ export default function AdminPage() {
         updated_at: new Date().toISOString(),
       };
 
-      if (mappingForm.id || existingMatch?.id) {
-        const targetId = mappingForm.id || existingMatch.id;
-
-        const { error } = await supabase
-          .from("agent_mappings")
-          .update(payload)
-          .eq("id", targetId);
-
-        if (error) {
-          throw new Error(error.message || "Could not update the agent mapping.");
-        }
-
+      if (mappingForm.id || duplicate?.id) {
+        const targetId = mappingForm.id || duplicate.id;
+        const { error } = await supabase.from("agent_mappings").update(payload).eq("id", targetId);
+        if (error) throw new Error(error.message || "Could not update the agent mapping.");
         setPageSuccess("Agent mapping updated successfully.");
       } else {
-        const { error } = await supabase.from("agent_mappings").insert({
-          ...payload,
-          created_at: new Date().toISOString(),
-        });
-
-        if (error) {
-          throw new Error(error.message || "Could not create the agent mapping.");
-        }
-
+        const { error } = await supabase
+          .from("agent_mappings")
+          .insert({ ...payload, created_at: new Date().toISOString() });
+        if (error) throw new Error(error.message || "Could not create the agent mapping.");
         setPageSuccess("Agent mapping created successfully.");
       }
 
-      handleResetMappingForm();
+      setMappingForm(createEmptyMappingForm());
       await loadMappingsData();
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not save the agent mapping."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not save the agent mapping.");
     } finally {
       setMappingSaveLoading(false);
     }
@@ -568,20 +673,21 @@ export default function AdminPage() {
   async function handleToggleMappingActive(row) {
     setPageError("");
     setPageSuccess("");
+
+    if (!isAdmin) {
+      setPageError("Only Admin users can activate or deactivate mappings.");
+      return;
+    }
+
     setMappingToggleLoadingId(row?.id || "");
 
     try {
       const { error } = await supabase
         .from("agent_mappings")
-        .update({
-          is_active: row?.is_active ? false : true,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ is_active: row?.is_active ? false : true, updated_at: new Date().toISOString() })
         .eq("id", row.id);
 
-      if (error) {
-        throw new Error(error.message || "Could not update mapping status.");
-      }
+      if (error) throw new Error(error.message || "Could not update mapping status.");
 
       setPageSuccess(
         row?.is_active
@@ -591,9 +697,7 @@ export default function AdminPage() {
 
       await loadMappingsData();
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not update mapping status."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
     } finally {
       setMappingToggleLoadingId("");
     }
@@ -603,40 +707,37 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    const suggestions = mappingSuggestions;
+    if (!isAdmin) {
+      setPageError("Only Admin users can prefill detected agent mappings.");
+      return;
+    }
 
-    if (!suggestions.length) {
-      setPageError("There are no suggested agent mappings to seed right now.");
+    if (!mappingSuggestions.length) {
+      setPageError("There are no suggested agent mappings to prefill right now.");
       return;
     }
 
     setSeedLoading(true);
 
     try {
-      const rows = suggestions.map((item) => ({
+      const rows = mappingSuggestions.map((item) => ({
         intercom_agent_name: item.intercom_agent_name,
         employee_name: item.employee_name || item.intercom_agent_name,
         employee_email: item.employee_email || null,
         team_name: item.team_name || null,
         notes: item.notes || "Detected from stored audit results.",
         is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }));
 
       const { error } = await supabase.from("agent_mappings").insert(rows);
+      if (error) throw new Error(error.message || "Could not prefill suggested mappings.");
 
-      if (error) {
-        throw new Error(error.message || "Could not seed suggested mappings.");
-      }
-
-      setPageSuccess(
-        `${rows.length} detected agent mapping(s) were added. You can now refine employee names, emails, and teams.`
-      );
-
+      setPageSuccess(`${rows.length} detected agent mapping(s) were added. Review names, emails, and teams before relying on them for reporting.`);
       await loadMappingsData();
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not seed suggested mappings."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not prefill suggested mappings.");
     } finally {
       setSeedLoading(false);
     }
@@ -646,17 +747,9 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo },
-    });
-
-    if (error) {
-      setPageError(error.message || "Google sign-in failed.");
-    }
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+    if (error) setPageError(error.message || "Google sign-in failed.");
   }
 
   async function handleLogout() {
@@ -675,1319 +768,398 @@ export default function AdminPage() {
     setAuthLoading(false);
   }
 
-  const mappingSuggestions = useMemo(
-    () => buildSuggestions(mappingRows, auditRows),
-    [mappingRows, auditRows]
-  );
+  const storedAgentStats = useMemo(() => buildStoredAgentStats(auditRows), [auditRows]);
+  const mappingSuggestions = useMemo(() => buildSuggestions(mappingRows, auditRows), [mappingRows, auditRows]);
+  const unmappedRows = useMemo(() => buildUnmappedRows(mappingRows, auditRows), [mappingRows, auditRows]);
 
-  const unmappedRows = useMemo(
-    () => buildUnmappedRows(mappingRows, auditRows),
-    [mappingRows, auditRows]
-  );
-
-  const filteredMappings = useMemo(() => {
-    const term = String(mappingSearch || "").trim().toLowerCase();
-    if (!term) return mappingRows;
-
-    return mappingRows.filter((item) => {
-      const haystack = [
-        item?.intercom_agent_name,
-        item?.employee_name,
-        item?.employee_email,
-        item?.team_name,
-        item?.notes,
-      ]
-        .map((value) => String(value || "").toLowerCase())
-        .join(" ");
-
-      return haystack.includes(term);
-    });
-  }, [mappingRows, mappingSearch]);
-
-  const statusCards = useMemo(
-    () => [
-      {
-        label: "Database Status",
-        value: dbReady ? "Prompt Tables Ready" : "Waiting for Prompt Tables",
-        subtext: dbReady
-          ? "Supabase prompt storage is connected"
-          : "Prompt storage is not ready yet",
-      },
-      {
-        label: "Prompt Source",
-        value: promptData?.promptKey ? "Admin API Connected" : "No Prompt Loaded",
-        subtext: promptData?.promptKey
-          ? `Prompt key: ${promptData.promptKey}`
-          : "Load Admin prompt settings to continue",
-      },
-      {
-        label: "Agent Mappings",
-        value: String(mappingRows.length),
-        subtext: mappingRows.length
-          ? "Stored Intercom-to-employee mappings"
-          : "No agent mappings have been saved yet",
-      },
-      {
-        label: "Unmapped Agents Found",
-        value: String(unmappedRows.length),
-        subtext: unmappedRows.length
-          ? "Stored audit agents still needing mapping"
-          : "No unmapped stored agents were detected",
-      },
-    ],
-    [dbReady, promptData, mappingRows, unmappedRows]
+  const mappingTableRows = useMemo(
+    () =>
+      mappingRows.map((row) => {
+        const key = normalizeAgentKey(row?.intercom_agent_name);
+        const stats = storedAgentStats.get(key) || {
+          appearances: 0,
+          mapped_result_count: 0,
+          unmapped_result_count: 0,
+          latest_seen_at: null,
+        };
+        return { ...row, stats, quality: getMappingQuality(row, stats) };
+      }),
+    [mappingRows, storedAgentStats]
   );
 
   const activeMappingsCount = mappingRows.filter((item) => item?.is_active !== false).length;
+  const inactiveMappingsCount = mappingRows.length - activeMappingsCount;
+  const incompleteMappingsCount = mappingTableRows.filter((row) =>
+    ["missing_email_team", "missing_email", "missing_team"].includes(row.quality.key)
+  ).length;
+  const healthyMappingsCount = mappingTableRows.filter((row) => row.quality.key === "healthy").length;
+  const totalStoredAgentNames = storedAgentStats.size;
+  const mappedCoveragePercent = totalStoredAgentNames
+    ? Math.max(0, Math.round(((totalStoredAgentNames - unmappedRows.length) / totalStoredAgentNames) * 100))
+    : 100;
 
-  const pageStyle = {
-    minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 22%), radial-gradient(circle at top right, rgba(168,85,247,0.14), transparent 20%), radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 22%), linear-gradient(180deg, #040714 0%, #060b1d 45%, #04060d 100%)",
-    color: "#f5f7ff",
-    padding: "32px 20px 60px",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  };
+  const filteredMappings = useMemo(() => {
+    const term = String(mappingSearch || "").trim().toLowerCase();
 
-  const shellStyle = {
-    maxWidth: "1380px",
-    margin: "0 auto",
-  };
+    return mappingTableRows.filter((row) => {
+      if (mappingStatusFilter === "active" && row?.is_active === false) return false;
+      if (mappingStatusFilter === "inactive" && row?.is_active !== false) return false;
 
-  const panelStyle = {
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96))",
-    borderRadius: "28px",
-    padding: "28px",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-  };
+      if (mappingQualityFilter === "needs_attention") {
+        if (!["missing_email_team", "missing_email", "missing_team", "inactive"].includes(row.quality.key)) return false;
+      } else if (mappingQualityFilter !== "all" && row.quality.key !== mappingQualityFilter) {
+        return false;
+      }
 
-  const cardStyle = {
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(9, 13, 28, 0.84)",
-    borderRadius: "22px",
-    padding: "22px",
-    boxShadow: "0 14px 30px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
-  };
+      if (!term) return true;
 
-  const sectionCardStyle = {
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96))",
-    borderRadius: "24px",
-    padding: "24px",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
-  };
+      return [
+        row?.intercom_agent_name,
+        row?.employee_name,
+        row?.employee_email,
+        row?.team_name,
+        row?.notes,
+        row?.quality?.label,
+        row?.quality?.detail,
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(term);
+    });
+  }, [mappingRows, mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
 
-  const labelStyle = {
-    display: "block",
-    fontSize: "12px",
-    color: "#8ea0d6",
-    textTransform: "uppercase",
-    letterSpacing: "0.14em",
-    marginBottom: "8px",
-    fontWeight: 600,
-  };
+  const statusCards = [
+    {
+      label: "Database Status",
+      value: dbReady ? "Prompt Tables Ready" : "Waiting for Prompt Tables",
+      note: dbReady ? "Supabase prompt storage is connected." : "Prompt storage is not ready yet.",
+      tone: dbReady ? "success" : "warning",
+    },
+    {
+      label: "Mapping Coverage",
+      value: `${mappedCoveragePercent}%`,
+      note: totalStoredAgentNames
+        ? `${formatNumber(totalStoredAgentNames - unmappedRows.length)} of ${formatNumber(totalStoredAgentNames)} stored agent name(s) have active coverage.`
+        : "No stored audit agent sample is available yet.",
+      tone: unmappedRows.length ? "warning" : "success",
+    },
+    {
+      label: "Active / Inactive",
+      value: `${formatNumber(activeMappingsCount)} / ${formatNumber(inactiveMappingsCount)}`,
+      note: "Active mappings are used for future audit storage. Inactive mappings preserve history safely.",
+      tone: inactiveMappingsCount ? "notice" : "success",
+    },
+    {
+      label: "Needs Attention",
+      value: String(incompleteMappingsCount + unmappedRows.length),
+      note: `${formatNumber(incompleteMappingsCount)} incomplete saved mapping(s), ${formatNumber(unmappedRows.length)} unmapped stored agent risk(s).`,
+      tone: incompleteMappingsCount || unmappedRows.length ? "warning" : "success",
+    },
+    {
+      label: "Detected Drafts",
+      value: String(mappingSuggestions.length),
+      note: mappingSuggestions.length ? "New raw Intercom names found in stored audit results." : "No new mapping drafts are waiting.",
+      tone: mappingSuggestions.length ? "notice" : "success",
+    },
+  ];
 
-  const inputStyle = {
-    width: "100%",
-    minHeight: "52px",
-    borderRadius: "16px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(5,8,18,0.9)",
-    color: "#e7ecff",
-    padding: "0 16px",
-    fontSize: "14px",
-    outline: "none",
-    boxSizing: "border-box",
-  };
-
-  const textareaStyle = {
-    width: "100%",
-    minHeight: "110px",
-    borderRadius: "16px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(5,8,18,0.9)",
-    color: "#e7ecff",
-    padding: "16px",
-    fontSize: "14px",
-    lineHeight: 1.7,
-    outline: "none",
-    resize: "vertical",
-    boxSizing: "border-box",
-  };
-
-  const secondaryButtonStyle = {
-    borderRadius: "16px",
-    padding: "14px 18px",
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#e5ebff",
-    cursor: "pointer",
-    background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.1)",
-  };
-
-  const primaryButtonStyle = {
-    border: "none",
-    borderRadius: "16px",
-    padding: "14px 20px",
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#ffffff",
-    cursor: "pointer",
-    background: "linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%)",
-    boxShadow: "0 14px 30px rgba(91,33,182,0.35)",
-  };
+  if (authLoading) {
+    return (
+      <main className="admin-page">
+        <style>{adminStyles}</style>
+        <section className="hero compact"><p className="eyebrow">NEXT Ventures</p><h1>Loading Admin...</h1></section>
+      </main>
+    );
+  }
 
   return (
-    <main style={pageStyle}>
-      <div style={shellStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "16px",
-            padding: "18px 20px",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(9, 13, 29, 0.72)",
-            backdropFilter: "blur(14px)",
-            borderRadius: "22px",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
-            marginBottom: "28px",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "8px",
-              }}
-            >
-              NEXT Ventures
-            </div>
-            <div
-              style={{
-                fontSize: "24px",
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-              }}
-            >
-              Review Approach &amp; Client Sentiment Tracking
-            </div>
-          </div>
+    <main className="admin-page">
+      <style>{adminStyles}</style>
 
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "10px 14px",
-              borderRadius: "999px",
-              border: "1px solid rgba(96,165,250,0.25)",
-              background:
-                "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(168,85,247,0.14))",
-              color: "#dbe7ff",
-              fontSize: "14px",
-              fontWeight: 600,
-              boxShadow: "0 0 24px rgba(59,130,246,0.15)",
-            }}
-          >
-            <span
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "999px",
-                background: canManageAdmin(profile) ? "#34d399" : "#f59e0b",
-                boxShadow: canManageAdmin(profile) ? "0 0 12px #34d399" : "0 0 12px #f59e0b",
-                display: "inline-block",
-              }}
-            />
-            {canManageAdmin(profile) ? "Admin" : "View Only"}
-          </div>
+      <nav className="topbar">
+        <div>
+          <p className="eyebrow">NEXT Ventures</p>
+          <strong>Review Approach & Client Sentiment Tracking</strong>
         </div>
+        <span className={isAdmin ? "access-pill active" : "access-pill"}>{isAdmin ? "Admin" : "View Only"}</span>
+      </nav>
 
-        <section style={{ ...panelStyle, marginBottom: "24px" }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "8px 12px",
-              borderRadius: "999px",
-              background: "rgba(99,102,241,0.14)",
-              border: "1px solid rgba(129,140,248,0.2)",
-              color: "#cdd7ff",
-              fontSize: "12px",
-              fontWeight: 600,
-              marginBottom: "18px",
-            }}
-          >
-            Premium Internal Tool
-          </div>
-
-          <h1
-            style={{
-              fontSize: "54px",
-              lineHeight: 1.02,
-              letterSpacing: "-0.05em",
-              margin: "0 0 18px",
-              maxWidth: "960px",
-            }}
-          >
-            Admin control center for prompt management, agent mapping, and future system controls.
-          </h1>
-
-          <p
-            style={{
-              margin: "0 0 20px",
-              color: "#a9b4d0",
-              fontSize: "18px",
-              lineHeight: 1.7,
-              maxWidth: "980px",
-            }}
-          >
-            This section now does two real jobs: it manages the live audit prompt, and it gives you
-            a real Supabase-backed mapping layer from raw Intercom agent names to employee names,
-            teams, and emails. Historical stored results stay preserved even if mappings change later.
-          </p>
-
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            {!session?.user ? (
-              <button type="button" onClick={handleGoogleLogin} style={primaryButtonStyle}>
-                Sign in with Google
-              </button>
-            ) : (
-              <button type="button" onClick={handleLogout} style={secondaryButtonStyle}>
-                Sign out
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleReload}
-              disabled={loading || mappingLoading || saveLoading || mappingSaveLoading}
-              style={{
-                ...secondaryButtonStyle,
-                opacity:
-                  loading || mappingLoading || saveLoading || mappingSaveLoading ? 0.6 : 1,
-                cursor:
-                  loading || mappingLoading || saveLoading || mappingSaveLoading
-                    ? "not-allowed"
-                    : "pointer",
-              }}
-            >
-              {loading || mappingLoading ? "Loading..." : "Reload Admin Data"}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSeedSuggestedMappings}
-              disabled={
-                seedLoading ||
-                mappingLoading ||
-                !canManageAdmin(profile) ||
-                mappingSuggestions.length === 0
-              }
-              style={{
-                ...primaryButtonStyle,
-                opacity:
-                  seedLoading ||
-                  mappingLoading ||
-                  !canManageAdmin(profile) ||
-                  mappingSuggestions.length === 0
-                    ? 0.6
-                    : 1,
-                cursor:
-                  seedLoading ||
-                  mappingLoading ||
-                  !canManageAdmin(profile) ||
-                  mappingSuggestions.length === 0
-                    ? "not-allowed"
-                    : "pointer",
-              }}
-            >
-              {seedLoading
-                ? "Prefilling..."
-                : `Prefill Detected Agents (${mappingSuggestions.length})`}
-            </button>
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          {statusCards.map((card) => (
-            <div key={card.label} style={cardStyle}>
-              <div
-                style={{
-                  color: "#8ea0d6",
-                  fontSize: "12px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  marginBottom: "10px",
-                }}
-              >
-                {card.label}
-              </div>
-              <div
-                style={{
-                  fontSize: "20px",
-                  fontWeight: 700,
-                  marginBottom: "8px",
-                }}
-              >
-                {card.value}
-              </div>
-              <div
-                style={{
-                  color: "#a9b4d0",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {card.subtext}
-              </div>
-            </div>
-          ))}
-        </section>
-
-        {(pageError || pageSuccess) && (
-          <div style={{ display: "grid", gap: "12px", marginBottom: "24px" }}>
-            {pageError ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(244,63,94,0.22)",
-                  background: "rgba(244,63,94,0.08)",
-                  padding: "14px 16px",
-                  color: "#fecdd3",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {pageError}
-              </div>
-            ) : null}
-
-            {pageSuccess ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px solid rgba(16,185,129,0.22)",
-                  background: "rgba(16,185,129,0.08)",
-                  padding: "14px 16px",
-                  color: "#bbf7d0",
-                  fontSize: "14px",
-                  lineHeight: 1.6,
-                }}
-              >
-                {pageSuccess}
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Prompt Source</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              Original Trusted Prompt
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "16px",
-              }}
-            >
-              This section preserves your trusted original audit prompt exactly as the Admin system
-              loaded it.
-            </div>
-
-            <textarea
-              value={promptData?.originalTrustedPrompt || ""}
-              readOnly
-              style={{
-                ...textareaStyle,
-                minHeight: "420px",
-              }}
-            />
-          </div>
-
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Live Configuration</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              Live Prompt in Use
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "16px",
-              }}
-            >
-              Update the live prompt here. The audit tool should use this saved version instead of
-              depending on hardcoded route text.
-            </div>
-
-            <textarea
-              value={livePromptInput}
-              onChange={(e) => setLivePromptInput(e.target.value)}
-              placeholder="The live prompt will appear here once loaded."
-              style={{
-                ...textareaStyle,
-                minHeight: "320px",
-                marginBottom: "14px",
-              }}
-            />
-
-            <textarea
-              value={changeNote}
-              onChange={(e) => setChangeNote(e.target.value)}
-              placeholder="Optional change note, such as why this prompt was updated."
-              style={{
-                ...textareaStyle,
-                minHeight: "90px",
-                marginBottom: "14px",
-              }}
-            />
-
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={handleSavePrompt}
-                disabled={
-                  loading ||
-                  saveLoading ||
-                  !livePromptInput.trim() ||
-                  !session?.access_token ||
-                  !canManageAdmin(profile)
-                }
-                style={{
-                  ...primaryButtonStyle,
-                  opacity:
-                    loading ||
-                    saveLoading ||
-                    !livePromptInput.trim() ||
-                    !session?.access_token ||
-                    !canManageAdmin(profile)
-                      ? 0.6
-                      : 1,
-                  cursor:
-                    loading ||
-                    saveLoading ||
-                    !livePromptInput.trim() ||
-                    !session?.access_token ||
-                    !canManageAdmin(profile)
-                      ? "not-allowed"
-                      : "pointer",
-                }}
-              >
-                {saveLoading ? "Saving..." : "Save Live Prompt"}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 0.95fr) minmax(0, 1.05fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Agent Mapping Form</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              Intercom agent → employee identity
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "16px",
-              }}
-            >
-              Add or edit the employee identity behind each raw Intercom agent name. If no mapping
-              exists, future audits can be marked as unmapped instead of silently failing.
-            </div>
-
-            <div style={{ display: "grid", gap: "14px" }}>
-              <div>
-                <label style={labelStyle}>Intercom Agent Name</label>
-                <input
-                  type="text"
-                  value={mappingForm.intercom_agent_name}
-                  onChange={(e) =>
-                    setMappingForm((prev) => ({
-                      ...prev,
-                      intercom_agent_name: e.target.value,
-                    }))
-                  }
-                  placeholder="Example: Ryk Hayes"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Employee Name</label>
-                <input
-                  type="text"
-                  value={mappingForm.employee_name}
-                  onChange={(e) =>
-                    setMappingForm((prev) => ({
-                      ...prev,
-                      employee_name: e.target.value,
-                    }))
-                  }
-                  placeholder="Example: Ryk Hayes or internal employee name"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                <div>
-                  <label style={labelStyle}>Employee Email</label>
-                  <input
-                    type="email"
-                    value={mappingForm.employee_email}
-                    onChange={(e) =>
-                      setMappingForm((prev) => ({
-                        ...prev,
-                        employee_email: e.target.value,
-                      }))
-                    }
-                    placeholder="employee@nextventures.io"
-                    style={inputStyle}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>Team Name</label>
-                  <input
-                    type="text"
-                    value={mappingForm.team_name}
-                    onChange={(e) =>
-                      setMappingForm((prev) => ({
-                        ...prev,
-                        team_name: e.target.value,
-                      }))
-                    }
-                    placeholder="Example: CEx"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Notes</label>
-                <textarea
-                  value={mappingForm.notes}
-                  onChange={(e) =>
-                    setMappingForm((prev) => ({
-                      ...prev,
-                      notes: e.target.value,
-                    }))
-                  }
-                  placeholder="Optional internal notes for this mapping."
-                  style={textareaStyle}
-                />
-              </div>
-
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  color: "#dbe7ff",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={mappingForm.is_active}
-                  onChange={(e) =>
-                    setMappingForm((prev) => ({
-                      ...prev,
-                      is_active: e.target.checked,
-                    }))
-                  }
-                />
-                Mapping is active
-              </label>
-
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={handleSaveMapping}
-                  disabled={mappingSaveLoading || !canManageAdmin(profile)}
-                  style={{
-                    ...primaryButtonStyle,
-                    opacity: mappingSaveLoading || !canManageAdmin(profile) ? 0.6 : 1,
-                    cursor:
-                      mappingSaveLoading || !canManageAdmin(profile)
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
-                >
-                  {mappingSaveLoading
-                    ? "Saving..."
-                    : mappingForm.id
-                    ? "Update Mapping"
-                    : "Save Mapping"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleResetMappingForm}
-                  style={secondaryButtonStyle}
-                >
-                  Clear Form
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Detected From Stored Results</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              Suggested mapping drafts
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "16px",
-              }}
-            >
-              To make your life easier, this section auto-detects raw Intercom agent names already
-              present in stored audit results and turns them into mapping suggestions. Where no
-              historical employee email exists yet, the email remains blank so you can fill it once.
-            </div>
-
-            {mappingSuggestions.length === 0 ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "20px",
-                  color: "#a9b4d0",
-                  fontSize: "14px",
-                  lineHeight: 1.7,
-                }}
-              >
-                No new agent suggestions are waiting right now. Either every detected agent already
-                has a mapping, or no stored audit results exist yet.
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gap: "12px",
-                  maxHeight: "560px",
-                  overflowY: "auto",
-                  paddingRight: "4px",
-                }}
-              >
-                {mappingSuggestions.map((item, index) => (
-                  <div
-                    key={`${item.intercom_agent_name}-${index}`}
-                    style={{
-                      borderRadius: "18px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "16px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        marginBottom: "10px",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            marginBottom: "6px",
-                          }}
-                        >
-                          Intercom Agent
-                        </div>
-                        <div style={{ fontSize: "18px", fontWeight: 700 }}>
-                          {item.intercom_agent_name}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUseSuggestion(item)}
-                        style={secondaryButtonStyle}
-                      >
-                        Use Suggestion
-                      </button>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                        gap: "10px",
-                        color: "#dbe7ff",
-                        fontSize: "14px",
-                        lineHeight: 1.7,
-                      }}
-                    >
-                      <div>
-                        <strong>Suggested employee name:</strong> {item.employee_name || "-"}
-                      </div>
-                      <div>
-                        <strong>Suggested email:</strong> {item.employee_email || "-"}
-                      </div>
-                      <div>
-                        <strong>Suggested team:</strong> {item.team_name || "-"}
-                      </div>
-                      <div>
-                        <strong>Latest seen:</strong> {formatDateTime(item.source_created_at)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gap: "18px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Unmapped Agent Detection</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              Stored agent names still needing mapping
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "15px",
-                lineHeight: 1.7,
-                marginBottom: "16px",
-              }}
-            >
-              These raw Intercom agent names were found in stored results without a working mapping.
-              This is where the app can inform you that analytics may be incomplete until mappings
-              are added.
-            </div>
-
-            {unmappedRows.length === 0 ? (
-              <div
-                style={{
-                  borderRadius: "18px",
-                  border: "1px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.02)",
-                  padding: "20px",
-                  color: "#a9b4d0",
-                  fontSize: "14px",
-                  lineHeight: 1.7,
-                }}
-              >
-                No unmapped stored agents were detected.
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gap: "12px",
-                  maxHeight: "520px",
-                  overflowY: "auto",
-                  paddingRight: "4px",
-                }}
-              >
-                {unmappedRows.map((item, index) => (
-                  <div
-                    key={`${item.intercom_agent_name}-${index}`}
-                    style={{
-                      borderRadius: "18px",
-                      border: "1px solid rgba(251,191,36,0.18)",
-                      background: "rgba(245,158,11,0.08)",
-                      padding: "16px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        marginBottom: "10px",
-                      }}
-                    >
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "12px",
-                            color: "#fcd34d",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            marginBottom: "6px",
-                          }}
-                        >
-                          Raw Intercom Agent
-                        </div>
-                        <div style={{ fontSize: "18px", fontWeight: 700 }}>
-                          {item.intercom_agent_name}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleUseSuggestion({
-                            intercom_agent_name: item.intercom_agent_name,
-                            employee_name:
-                              item.sample_employee_name || item.intercom_agent_name,
-                            employee_email: item.sample_employee_email || "",
-                            team_name: item.sample_team_name || "",
-                            notes:
-                              "Prefilled from unmapped stored result. Review and save this mapping.",
-                          })
-                        }
-                        style={secondaryButtonStyle}
-                      >
-                        Map This Agent
-                      </button>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                        gap: "10px",
-                        color: "#fde68a",
-                        fontSize: "14px",
-                        lineHeight: 1.7,
-                      }}
-                    >
-                      <div>
-                        <strong>Appearances:</strong> {item.appearances}
-                      </div>
-                      <div>
-                        <strong>Latest seen:</strong> {formatDateTime(item.latest_seen_at)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={sectionCardStyle}>
-            <div style={labelStyle}>Historical Safety Rules</div>
-            <div
-              style={{
-                fontSize: "26px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                marginBottom: "10px",
-              }}
-            >
-              What happens if mappings change later?
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gap: "12px",
-                color: "#dbe7ff",
-                fontSize: "15px",
-                lineHeight: 1.8,
-              }}
-            >
-              <div
-                style={{
-                  borderRadius: "18px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  padding: "16px",
-                }}
-              >
-                <strong>Past results should stay meaningful.</strong> If you deactivate a mapping
-                later, historical stored results should not become unusable.
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  padding: "16px",
-                }}
-              >
-                <strong>Future audits can become unmapped.</strong> If a raw Intercom agent name no
-                longer has an active mapping, future results can be flagged as unmapped so the app
-                stays informative instead of silently wrong.
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  padding: "16px",
-                }}
-              >
-                <strong>Safer than delete:</strong> this UI uses activate / deactivate rather than
-                hard delete, so you can control mapping behavior without losing history.
-              </div>
-
-              <div
-                style={{
-                  borderRadius: "18px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  padding: "16px",
-                }}
-              >
-                <strong>Current mapping coverage:</strong> {activeMappingsCount} active mapping(s),{" "}
-                {mappingRows.length - activeMappingsCount} inactive mapping(s).
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section style={{ ...sectionCardStyle, marginBottom: "24px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "14px",
-              flexWrap: "wrap",
-              marginBottom: "16px",
-            }}
-          >
-            <div>
-              <div style={labelStyle}>Agent Mapping Table</div>
-              <div
-                style={{
-                  fontSize: "26px",
-                  fontWeight: 700,
-                  lineHeight: 1.15,
-                  marginBottom: "8px",
-                }}
-              >
-                Real mapping records
-              </div>
-              <div
-                style={{
-                  color: "#a9b4d0",
-                  fontSize: "15px",
-                  lineHeight: 1.7,
-                  maxWidth: "820px",
-                }}
-              >
-                Search, review, edit, and activate or deactivate the saved mapping records that the
-                app will use to translate raw Intercom agent names into employee identity.
-              </div>
-            </div>
-
-            <div style={{ minWidth: "300px", flex: "0 1 380px" }}>
-              <label style={labelStyle}>Search mappings</label>
-              <input
-                type="text"
-                value={mappingSearch}
-                onChange={(e) => setMappingSearch(e.target.value)}
-                placeholder="Search agent, employee, email, team, notes"
-                style={inputStyle}
-              />
-            </div>
-          </div>
-
-          {mappingLoading ? (
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "20px",
-                color: "#a9b4d0",
-                fontSize: "14px",
-                lineHeight: 1.7,
-              }}
-            >
-              Loading mapping records...
-            </div>
-          ) : filteredMappings.length === 0 ? (
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "20px",
-                color: "#a9b4d0",
-                fontSize: "14px",
-                lineHeight: 1.7,
-              }}
-            >
-              No mapping rows match the current search.
-            </div>
+      <section className="hero">
+        <div className="hero-badge">Premium Internal Tool</div>
+        <h1>Admin control center for prompts, agent mapping, and future system controls.</h1>
+        <p>
+          Manage the live audit prompt and the Supabase-backed mapping layer that translates raw Intercom agent names into employee names, teams, and emails. Historical stored results stay meaningful even if mappings change later.
+        </p>
+        <div className="action-row">
+          {!session?.user ? (
+            <button type="button" className="primary-btn" onClick={handleGoogleLogin}>Sign in with Google</button>
           ) : (
-            <div
-              style={{
-                overflow: "hidden",
-                borderRadius: "20px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "rgba(4,8,20,0.72)",
-              }}
-            >
-              <div style={{ maxHeight: "720px", overflow: "auto" }}>
-                <table
-                  style={{
-                    width: "100%",
-                    minWidth: "1200px",
-                    borderCollapse: "collapse",
-                  }}
-                >
-                  <thead>
-                    <tr style={{ background: "rgba(10,18,34,0.96)" }}>
-                      {[
-                        "Intercom Agent",
-                        "Employee Name",
-                        "Employee Email",
-                        "Team",
-                        "Status",
-                        "Updated",
-                        "Actions",
-                      ].map((label) => (
-                        <th
-                          key={label}
-                          style={{
-                            padding: "16px 14px",
-                            textAlign: "left",
-                            fontSize: "12px",
-                            color: "#8ea0d6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.12em",
-                            fontWeight: 700,
-                            borderBottom: "1px solid rgba(255,255,255,0.08)",
-                            whiteSpace: "nowrap",
-                            position: "sticky",
-                            top: 0,
-                            zIndex: 2,
-                          }}
+            <button type="button" className="secondary-btn" onClick={handleLogout}>Sign out</button>
+          )}
+          <button type="button" className="secondary-btn" onClick={handleReload} disabled={!session || loading || mappingLoading}>
+            {loading || mappingLoading ? "Loading..." : "Reload Admin Data"}
+          </button>
+          <button type="button" className="primary-btn" onClick={handleSeedSuggestedMappings} disabled={!isAdmin || seedLoading || !mappingSuggestions.length}>
+            {seedLoading ? "Prefilling..." : `Prefill Detected Agents (${mappingSuggestions.length})`}
+          </button>
+        </div>
+      </section>
+
+      <section className="status-grid">
+        {statusCards.map((card) => (
+          <article key={card.label} className={`stat-card ${card.tone}`}>
+            <p>{card.label}</p>
+            <strong>{card.value}</strong>
+            <span>{card.note}</span>
+          </article>
+        ))}
+      </section>
+
+      {(pageError || pageSuccess) && (
+        <section className="message-stack">
+          {pageError ? <div className="message error">{pageError}</div> : null}
+          {pageSuccess ? <div className="message success">{pageSuccess}</div> : null}
+        </section>
+      )}
+
+      {!session?.user ? (
+        <section className="panel"><h2>Sign in required</h2><p className="muted">Use a nextventures.io Google account to access the Admin control center.</p></section>
+      ) : !isAdmin ? (
+        <section className="panel"><h2>Admin access required</h2><p className="muted">You are signed in, but this profile does not currently have Admin or Master Admin access.</p></section>
+      ) : (
+        <>
+          <section className="two-col">
+            <article className="panel">
+              <p className="eyebrow">Prompt Source</p>
+              <h2>Original Trusted Prompt</h2>
+              <p className="muted">This preserves the trusted original audit prompt exactly as the Admin API loaded it.</p>
+              <textarea className="textarea tall" value={promptData?.originalTrustedPrompt || ""} readOnly />
+            </article>
+
+            <article className="panel">
+              <p className="eyebrow">Live Configuration</p>
+              <h2>Live Prompt in Use</h2>
+              <p className="muted">Update the saved live prompt here. The audit run route should use this version instead of hardcoded route text.</p>
+              <textarea className="textarea live" value={livePromptInput} onChange={(event) => setLivePromptInput(event.target.value)} placeholder="The live prompt will appear here once loaded." />
+              <textarea className="textarea note" value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="Optional change note, such as why this prompt was updated." />
+              <div className="action-row">
+                <button type="button" className="primary-btn" onClick={handleSavePrompt} disabled={saveLoading || !livePromptInput.trim()}>
+                  {saveLoading ? "Saving..." : "Save Live Prompt"}
+                </button>
+              </div>
+            </article>
+          </section>
+
+          <section className="two-col mapping-area">
+            <article className="panel">
+              <p className="eyebrow">Agent Mapping Form</p>
+              <h2>Intercom agent to employee identity</h2>
+              <p className="muted">Add or edit the employee identity behind each raw Intercom agent name. If no active mapping exists, future audits can be marked as unmapped instead of silently wrong.</p>
+
+              <div className="form-grid single">
+                <label>
+                  <span>Intercom Agent Name</span>
+                  <input value={mappingForm.intercom_agent_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, intercom_agent_name: event.target.value }))} placeholder="Example: Ryk Hayes" />
+                </label>
+                <label>
+                  <span>Employee Name</span>
+                  <input value={mappingForm.employee_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, employee_name: event.target.value }))} placeholder="Internal employee name" />
+                </label>
+                <div className="form-grid two">
+                  <label>
+                    <span>Employee Email</span>
+                    <input type="email" value={mappingForm.employee_email} onChange={(event) => setMappingForm((prev) => ({ ...prev, employee_email: event.target.value }))} placeholder="employee@nextventures.io" />
+                  </label>
+                  <label>
+                    <span>Team Name</span>
+                    <input value={mappingForm.team_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, team_name: event.target.value }))} placeholder="Example: CEx" />
+                  </label>
+                </div>
+                <label>
+                  <span>Notes</span>
+                  <textarea className="textarea note" value={mappingForm.notes} onChange={(event) => setMappingForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional internal notes for this mapping." />
+                </label>
+                <label className="check-row">
+                  <input type="checkbox" checked={mappingForm.is_active} onChange={(event) => setMappingForm((prev) => ({ ...prev, is_active: event.target.checked }))} />
+                  <span>Mapping is active</span>
+                </label>
+                <div className="action-row">
+                  <button type="button" className="primary-btn" onClick={handleSaveMapping} disabled={mappingSaveLoading}>
+                    {mappingSaveLoading ? "Saving..." : mappingForm.id ? "Update Mapping" : "Save Mapping"}
+                  </button>
+                  <button type="button" className="secondary-btn" onClick={handleResetMappingForm}>Clear Form</button>
+                </div>
+              </div>
+            </article>
+
+            <article className="panel">
+              <p className="eyebrow">Detected From Stored Results</p>
+              <h2>Suggested mapping drafts</h2>
+              <p className="muted">Raw Intercom agent names from stored audit results appear here when they do not already have a saved mapping.</p>
+
+              {mappingSuggestions.length === 0 ? (
+                <div className="empty-box">No new agent suggestions are waiting right now.</div>
+              ) : (
+                <div className="scroll-stack">
+                  {mappingSuggestions.map((item) => (
+                    <article className="mini-card" key={item.intercom_agent_name}>
+                      <div className="mini-head">
+                        <div>
+                          <p className="eyebrow">Intercom Agent</p>
+                          <h3>{item.intercom_agent_name}</h3>
+                        </div>
+                        <button type="button" className="secondary-btn small" onClick={() => handleUseSuggestion(item)}>Use Suggestion</button>
+                      </div>
+                      <div className="mini-grid">
+                        <span><b>Employee</b>{item.employee_name || "-"}</span>
+                        <span><b>Email</b>{item.employee_email || "-"}</span>
+                        <span><b>Team</b>{item.team_name || "-"}</span>
+                        <span><b>Seen</b>{formatDateTime(item.latest_seen_at)}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+          </section>
+
+          <section className="two-col">
+            <article className="panel">
+              <p className="eyebrow">Unmapped Agent Detection</p>
+              <h2>Stored agent names still needing mapping</h2>
+              <p className="muted">These raw Intercom agent names were found in stored results without active mapping coverage.</p>
+
+              {unmappedRows.length === 0 ? (
+                <div className="empty-box success-box">No unmapped stored agents were detected.</div>
+              ) : (
+                <div className="scroll-stack compact-list">
+                  {unmappedRows.map((item) => (
+                    <article className="mini-card warning-card" key={item.intercom_agent_name}>
+                      <div className="mini-head">
+                        <div>
+                          <p className="eyebrow amber">{item.issue_label}</p>
+                          <h3>{item.intercom_agent_name}</h3>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-btn small"
+                          onClick={() =>
+                            handleUseSuggestion({
+                              intercom_agent_name: item.intercom_agent_name,
+                              employee_name: item.sample_employee_name || item.intercom_agent_name,
+                              employee_email: item.sample_employee_email || "",
+                              team_name: item.sample_team_name || "",
+                              notes: "Prefilled from unmapped stored result. Review and save this mapping.",
+                            })
+                          }
                         >
-                          {label}
-                        </th>
-                      ))}
+                          Map This Agent
+                        </button>
+                      </div>
+                      <div className="mini-grid two-items">
+                        <span><b>Appearances</b>{item.appearances}</span>
+                        <span><b>Latest seen</b>{formatDateTime(item.latest_seen_at)}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+
+            <article className="panel">
+              <p className="eyebrow">Historical Safety Rules</p>
+              <h2>What happens if mappings change later?</h2>
+              <div className="rule-list">
+                <div><b>Past results stay meaningful.</b><span>Historical stored rows keep their saved employee fields even when a mapping is changed later.</span></div>
+                <div><b>Future audits can become unmapped.</b><span>If a raw Intercom name has no active mapping, future stored results can show an unmapped status.</span></div>
+                <div><b>Safer than delete.</b><span>Activate and deactivate controls preserve mapping history instead of removing records blindly.</span></div>
+                <div><b>Current coverage.</b><span>{activeMappingsCount} active, {inactiveMappingsCount} inactive, {healthyMappingsCount} healthy, {incompleteMappingsCount} needing details.</span></div>
+              </div>
+            </article>
+          </section>
+
+          <section className="panel wide">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Agent Mapping Table</p>
+                <h2>Real mapping records with data quality controls</h2>
+                <p className="muted">Search, review, edit, and activate or deactivate the mapping records that power employee ownership, team filters, leaderboards, and future audit storage.</p>
+              </div>
+              <div className="tiny-metrics">
+                <span><b>{formatNumber(mappingRows.length)}</b>total</span>
+                <span><b>{formatNumber(activeMappingsCount)}</b>active</span>
+                <span><b>{formatNumber(incompleteMappingsCount)}</b>needs detail</span>
+                <span><b>{formatNumber(unmappedRows.length)}</b>risk</span>
+              </div>
+            </div>
+
+            <div className="filter-grid">
+              <label>
+                <span>Search</span>
+                <input value={mappingSearch} onChange={(event) => setMappingSearch(event.target.value)} placeholder="Search agent, employee, email, team, notes, quality" />
+              </label>
+              <label>
+                <span>Status</span>
+                <select value={mappingStatusFilter} onChange={(event) => setMappingStatusFilter(event.target.value)}>
+                  <option value="all">All statuses</option>
+                  <option value="active">Active only</option>
+                  <option value="inactive">Inactive only</option>
+                </select>
+              </label>
+              <label>
+                <span>Quality</span>
+                <select value={mappingQualityFilter} onChange={(event) => setMappingQualityFilter(event.target.value)}>
+                  <option value="all">All quality states</option>
+                  <option value="needs_attention">Needs attention</option>
+                  <option value="missing_email_team">Needs email and team</option>
+                  <option value="missing_email">Needs email</option>
+                  <option value="missing_team">Needs team</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="healthy">Healthy</option>
+                  <option value="no_stored_usage">Ready, no stored usage</option>
+                </select>
+              </label>
+              <button type="button" className="secondary-btn clear-btn" onClick={() => { setMappingSearch(""); setMappingStatusFilter("all"); setMappingQualityFilter("all"); }}>Clear Filters</button>
+            </div>
+
+            <div className="chip-row">
+              <span>Showing {formatNumber(filteredMappings.length)} of {formatNumber(mappingRows.length)} mapping(s)</span>
+              <span className={unmappedRows.length ? "chip warning" : "chip success"}>{formatNumber(unmappedRows.length)} stored agent risk(s)</span>
+              <span className={mappingSuggestions.length ? "chip notice" : "chip success"}>{formatNumber(mappingSuggestions.length)} detected draft(s)</span>
+            </div>
+
+            {mappingLoading ? (
+              <div className="empty-box">Loading mapping records...</div>
+            ) : filteredMappings.length === 0 ? (
+              <div className="empty-box">No mapping rows match the current search or filters.</div>
+            ) : (
+              <div className="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Intercom Agent</th>
+                      <th>Employee Identity</th>
+                      <th>Team</th>
+                      <th>Quality</th>
+                      <th>Stored Usage</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
-
                   <tbody>
-                    {filteredMappings.map((row, index) => (
-                      <tr
-                        key={row.id || `mapping-${index}`}
-                        style={{
-                          background: index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent",
-                        }}
-                      >
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#f5f7ff",
-                            fontWeight: 700,
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row?.intercom_agent_name || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row?.employee_name || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row?.employee_email || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#dbe7ff",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          {row?.team_name || "-"}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              padding: "8px 12px",
-                              borderRadius: "999px",
-                              fontSize: "12px",
-                              fontWeight: 700,
-                              border:
-                                row?.is_active !== false
-                                  ? "1px solid rgba(16,185,129,0.18)"
-                                  : "1px solid rgba(245,158,11,0.18)",
-                              background:
-                                row?.is_active !== false
-                                  ? "rgba(16,185,129,0.12)"
-                                  : "rgba(245,158,11,0.12)",
-                              color:
-                                row?.is_active !== false ? "#d1fae5" : "#fde68a",
-                            }}
-                          >
-                            {row?.is_active !== false ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            color: "#a9b4d0",
-                            verticalAlign: "top",
-                            fontSize: "13px",
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {formatDateTime(row?.updated_at || row?.created_at)}
-                        </td>
-
-                        <td
-                          style={{
-                            padding: "16px 14px",
-                            borderBottom: "1px solid rgba(255,255,255,0.06)",
-                            verticalAlign: "top",
-                          }}
-                        >
-                          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleEditMapping(row)}
-                              style={secondaryButtonStyle}
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleMappingActive(row)}
-                              disabled={mappingToggleLoadingId === row.id}
-                              style={{
-                                ...secondaryButtonStyle,
-                                opacity: mappingToggleLoadingId === row.id ? 0.6 : 1,
-                                cursor:
-                                  mappingToggleLoadingId === row.id
-                                    ? "not-allowed"
-                                    : "pointer",
-                              }}
-                            >
-                              {mappingToggleLoadingId === row.id
-                                ? "Saving..."
-                                : row?.is_active !== false
-                                ? "Deactivate"
-                                : "Reactivate"}
+                    {filteredMappings.map((row) => (
+                      <tr key={row.id || row.intercom_agent_name}>
+                        <td><strong>{row.intercom_agent_name || "-"}</strong><small>Raw Intercom display name</small></td>
+                        <td><strong>{row.employee_name || "-"}</strong><small>{row.employee_email || "No employee email saved"}</small>{row.notes ? <em>{row.notes}</em> : null}</td>
+                        <td>{row.team_name ? <span className="team-pill">{row.team_name}</span> : <span className="missing-text">No team</span>}</td>
+                        <td><span className={toneClass(row.quality.tone)}>{row.quality.label}</span><small>{row.quality.detail}</small></td>
+                        <td><strong>{formatNumber(row.stats.appearances)}</strong><small>{row.stats.appearances ? `Latest: ${formatDateTime(row.stats.latest_seen_at)}` : "No stored usage found"}</small></td>
+                        <td><span className={row.is_active === false ? "status inactive" : "status active"}>{row.is_active === false ? "Inactive" : "Active"}</span></td>
+                        <td>
+                          <div className="table-actions">
+                            <button type="button" className="secondary-btn small" onClick={() => handleEditMapping(row)}>Edit</button>
+                            <button type="button" className="secondary-btn small" disabled={mappingToggleLoadingId === row.id} onClick={() => handleToggleMappingActive(row)}>
+                              {mappingToggleLoadingId === row.id ? "Saving..." : row.is_active === false ? "Activate" : "Deactivate"}
                             </button>
                           </div>
                         </td>
@@ -1996,139 +1168,645 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </section>
+
+          <section className="panel wide">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Prompt History</p>
+                <h2>Recent Admin prompt changes</h2>
+                <p className="muted">The prompt history is loaded through the protected Admin prompt API.</p>
+              </div>
             </div>
-          )}
-        </section>
 
-        <section style={sectionCardStyle}>
-          <div style={labelStyle}>Prompt History</div>
-          <div
-            style={{
-              fontSize: "26px",
-              fontWeight: 700,
-              lineHeight: 1.15,
-              marginBottom: "10px",
-            }}
-          >
-            Timestamped Change Log
-          </div>
-
-          <div
-            style={{
-              color: "#a9b4d0",
-              fontSize: "15px",
-              lineHeight: 1.7,
-              marginBottom: "18px",
-            }}
-          >
-            Every live prompt save should appear here with the exact timestamp and the admin email
-            that made the change.
-          </div>
-
-          {historyRows.length === 0 ? (
-            <div
-              style={{
-                borderRadius: "18px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "20px",
-                color: "#a9b4d0",
-                fontSize: "14px",
-                lineHeight: 1.7,
-              }}
-            >
-              No prompt history has been recorded yet.
-            </div>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gap: "14px",
-                maxHeight: "540px",
-                overflowY: "auto",
-                paddingRight: "4px",
-              }}
-            >
-              {historyRows.map((item, index) => (
-                <div
-                  key={item?.id || `history-${index}`}
-                  style={{
-                    borderRadius: "18px",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background: "rgba(255,255,255,0.03)",
-                    padding: "18px",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      flexWrap: "wrap",
-                      marginBottom: "12px",
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: "#8ea0d6",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.12em",
-                          marginBottom: "6px",
-                        }}
-                      >
-                        Change Type
-                      </div>
-                      <div style={{ fontSize: "18px", fontWeight: 700 }}>
-                        {getHistoryLabel(item)}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "8px 12px",
-                        borderRadius: "999px",
-                        background: "rgba(99,102,241,0.12)",
-                        border: "1px solid rgba(129,140,248,0.18)",
-                        color: "#ddd6fe",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {formatDateTime(item?.changed_at)}
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      color: "#dbe7ff",
-                      fontSize: "14px",
-                      lineHeight: 1.8,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    <strong>Changed by:</strong> {item?.changed_by_email || "Unknown admin"}
-                    <br />
-                    <strong>Note:</strong> {item?.change_note || "No change note provided."}
-                  </div>
-
-                  <textarea
-                    value={item?.prompt_text || ""}
-                    readOnly
-                    style={{
-                      ...textareaStyle,
-                      minHeight: "150px",
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+            {historyRows.length === 0 ? (
+              <div className="empty-box">No prompt history is available yet.</div>
+            ) : (
+              <div className="history-list">
+                {historyRows.slice(0, 12).map((item, index) => (
+                  <article className="history-card" key={item?.id || index}>
+                    <div><strong>{getHistoryLabel(item)}</strong><span>{formatDateTime(item?.created_at || item?.updated_at)}</span></div>
+                    <p>{item?.change_note || item?.notes || "No change note saved."}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </main>
   );
 }
+
+const adminStyles = `
+  .admin-page {
+    min-height: 100vh;
+    padding: 32px 20px 64px;
+    color: #f5f7ff;
+    background:
+      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
+      radial-gradient(circle at top right, rgba(168,85,247,0.15), transparent 22%),
+      radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 24%),
+      linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .topbar,
+  .hero,
+  .panel,
+  .stat-card {
+    max-width: 1380px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 22px;
+    background: rgba(9,13,29,0.72);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+  }
+
+  .topbar strong {
+    display: block;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+  }
+
+  .eyebrow {
+    margin: 0 0 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .eyebrow.amber { color: #fcd34d; }
+
+  .access-pill,
+  .hero-badge,
+  .team-pill,
+  .chip,
+  .tone,
+  .status {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .access-pill {
+    padding: 10px 14px;
+    color: #fde68a;
+    border: 1px solid rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.11);
+  }
+
+  .access-pill.active {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.25);
+    background: rgba(16,185,129,0.12);
+  }
+
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: 30px;
+    margin-bottom: 24px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 28px;
+    background: linear-gradient(180deg, rgba(15,22,43,0.92), rgba(7,10,24,0.97));
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: auto -80px -120px auto;
+    width: 360px;
+    height: 360px;
+    border-radius: 50%;
+    background: rgba(124,58,237,0.18);
+    filter: blur(50px);
+    pointer-events: none;
+  }
+
+  .hero.compact { max-width: 900px; margin-top: 80px; }
+
+  .hero-badge {
+    padding: 8px 12px;
+    margin-bottom: 18px;
+    color: #dbe7ff;
+    border: 1px solid rgba(129,140,248,0.22);
+    background: rgba(99,102,241,0.14);
+  }
+
+  h1,
+  h2,
+  h3,
+  p { position: relative; }
+
+  h1 {
+    max-width: 1000px;
+    margin: 0 0 18px;
+    font-size: clamp(38px, 5vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.06em;
+  }
+
+  h2 {
+    margin: 0 0 10px;
+    font-size: 28px;
+    line-height: 1.12;
+    letter-spacing: -0.04em;
+  }
+
+  h3 { margin: 0; font-size: 18px; }
+
+  .hero p,
+  .muted {
+    color: #a9b4d0;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .hero p {
+    max-width: 1000px;
+    margin: 0 0 20px;
+    font-size: 18px;
+  }
+
+  .action-row,
+  .chip-row,
+  .table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .primary-btn,
+  .secondary-btn {
+    min-height: 46px;
+    border-radius: 15px;
+    padding: 12px 18px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .primary-btn {
+    color: white;
+    border: 0;
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
+    box-shadow: 0 14px 30px rgba(91,33,182,0.35);
+  }
+
+  .secondary-btn {
+    color: #e5ebff;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .secondary-btn.small {
+    min-height: 38px;
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+
+  .status-grid,
+  .two-col,
+  .filter-grid {
+    max-width: 1380px;
+    margin-left: auto;
+    margin-right: auto;
+    display: grid;
+    gap: 18px;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    margin-bottom: 24px;
+  }
+
+  .two-col {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    margin-bottom: 24px;
+  }
+
+  .stat-card,
+  .panel,
+  .mini-card,
+  .history-card {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96));
+    box-shadow: 0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+    padding: 20px;
+    border-radius: 22px;
+  }
+
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    left: -55px;
+    top: -55px;
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    filter: blur(34px);
+    background: rgba(59,130,246,0.12);
+  }
+
+  .stat-card.success::before { background: rgba(16,185,129,0.12); }
+  .stat-card.warning::before { background: rgba(245,158,11,0.14); }
+
+  .stat-card p {
+    margin: 0 0 10px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .stat-card strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 27px;
+    letter-spacing: -0.04em;
+  }
+
+  .stat-card span {
+    display: block;
+    color: #a9b4d0;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .message-stack {
+    max-width: 1380px;
+    margin: 0 auto 24px;
+    display: grid;
+    gap: 12px;
+  }
+
+  .message {
+    padding: 14px 16px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .message.error {
+    color: #fecdd3;
+    border: 1px solid rgba(244,63,94,0.23);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .message.success {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.23);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .panel {
+    padding: 24px;
+    border-radius: 24px;
+  }
+
+  .panel.wide { margin-bottom: 24px; }
+
+  .textarea,
+  input,
+  select {
+    width: 100%;
+    box-sizing: border-box;
+    color: #e7ecff;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    outline: none;
+    background: rgba(5,8,18,0.9);
+  }
+
+  input,
+  select {
+    min-height: 50px;
+    padding: 0 14px;
+  }
+
+  .textarea {
+    min-height: 110px;
+    padding: 15px;
+    line-height: 1.7;
+    resize: vertical;
+  }
+
+  .textarea.tall { min-height: 420px; }
+  .textarea.live { min-height: 320px; margin-bottom: 14px; }
+  .textarea.note { min-height: 88px; margin-bottom: 14px; }
+
+  .form-grid {
+    display: grid;
+    gap: 14px;
+  }
+
+  .form-grid.two { grid-template-columns: 1fr 1fr; }
+
+  label span,
+  .filter-grid label span {
+    display: block;
+    margin-bottom: 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .check-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .check-row input { width: auto; min-height: auto; }
+  .check-row span { margin: 0; color: #dbe7ff; letter-spacing: 0; text-transform: none; font-size: 14px; }
+
+  .empty-box {
+    padding: 20px;
+    color: #a9b4d0;
+    border: 1px dashed rgba(255,255,255,0.12);
+    border-radius: 18px;
+    background: rgba(255,255,255,0.025);
+    line-height: 1.7;
+  }
+
+  .success-box {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.22);
+    background: rgba(16,185,129,0.07);
+  }
+
+  .scroll-stack {
+    display: grid;
+    gap: 12px;
+    max-height: 560px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .scroll-stack.compact-list { max-height: 520px; }
+
+  .mini-card {
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.035);
+  }
+
+  .warning-card {
+    border-color: rgba(251,191,36,0.18);
+    background: rgba(245,158,11,0.08);
+  }
+
+  .mini-head,
+  .section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mini-grid span {
+    color: #dbe7ff;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .mini-grid b {
+    display: block;
+    color: #8ea0d6;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .rule-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .rule-list div {
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .rule-list b,
+  .rule-list span {
+    display: block;
+  }
+
+  .rule-list span {
+    margin-top: 6px;
+    color: #a9b4d0;
+    line-height: 1.6;
+  }
+
+  .tiny-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 10px;
+    min-width: 300px;
+  }
+
+  .tiny-metrics span {
+    padding: 12px;
+    color: #a9b4d0;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .tiny-metrics b {
+    display: block;
+    color: #f5f7ff;
+    font-size: 20px;
+  }
+
+  .filter-grid {
+    grid-template-columns: minmax(260px, 1fr) 180px 230px auto;
+    align-items: end;
+    margin-bottom: 16px;
+  }
+
+  .clear-btn { min-height: 50px; }
+
+  .chip-row {
+    margin-bottom: 16px;
+    align-items: center;
+  }
+
+  .chip-row > span,
+  .chip {
+    padding: 8px 12px;
+    color: #dbe7ff;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .chip.success { color: #bbf7d0; border-color: rgba(16,185,129,0.22); background: rgba(16,185,129,0.08); }
+  .chip.warning { color: #fde68a; border-color: rgba(245,158,11,0.22); background: rgba(245,158,11,0.09); }
+  .chip.notice { color: #bfdbfe; border-color: rgba(96,165,250,0.22); background: rgba(59,130,246,0.1); }
+
+  .table-shell {
+    max-height: 760px;
+    overflow: auto;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 22px;
+    background: rgba(4,8,20,0.72);
+  }
+
+  table {
+    width: 100%;
+    min-width: 1260px;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 15px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.065);
+    vertical-align: top;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    color: #8ea0d6;
+    background: rgba(10,18,34,0.98);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  tr:nth-child(even) td { background: rgba(255,255,255,0.018); }
+
+  td strong,
+  td small,
+  td em {
+    display: block;
+  }
+
+  td strong { color: #f5f7ff; margin-bottom: 4px; }
+  td small { color: #a9b4d0; line-height: 1.5; }
+  td em { margin-top: 8px; color: #8ea0d6; font-size: 12px; line-height: 1.5; font-style: normal; }
+
+  .team-pill {
+    padding: 7px 11px;
+    color: #dbe7ff;
+    border: 1px solid rgba(96,165,250,0.2);
+    background: rgba(59,130,246,0.1);
+  }
+
+  .missing-text { color: #fcd34d; font-weight: 800; }
+
+  .tone,
+  .status {
+    padding: 7px 10px;
+    margin-bottom: 8px;
+  }
+
+  .tone.success,
+  .status.active { color: #bbf7d0; border: 1px solid rgba(16,185,129,0.22); background: rgba(16,185,129,0.1); }
+  .tone.warning,
+  .status.inactive { color: #fde68a; border: 1px solid rgba(245,158,11,0.24); background: rgba(245,158,11,0.1); }
+  .tone.notice { color: #bfdbfe; border: 1px solid rgba(96,165,250,0.24); background: rgba(59,130,246,0.1); }
+  .tone.neutral { color: #dbe7ff; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); }
+  .tone.danger { color: #fecdd3; border: 1px solid rgba(244,63,94,0.24); background: rgba(244,63,94,0.1); }
+
+  .history-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .history-card {
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .history-card div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .history-card span,
+  .history-card p {
+    margin: 0;
+    color: #a9b4d0;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 980px) {
+    .two-col,
+    .filter-grid,
+    .form-grid.two {
+      grid-template-columns: 1fr;
+    }
+
+    .section-head,
+    .mini-head,
+    .topbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .tiny-metrics {
+      min-width: 0;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+`;
