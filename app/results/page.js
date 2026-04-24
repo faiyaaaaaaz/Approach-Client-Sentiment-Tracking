@@ -53,6 +53,67 @@ const MAPPING_STATUS_OPTIONS = [
   { value: "unmapped", label: "Unmapped" },
 ];
 
+const DUPLICATE_MODE_OPTIONS = [
+  {
+    value: "skip_existing",
+    label: "Skip Existing",
+    helper: "Safest option. Existing conversation IDs will stay untouched.",
+  },
+  {
+    value: "overwrite_existing",
+    label: "Overwrite Existing",
+    helper: "Replaces matching conversation IDs with the uploaded workbook data.",
+  },
+  {
+    value: "fail_if_duplicates",
+    label: "Stop on Duplicates",
+    helper: "Stops the import if any uploaded conversation already exists.",
+  },
+];
+
+const IMPORT_PROGRESS_STEPS = [
+  {
+    label: "Preparing upload",
+    detail: "Checking file, session, and import settings.",
+    percent: 8,
+  },
+  {
+    label: "Reading workbook",
+    detail: "Opening the Excel file and scanning workbook structure.",
+    percent: 18,
+  },
+  {
+    label: "Detecting date tabs",
+    detail: "Looking for sheet tabs named by date.",
+    percent: 30,
+  },
+  {
+    label: "Extracting rows",
+    detail: "Reading conversations from each valid date tab.",
+    percent: 46,
+  },
+  {
+    label: "Normalizing fields",
+    detail: "Cleaning dates, sentiments, agents, employees, and verdict fields.",
+    percent: 62,
+  },
+  {
+    label: "Checking duplicates",
+    detail: "Comparing uploaded conversation IDs with stored Results data.",
+    percent: 76,
+  },
+  {
+    label: "Saving to Supabase",
+    detail: "Creating the import run and inserting clean audit result rows.",
+    percent: 88,
+  },
+  {
+    label: "Refreshing Results",
+    detail: "Reloading the archive with the imported data.",
+    percent: 96,
+  },
+];
+
 function normalizeToStartOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -285,6 +346,41 @@ function CalendarIcon() {
   );
 }
 
+function buildImportErrorTitle(data, fallback) {
+  if (data?.requiresDuplicateDecision) return "Duplicate Conversations Found";
+  if (data?.error) return data.error;
+  return fallback || "Import Failed";
+}
+
+function getImportSummaryRows(summary) {
+  if (!summary) return [];
+
+  return [
+    ["File", summary.fileName],
+    ["Duplicate Mode", summary.duplicateMode],
+    ["Date Range", summary.dateRange?.startDate && summary.dateRange?.endDate ? `${summary.dateRange.startDate} to ${summary.dateRange.endDate}` : ""],
+    ["Date Tabs Processed", summary.parsedDateSheetCount],
+    ["Parsed Rows", summary.parsedRows],
+    ["Unique Workbook Rows", summary.uniqueWorkbookRows],
+    ["Inserted Rows", summary.insertedRows],
+    ["Skipped Existing Rows", summary.skippedExistingRows],
+    ["Duplicate Rows Inside File", summary.duplicateInFileRows],
+    ["Deleted Existing Rows", summary.deletedExistingRows],
+    ["Workbook Source Mappings", summary.workbookSourceMappings],
+    ["Supabase Mappings", summary.supabaseMappings],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+}
+
+function getProblemSheets(summary) {
+  if (!summary?.sheets || !Array.isArray(summary.sheets)) return [];
+
+  return summary.sheets.filter(
+    (sheet) =>
+      sheet?.status &&
+      !["parsed", "ignored_non_date_tab"].includes(String(sheet.status))
+  );
+}
+
 export default function ResultsPage() {
   const initialRange = getPresetRange("past_7_days");
 
@@ -320,7 +416,18 @@ export default function ResultsPage() {
   const [expandedRows, setExpandedRows] = useState({});
   const [showAllRows, setShowAllRows] = useState(false);
 
+  const [importFile, setImportFile] = useState(null);
+  const [duplicateMode, setDuplicateMode] = useState("skip_existing");
+  const [importing, setImporting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importProgressIndex, setImportProgressIndex] = useState(0);
+  const [importProgressPercent, setImportProgressPercent] = useState(0);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState(null);
+
   const presetMenuRef = useRef(null);
+  const importProgressTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   async function loadProfile(user) {
     const email = user?.email?.toLowerCase() || "";
@@ -480,6 +587,42 @@ export default function ResultsPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (importProgressTimerRef.current) {
+        window.clearInterval(importProgressTimerRef.current);
+      }
+    };
+  }, []);
+
+  function clearImportTimer() {
+    if (importProgressTimerRef.current) {
+      window.clearInterval(importProgressTimerRef.current);
+      importProgressTimerRef.current = null;
+    }
+  }
+
+  function startImportProgress() {
+    clearImportTimer();
+
+    setImportProgressIndex(0);
+    setImportProgressPercent(IMPORT_PROGRESS_STEPS[0].percent);
+
+    importProgressTimerRef.current = window.setInterval(() => {
+      setImportProgressIndex((current) => {
+        const next = Math.min(current + 1, IMPORT_PROGRESS_STEPS.length - 2);
+        setImportProgressPercent(IMPORT_PROGRESS_STEPS[next].percent);
+        return next;
+      });
+    }, 1400);
+  }
+
+  function finishImportProgress() {
+    clearImportTimer();
+    setImportProgressIndex(IMPORT_PROGRESS_STEPS.length - 1);
+    setImportProgressPercent(100);
+  }
+
   function applyDatePreset(presetKey) {
     setSelectedDatePreset(presetKey);
 
@@ -517,6 +660,11 @@ export default function ResultsPage() {
     setShowAllRows(false);
   }
 
+  function closeImportModal() {
+    if (importing) return;
+    setShowImportModal(false);
+  }
+
   async function handleGoogleLogin() {
     setAuthMessage("");
 
@@ -540,6 +688,122 @@ export default function ResultsPage() {
     setRuns([]);
     setResults([]);
     setSelectedIds([]);
+  }
+
+  async function handleHistoricalImport() {
+    setPageError("");
+    setPageSuccess("");
+    setImportError(null);
+    setImportResult(null);
+
+    if (!session?.access_token) {
+      setImportError({
+        title: "Sign In Required",
+        message: "Please sign in before importing historical data.",
+      });
+      setShowImportModal(true);
+      return;
+    }
+
+    if (!canManageResults(profile)) {
+      setImportError({
+        title: "Permission Required",
+        message: "This account does not have permission to import Results data.",
+      });
+      setShowImportModal(true);
+      return;
+    }
+
+    if (!importFile) {
+      setImportError({
+        title: "No File Selected",
+        message: "Choose the historical Excel workbook before starting the import.",
+      });
+      setShowImportModal(true);
+      return;
+    }
+
+    if (!importFile.name.toLowerCase().endsWith(".xlsx")) {
+      setImportError({
+        title: "Unsupported File",
+        message: "Only .xlsx Excel files are supported.",
+      });
+      setShowImportModal(true);
+      return;
+    }
+
+    setImporting(true);
+    setShowImportModal(true);
+    startImportProgress();
+
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      formData.append("duplicateMode", duplicateMode);
+
+      const response = await fetch("/api/results/import", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch (_error) {
+        data = null;
+      }
+
+      if (!response.ok || !data?.ok) {
+        const title = buildImportErrorTitle(data, "Import Failed");
+
+        setImportError({
+          title,
+          message:
+            data?.error ||
+            "The importer could not complete the upload. Check the file format and try again.",
+          status: response.status,
+          duplicateSummary: data?.duplicateSummary || null,
+          summary: data?.summary || null,
+        });
+
+        finishImportProgress();
+        setImporting(false);
+        return;
+      }
+
+      finishImportProgress();
+
+      setImportResult({
+        title: "Import Complete",
+        message: data?.message || "Historical Results were imported successfully.",
+        runId: data?.runId || null,
+        summary: data?.summary || null,
+      });
+
+      setPageSuccess(data?.message || "Historical Results imported.");
+
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setImportFile(null);
+
+      await loadStoredResults(session);
+    } catch (error) {
+      finishImportProgress();
+
+      setImportError({
+        title: "Import Failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unknown import error. Please try again.",
+      });
+    } finally {
+      clearImportTimer();
+      setImporting(false);
+    }
   }
 
   const runsById = useMemo(() => {
@@ -567,7 +831,12 @@ export default function ResultsPage() {
     return Array.from(
       new Set(
         decoratedResults
-          .map((item) => safeText(item.employee_name, getMappingStatus(item) === "mapped" ? "Mapped Employee" : "Unmapped"))
+          .map((item) =>
+            safeText(
+              item.employee_name,
+              getMappingStatus(item) === "mapped" ? "Mapped Employee" : "Unmapped"
+            )
+          )
           .filter(Boolean)
       )
     ).sort((a, b) => a.localeCompare(b));
@@ -682,6 +951,10 @@ export default function ResultsPage() {
     const latest = decoratedResults[0]?.created_at || decoratedResults[0]?.replied_at;
     return latest ? formatDateTime(latest) : "No stored results";
   }, [decoratedResults]);
+
+  const currentImportStep = IMPORT_PROGRESS_STEPS[importProgressIndex] || IMPORT_PROGRESS_STEPS[0];
+  const importSummaryRows = getImportSummaryRows(importResult?.summary || importError?.summary);
+  const problemSheets = getProblemSheets(importError?.summary);
 
   function toggleSingle(id) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -879,7 +1152,7 @@ export default function ResultsPage() {
         <div>
           <div className="hero-badge">Results Archive</div>
           <h1>Stored Results</h1>
-          <p>Search, filter, export, and manage saved audit records.</p>
+          <p>Search, filter, export, import, and manage saved audit records.</p>
         </div>
 
         <div className="hero-panel">
@@ -905,6 +1178,51 @@ export default function ResultsPage() {
           <span>{formatNumber(totalErrors)} errors</span>
           <span>{formatNumber(totalStoredRuns)} run(s)</span>
           <span>{formatNumber(selectedIds.length)} selected</span>
+        </div>
+      </section>
+
+      <section className="import-panel">
+        <div className="import-head">
+          <div>
+            <p className="eyebrow">Manual Import</p>
+            <h2>Historical Excel Import</h2>
+          </div>
+          <span className="import-pill">Date-wise tabs</span>
+        </div>
+
+        <div className="import-grid">
+          <label className="file-box">
+            <span>Excel Workbook</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx"
+              onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+            />
+            <small>{importFile ? importFile.name : "Choose the historical .xlsx file"}</small>
+          </label>
+
+          <label>
+            <span>Duplicate Handling</span>
+            <select value={duplicateMode} onChange={(event) => setDuplicateMode(event.target.value)}>
+              {DUPLICATE_MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="duplicate-help">
+            {DUPLICATE_MODE_OPTIONS.find((option) => option.value === duplicateMode)?.helper}
+          </div>
+
+          <button
+            type="button"
+            className="primary-btn import-btn"
+            onClick={handleHistoricalImport}
+            disabled={importing || !session?.user || !canManageResults(profile)}
+          >
+            {importing ? "Importing..." : "Import to Results"}
+          </button>
         </div>
       </section>
 
@@ -1204,6 +1522,133 @@ export default function ResultsPage() {
           </>
         )}
       </section>
+
+      {showImportModal ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="import-modal">
+            {importing ? (
+              <>
+                <div className="modal-head">
+                  <div>
+                    <p className="eyebrow">Import Running</p>
+                    <h2>{currentImportStep.label}</h2>
+                  </div>
+                  <span className="import-percent">{Math.round(importProgressPercent)}%</span>
+                </div>
+
+                <p className="modal-copy">{currentImportStep.detail}</p>
+
+                <div className="progress-shell">
+                  <div className="progress-bar" style={{ width: `${importProgressPercent}%` }} />
+                </div>
+
+                <div className="progress-steps">
+                  {IMPORT_PROGRESS_STEPS.map((step, index) => (
+                    <div
+                      key={step.label}
+                      className={
+                        index < importProgressIndex
+                          ? "progress-step done"
+                          : index === importProgressIndex
+                          ? "progress-step active"
+                          : "progress-step"
+                      }
+                    >
+                      <span>{index < importProgressIndex ? "✓" : index + 1}</span>
+                      <strong>{step.label}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="modal-note">
+                  Large Excel files can take a little time. Keep this page open while the import finishes.
+                </div>
+              </>
+            ) : importResult ? (
+              <>
+                <div className="modal-head">
+                  <div>
+                    <p className="eyebrow success-text">Import Complete</p>
+                    <h2>{importResult.title}</h2>
+                  </div>
+                  <span className="modal-status success">Done</span>
+                </div>
+
+                <p className="modal-copy">{importResult.message}</p>
+
+                {importResult.runId ? (
+                  <div className="run-id-box">
+                    <span>Import Run ID</span>
+                    <strong>{importResult.runId}</strong>
+                  </div>
+                ) : null}
+
+                {importSummaryRows.length ? (
+                  <div className="summary-grid">
+                    {importSummaryRows.map(([label, value]) => (
+                      <div key={label}>
+                        <span>{label}</span>
+                        <strong>{formatNumber(value) === "NaN" ? String(value) : typeof value === "number" ? formatNumber(value) : String(value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="modal-actions">
+                  <button type="button" className="primary-btn" onClick={closeImportModal}>Close</button>
+                </div>
+              </>
+            ) : importError ? (
+              <>
+                <div className="modal-head">
+                  <div>
+                    <p className="eyebrow danger-text">Import Error</p>
+                    <h2>{importError.title}</h2>
+                  </div>
+                  <span className="modal-status error">Error</span>
+                </div>
+
+                <p className="modal-copy">{importError.message}</p>
+
+                {importError.duplicateSummary ? (
+                  <div className="error-detail-box">
+                    <strong>{formatNumber(importError.duplicateSummary.duplicateCount)} duplicate conversation(s) found.</strong>
+                    <small>
+                      Sample: {(importError.duplicateSummary.sampleConversationIds || []).join(", ") || "No sample available"}
+                    </small>
+                  </div>
+                ) : null}
+
+                {problemSheets.length ? (
+                  <div className="error-detail-box">
+                    <strong>Problem sheet(s)</strong>
+                    {problemSheets.slice(0, 8).map((sheet) => (
+                      <small key={sheet.sheetName}>
+                        {sheet.sheetName}: {sheet.status}
+                      </small>
+                    ))}
+                  </div>
+                ) : null}
+
+                {importSummaryRows.length ? (
+                  <div className="summary-grid compact">
+                    {importSummaryRows.map(([label, value]) => (
+                      <div key={label}>
+                        <span>{label}</span>
+                        <strong>{typeof value === "number" ? formatNumber(value) : String(value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="modal-actions">
+                  <button type="button" className="secondary-btn" onClick={closeImportModal}>Close</button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1224,6 +1669,7 @@ const resultsStyles = `
   .topbar,
   .hero,
   .action-strip,
+  .import-panel,
   .message-stack,
   .stats-grid,
   .filters-panel,
@@ -1236,6 +1682,7 @@ const resultsStyles = `
   .topbar,
   .hero,
   .action-strip,
+  .import-panel,
   .filters-panel,
   .table-panel,
   .stat-card {
@@ -1266,7 +1713,8 @@ const resultsStyles = `
   .action-row,
   .mini-status,
   .selection-row,
-  .table-summary {
+  .table-summary,
+  .modal-actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -1280,7 +1728,9 @@ const resultsStyles = `
   .secondary-btn,
   .danger-btn,
   .pill,
-  .team-chip {
+  .team-chip,
+  .import-pill,
+  .modal-status {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1327,6 +1777,14 @@ const resultsStyles = `
     font-weight: 900;
     letter-spacing: 0.14em;
     text-transform: uppercase;
+  }
+
+  .success-text {
+    color: #86efac;
+  }
+
+  .danger-text {
+    color: #fda4af;
   }
 
   .hero {
@@ -1478,6 +1936,71 @@ const resultsStyles = `
     color: #a9b4d0;
     font-size: 13px;
     font-weight: 800;
+  }
+
+  .import-panel {
+    padding: 22px;
+    margin-bottom: 18px;
+    border-radius: 26px;
+    background:
+      radial-gradient(circle at top left, rgba(34,211,238,0.12), transparent 26%),
+      linear-gradient(180deg, rgba(15,22,43,0.88), rgba(7,10,24,0.96));
+  }
+
+  .import-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .import-pill {
+    padding: 8px 12px;
+    color: #cffafe;
+    border: 1px solid rgba(34,211,238,0.22);
+    background: rgba(34,211,238,0.1);
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .import-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.2fr) 240px minmax(240px, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+  }
+
+  .file-box input {
+    padding-top: 13px;
+  }
+
+  .file-box small {
+    display: block;
+    margin-top: 8px;
+    color: #a9b4d0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .duplicate-help {
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 0 14px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .import-btn {
+    min-width: 160px;
+    height: 50px;
   }
 
   .message-stack {
@@ -1859,14 +2382,257 @@ const resultsStyles = `
     margin-top: 16px;
   }
 
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+    background: rgba(1,4,12,0.78);
+    backdrop-filter: blur(18px);
+  }
+
+  .import-modal {
+    width: min(760px, 100%);
+    max-height: min(86vh, 860px);
+    overflow: auto;
+    border-radius: 28px;
+    padding: 26px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background:
+      radial-gradient(circle at top left, rgba(59,130,246,0.14), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(168,85,247,0.14), transparent 26%),
+      linear-gradient(180deg, rgba(15,22,43,0.98), rgba(5,8,18,0.98));
+    box-shadow: 0 32px 90px rgba(0,0,0,0.58), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+
+  .modal-copy {
+    margin: 0 0 18px;
+    color: #a9b4d0;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  .import-percent {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 72px;
+    height: 44px;
+    border-radius: 999px;
+    color: #cffafe;
+    border: 1px solid rgba(34,211,238,0.22);
+    background: rgba(34,211,238,0.1);
+    font-weight: 900;
+  }
+
+  .progress-shell {
+    height: 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 18px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
+    transition: width 500ms ease;
+    box-shadow: 0 0 30px rgba(139,92,246,0.42);
+  }
+
+  .progress-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .progress-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+    padding: 10px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.03);
+    color: #8ea0d6;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .progress-step span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: #dbe7ff;
+    font-size: 12px;
+  }
+
+  .progress-step.active {
+    color: #f5f7ff;
+    border-color: rgba(96,165,250,0.22);
+    background: rgba(59,130,246,0.12);
+  }
+
+  .progress-step.done {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.2);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .modal-note {
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .modal-status {
+    padding: 9px 13px;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .modal-status.success {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.23);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .modal-status.error {
+    color: #fecdd3;
+    border: 1px solid rgba(244,63,94,0.23);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .run-id-box,
+  .error-detail-box {
+    padding: 14px;
+    margin-bottom: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .run-id-box span,
+  .run-id-box strong,
+  .error-detail-box strong,
+  .error-detail-box small {
+    display: block;
+  }
+
+  .run-id-box span {
+    margin-bottom: 6px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .run-id-box strong {
+    color: #f5f7ff;
+    font-size: 13px;
+    word-break: break-all;
+  }
+
+  .error-detail-box {
+    border-color: rgba(244,63,94,0.18);
+    background: rgba(244,63,94,0.07);
+  }
+
+  .error-detail-box strong {
+    color: #ffe4e6;
+    margin-bottom: 8px;
+  }
+
+  .error-detail-box small {
+    color: #fecdd3;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .summary-grid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-grid div {
+    padding: 13px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .summary-grid span,
+  .summary-grid strong {
+    display: block;
+  }
+
+  .summary-grid span {
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 7px;
+  }
+
+  .summary-grid strong {
+    color: #f5f7ff;
+    font-size: 15px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .modal-actions {
+    justify-content: flex-end;
+  }
+
   @media (max-width: 1200px) {
     .stats-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .filters-top,
-    .filters-grid {
+    .filters-grid,
+    .import-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .duplicate-help,
+    .import-btn {
+      grid-column: span 2;
     }
   }
 
@@ -1874,7 +2640,9 @@ const resultsStyles = `
     .topbar,
     .hero,
     .action-strip,
-    .section-head {
+    .section-head,
+    .import-head,
+    .modal-head {
       flex-direction: column;
       align-items: stretch;
     }
@@ -1885,8 +2653,17 @@ const resultsStyles = `
 
     .stats-grid,
     .filters-top,
-    .filters-grid {
+    .filters-grid,
+    .import-grid,
+    .progress-steps,
+    .summary-grid,
+    .summary-grid.compact {
       grid-template-columns: 1fr;
+    }
+
+    .duplicate-help,
+    .import-btn {
+      grid-column: auto;
     }
   }
 `;
