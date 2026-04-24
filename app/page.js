@@ -29,6 +29,7 @@ const CLIENT_SENTIMENT_ORDER = [
 const RESOLUTION_ORDER = ["Resolved", "Pending", "Unclear", "Unresolved"];
 
 const RANGE_PRESETS = [
+  { key: "1d", label: "Yesterday" },
   { key: "7d", label: "7D" },
   { key: "30d", label: "30D" },
   { key: "90d", label: "90D" },
@@ -76,15 +77,22 @@ function getNow() {
   return now;
 }
 
+function getAnalyticsDate(row) {
+  return row?.replied_at || row?.created_at || null;
+}
+
 function getPresetStartDate(presetKey, endDate) {
   if (presetKey === "all") return null;
+
   const daysMap = {
+    "1d": 1,
     "7d": 7,
     "30d": 30,
     "90d": 90,
     "180d": 180,
     "365d": 365,
   };
+
   const days = daysMap[presetKey] || 30;
   const start = new Date(endDate);
   start.setDate(start.getDate() - (days - 1));
@@ -176,18 +184,28 @@ function filterRows(rows, filters) {
   );
 
   return (rows || []).filter((row) => {
-    const created = toDate(row?.created_at);
+    const analyticsDate = toDate(getAnalyticsDate(row));
 
-    if (start && created && created < start) return false;
-    if (end && created && created > end) return false;
+    if (start && analyticsDate && analyticsDate < start) return false;
+    if (end && analyticsDate && analyticsDate > end) return false;
 
     if (filters.team !== "all" && row?.team_name !== filters.team) return false;
-    if (filters.employee !== "all" && row?.employee_name !== filters.employee) return false;
-    if (filters.reviewSentiment !== "all" && row?.review_sentiment !== filters.reviewSentiment)
+    if (filters.employee !== "all" && row?.employee_name !== filters.employee)
       return false;
-    if (filters.clientSentiment !== "all" && row?.client_sentiment !== filters.clientSentiment)
+    if (
+      filters.reviewSentiment !== "all" &&
+      row?.review_sentiment !== filters.reviewSentiment
+    )
       return false;
-    if (filters.resolutionStatus !== "all" && row?.resolution_status !== filters.resolutionStatus)
+    if (
+      filters.clientSentiment !== "all" &&
+      row?.client_sentiment !== filters.clientSentiment
+    )
+      return false;
+    if (
+      filters.resolutionStatus !== "all" &&
+      row?.resolution_status !== filters.resolutionStatus
+    )
       return false;
     if (
       filters.resultType !== "all" &&
@@ -208,12 +226,17 @@ function sectionRangeRows(rows, sectionFilters) {
   );
 
   return (rows || []).filter((row) => {
-    const created = toDate(row?.created_at);
-    if (start && created && created < start) return false;
-    if (end && created && created > end) return false;
+    const analyticsDate = toDate(getAnalyticsDate(row));
 
-    if (sectionFilters.team !== "all" && row?.team_name !== sectionFilters.team) return false;
-    if (sectionFilters.employee !== "all" && row?.employee_name !== sectionFilters.employee)
+    if (start && analyticsDate && analyticsDate < start) return false;
+    if (end && analyticsDate && analyticsDate > end) return false;
+
+    if (sectionFilters.team !== "all" && row?.team_name !== sectionFilters.team)
+      return false;
+    if (
+      sectionFilters.employee !== "all" &&
+      row?.employee_name !== sectionFilters.employee
+    )
       return false;
     if (
       sectionFilters.reviewSentiment !== "all" &&
@@ -277,7 +300,7 @@ function buildWeeklyData(rows) {
   const map = new Map();
 
   for (const row of rows || []) {
-    const created = toDate(row?.created_at);
+    const created = toDate(getAnalyticsDate(row));
     if (!created) continue;
 
     const weekStart = getWeekStart(created);
@@ -322,14 +345,17 @@ function buildTrendData(rows, groupBy) {
   const map = new Map();
 
   for (const row of rows || []) {
-    const created = toDate(row?.created_at);
+    const created = toDate(getAnalyticsDate(row));
     if (!created) continue;
 
     let key = "";
     let label = "";
 
     if (groupBy === "month") {
-      key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}`;
+      key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}`;
       label = created.toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
@@ -391,7 +417,6 @@ function buildLeaderboard(rows) {
       veryPositive: 0,
       unresolved: 0,
       positiveReview: 0,
-      sampleRow: row,
       rows: [],
     };
 
@@ -538,6 +563,7 @@ function SectionFilterRow({
       : "rgba(255,255,255,0.03)",
     color: active ? "#eef3ff" : "#a9b4d0",
     cursor: "pointer",
+    whiteSpace: "nowrap",
   });
 
   return (
@@ -552,10 +578,9 @@ function SectionFilterRow({
     >
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto",
           gap: "12px",
-          flexWrap: "wrap",
           alignItems: "center",
           marginBottom: "12px",
         }}
@@ -565,12 +590,21 @@ function SectionFilterRow({
             fontSize: "14px",
             fontWeight: 700,
             color: "#eef3ff",
+            minWidth: 0,
           }}
         >
           {title}
         </div>
 
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            alignItems: "center",
+          }}
+        >
           {RANGE_PRESETS.map((item) => (
             <button
               key={item.key}
@@ -777,24 +811,28 @@ function DonutChart({ title, entries, total, onSelect }) {
         minHeight: "100%",
         display: "flex",
         flexDirection: "column",
+        overflow: "hidden",
       }}
     >
-      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>{title}</div>
+      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>
+        {title}
+      </div>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(220px, 260px) minmax(0, 1fr)",
-          gap: "18px",
+          gridTemplateColumns: "minmax(180px, 220px) minmax(0, 1fr)",
+          gap: "14px",
           alignItems: "center",
           flex: 1,
           minHeight: 0,
+          width: "100%",
         }}
       >
         <div
           style={{
             width: "100%",
-            maxWidth: "240px",
+            maxWidth: "220px",
             aspectRatio: "1 / 1",
             margin: "0 auto",
             borderRadius: "50%",
@@ -809,7 +847,8 @@ function DonutChart({ title, entries, total, onSelect }) {
               width: "58%",
               aspectRatio: "1 / 1",
               borderRadius: "50%",
-              background: "linear-gradient(180deg, rgba(12,18,34,0.98), rgba(7,10,22,1))",
+              background:
+                "linear-gradient(180deg, rgba(12,18,34,0.98), rgba(7,10,22,1))",
               border: "1px solid rgba(255,255,255,0.06)",
               display: "grid",
               placeItems: "center",
@@ -818,7 +857,13 @@ function DonutChart({ title, entries, total, onSelect }) {
           >
             <div>
               <div style={{ fontSize: "34px", fontWeight: 800 }}>{total}</div>
-              <div style={{ fontSize: "11px", color: "#8ea0d6", letterSpacing: "0.08em" }}>
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: "#8ea0d6",
+                  letterSpacing: "0.08em",
+                }}
+              >
                 TOTAL
               </div>
             </div>
@@ -828,9 +873,10 @@ function DonutChart({ title, entries, total, onSelect }) {
         <div
           style={{
             display: "grid",
-            gap: "10px",
+            gap: "8px",
             alignContent: "start",
             minWidth: 0,
+            width: "100%",
           }}
         >
           {segments.length ? (
@@ -841,45 +887,48 @@ function DonutChart({ title, entries, total, onSelect }) {
                 onClick={() => onSelect(segment.label)}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "12px minmax(0, 1fr) auto",
+                  gridTemplateColumns: "10px minmax(0, 1fr) auto",
                   gap: "10px",
                   alignItems: "center",
-                  padding: "12px 14px",
-                  borderRadius: "16px",
+                  padding: "10px 12px",
+                  borderRadius: "14px",
                   border: "1px solid rgba(255,255,255,0.08)",
                   background: "rgba(255,255,255,0.03)",
                   color: "#eef3ff",
                   cursor: "pointer",
                   textAlign: "left",
                   minWidth: 0,
+                  width: "100%",
                 }}
               >
                 <span
                   style={{
-                    width: "12px",
-                    height: "12px",
+                    width: "10px",
+                    height: "10px",
                     borderRadius: "999px",
                     background: segment.color,
-                    boxShadow: `0 0 16px ${segment.color}`,
+                    boxShadow: `0 0 14px ${segment.color}`,
                   }}
                 />
                 <span
                   style={{
-                    fontSize: "13px",
+                    fontSize: "12px",
                     fontWeight: 700,
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
+                    minWidth: 0,
                   }}
                 >
                   {segment.label}
                 </span>
                 <span
                   style={{
-                    fontSize: "12px",
+                    fontSize: "11px",
                     color: "#cdd7ff",
                     fontWeight: 700,
                     whiteSpace: "nowrap",
+                    flexShrink: 0,
                   }}
                 >
                   {segment.count} · {formatPercent(segment.percent)}
@@ -921,7 +970,9 @@ function HorizontalBarChart({ title, entries, total, onSelect, kind }) {
         flexDirection: "column",
       }}
     >
-      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>{title}</div>
+      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>
+        {title}
+      </div>
 
       <div style={{ display: "grid", gap: "12px", flex: 1 }}>
         {entries.length ? (
@@ -972,7 +1023,13 @@ function HorizontalBarChart({ title, entries, total, onSelect, kind }) {
                   >
                     {label}
                   </div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#cdd7ff" }}>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "#cdd7ff",
+                    }}
+                  >
                     {count} · {formatPercent(percent)}
                   </div>
                 </div>
@@ -1121,7 +1178,13 @@ function DetailModal({ open, onClose, title, rows, highlightValue }) {
           </button>
         </div>
 
-        <div style={{ maxHeight: "calc(90vh - 96px)", overflow: "auto", padding: "20px 24px" }}>
+        <div
+          style={{
+            maxHeight: "calc(90vh - 96px)",
+            overflow: "auto",
+            padding: "20px 24px",
+          }}
+        >
           <div style={{ display: "grid", gap: "12px" }}>
             {rows.map((row) => (
               <div
@@ -1505,7 +1568,7 @@ export default function DashboardPage() {
 
   const innerTwoColStyle = {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) minmax(340px, 0.9fr)",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
     gap: "16px",
     alignItems: "stretch",
   };
@@ -1522,56 +1585,14 @@ export default function DashboardPage() {
 
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <div>
-            <div
-              style={{
-                fontSize: "12px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8ea0d6",
-                marginBottom: "8px",
-              }}
-            >
-              NEXT Ventures
-            </div>
-            <div
-              style={{
-                fontSize: "24px",
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-              }}
-            >
-              Review Approach &amp; Client Sentiment Tracking
-            </div>
-          </div>
-
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "10px 14px",
-              borderRadius: "999px",
-              border: "1px solid rgba(96,165,250,0.25)",
-              background:
-                "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(168,85,247,0.14))",
-              color: "#dbe7ff",
-              fontSize: "14px",
-              fontWeight: 600,
-              boxShadow: "0 0 24px rgba(59,130,246,0.15)",
+              fontSize: "24px",
+              fontWeight: 700,
+              letterSpacing: "-0.03em",
             }}
           >
-            <span
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "999px",
-                background: "#34d399",
-                boxShadow: "0 0 12px #34d399",
-                display: "inline-block",
-              }}
-            />
-            Live Dashboard
+            Review Approach &amp; Client Sentiment Tracking Dashboard
           </div>
         </div>
 
@@ -1680,6 +1701,7 @@ export default function DashboardPage() {
                 }
                 style={inputStyle}
               >
+                <option value="1d">Yesterday</option>
                 <option value="7d">Past 7 Days</option>
                 <option value="30d">Past 30 Days</option>
                 <option value="90d">Past 90 Days</option>
@@ -1691,7 +1713,7 @@ export default function DashboardPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Start</label>
+              <label style={labelStyle}>Conversation Start Date</label>
               <input
                 type="date"
                 value={globalFilters.startDate}
@@ -1707,7 +1729,7 @@ export default function DashboardPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>End</label>
+              <label style={labelStyle}>Conversation End Date</label>
               <input
                 type="date"
                 value={globalFilters.endDate}
@@ -2120,7 +2142,9 @@ export default function DashboardPage() {
                             alignItems: "center",
                           }}
                         >
-                          <div style={{ fontSize: "16px", fontWeight: 800 }}>{week.label}</div>
+                          <div style={{ fontSize: "16px", fontWeight: 800 }}>
+                            {week.label}
+                          </div>
                           <div style={{ fontSize: "13px", color: "#cdd7ff", fontWeight: 700 }}>
                             {week.total} total
                           </div>
