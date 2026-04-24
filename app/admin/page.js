@@ -7,6 +7,7 @@ function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
+
   return date.toLocaleString(undefined, {
     year: "numeric",
     month: "short",
@@ -159,13 +160,11 @@ function buildSuggestions(existingMappings, auditRows) {
     .map((item) => ({
       ...item,
       employee_name: item.employee_name || item.intercom_agent_name,
-      notes: item.mapped_result_count
-        ? `Detected from stored audit results. ${item.mapped_result_count} historical mapped result(s) found; review before saving.`
-        : item.notes,
     }))
     .sort((a, b) => {
       const latestA = new Date(a.latest_seen_at || 0).getTime();
       const latestB = new Date(b.latest_seen_at || 0).getTime();
+
       if (latestA !== latestB) return latestB - latestA;
       return a.intercom_agent_name.localeCompare(b.intercom_agent_name);
     });
@@ -194,10 +193,11 @@ function buildUnmappedRows(existingMappings, auditRows) {
     if (!key || activeKeys.has(key)) continue;
 
     const issueType = inactiveKeys.has(key) ? "inactive_mapping" : "missing_mapping";
+
     const current = grouped.get(key) || {
       intercom_agent_name: rawAgent,
       issue_type: issueType,
-      issue_label: issueType === "inactive_mapping" ? "Inactive mapping exists" : "No active mapping",
+      issue_label: issueType === "inactive_mapping" ? "Inactive mapping" : "No active mapping",
       appearances: 0,
       latest_seen_at: getRowDate(row),
       sample_employee_name: String(row?.employee_name || "").trim(),
@@ -221,7 +221,10 @@ function buildUnmappedRows(existingMappings, auditRows) {
   }
 
   return Array.from(grouped.values()).sort((a, b) => {
-    if (a.issue_type !== b.issue_type) return a.issue_type === "missing_mapping" ? -1 : 1;
+    if (a.issue_type !== b.issue_type) {
+      return a.issue_type === "missing_mapping" ? -1 : 1;
+    }
+
     if (a.appearances !== b.appearances) return b.appearances - a.appearances;
     return a.intercom_agent_name.localeCompare(b.intercom_agent_name);
   });
@@ -232,7 +235,7 @@ function getMappingQuality(row, stats) {
     return {
       key: "inactive",
       label: "Inactive",
-      detail: "Future audits will not use this mapping until it is reactivated.",
+      detail: "Not used for future audits.",
       tone: "warning",
     };
   }
@@ -244,7 +247,7 @@ function getMappingQuality(row, stats) {
     return {
       key: "missing_email_team",
       label: "Needs email and team",
-      detail: "Add employee email and team so filters, leaderboards, and ownership views stay clean.",
+      detail: "Complete the employee profile.",
       tone: "warning",
     };
   }
@@ -253,7 +256,7 @@ function getMappingQuality(row, stats) {
     return {
       key: "missing_email",
       label: "Needs email",
-      detail: "Employee name is mapped, but the email is blank.",
+      detail: "Employee email is blank.",
       tone: "notice",
     };
   }
@@ -262,7 +265,7 @@ function getMappingQuality(row, stats) {
     return {
       key: "missing_team",
       label: "Needs team",
-      detail: "Employee identity is mapped, but team filtering will be incomplete.",
+      detail: "Team is blank.",
       tone: "notice",
     };
   }
@@ -270,8 +273,8 @@ function getMappingQuality(row, stats) {
   if (!stats?.appearances) {
     return {
       key: "no_stored_usage",
-      label: "Ready, no stored usage",
-      detail: "Mapping is complete but has not appeared in the latest stored audit sample.",
+      label: "Ready",
+      detail: "No recent stored usage.",
       tone: "neutral",
     };
   }
@@ -279,7 +282,7 @@ function getMappingQuality(row, stats) {
   return {
     key: "healthy",
     label: "Healthy",
-    detail: "Mapping is active and complete.",
+    detail: "Active and complete.",
     tone: "success",
   };
 }
@@ -295,8 +298,10 @@ function toneClass(tone) {
 export default function AdminPage() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
+
   const [pageError, setPageError] = useState("");
   const [pageSuccess, setPageSuccess] = useState("");
 
@@ -328,9 +333,10 @@ export default function AdminPage() {
 
     if (domain !== "nextventures.io") {
       await supabase.auth.signOut();
+
       return {
         profile: null,
-        message: "Access blocked. Only nextventures.io Google accounts are allowed.",
+        message: "Access blocked. Use a nextventures.io Google account.",
       };
     }
 
@@ -348,11 +354,15 @@ export default function AdminPage() {
 
       return {
         profile: null,
-        message: "Signed in, but no profile record is available yet.",
+        message: "Signed in, but no profile record is available.",
       };
     } catch (_error) {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
-      return { profile: null, message: "Signed in, but profile loading failed." };
+
+      return {
+        profile: null,
+        message: "Signed in, but profile loading failed.",
+      };
     }
   }
 
@@ -366,7 +376,9 @@ export default function AdminPage() {
 
     const response = await fetch("/api/admin/prompt", {
       method: "GET",
-      headers: { Authorization: `Bearer ${activeSession.access_token}` },
+      headers: {
+        Authorization: `Bearer ${activeSession.access_token}`,
+      },
     });
 
     const data = await response.json();
@@ -393,7 +405,9 @@ export default function AdminPage() {
           .order("intercom_agent_name", { ascending: true }),
         supabase
           .from("audit_results")
-          .select("id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at")
+          .select(
+            "id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at"
+          )
           .order("created_at", { ascending: false })
           .limit(5000),
       ]);
@@ -403,7 +417,7 @@ export default function AdminPage() {
       }
 
       if (auditResponse.error) {
-        throw new Error(auditResponse.error.message || "Could not load audit rows for mapping.");
+        throw new Error(auditResponse.error.message || "Could not load audit rows.");
       }
 
       setMappingRows(Array.isArray(mappingsResponse.data) ? mappingsResponse.data : []);
@@ -420,9 +434,8 @@ export default function AdminPage() {
 
     try {
       await Promise.all([loadPromptData(activeSession), loadMappingsData()]);
-      setPageSuccess("Admin settings loaded successfully.");
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not load Admin settings.");
+      setPageError(error instanceof Error ? error.message : "Could not load Admin data.");
     } finally {
       setLoading(false);
     }
@@ -438,6 +451,7 @@ export default function AdminPage() {
         } = await supabase.auth.getSession();
 
         if (!active) return;
+
         setSession(currentSession ?? null);
 
         if (!currentSession?.user) {
@@ -448,6 +462,7 @@ export default function AdminPage() {
         }
 
         const profileResult = await loadProfile(currentSession.user);
+
         if (!active) return;
 
         setProfile(profileResult.profile);
@@ -461,7 +476,8 @@ export default function AdminPage() {
         }
       } catch (_error) {
         if (!active) return;
-        setPageError("Could not complete session check for Admin.");
+
+        setPageError("Could not complete Admin session check.");
         setAuthLoading(false);
         setLoading(false);
       }
@@ -492,6 +508,7 @@ export default function AdminPage() {
       }
 
       const profileResult = await loadProfile(newSession.user);
+
       if (!active) return;
 
       setProfile(profileResult.profile);
@@ -521,7 +538,7 @@ export default function AdminPage() {
     setPageSuccess("");
 
     if (!session?.access_token) {
-      setPageError("Please sign in first so Admin can save prompt settings.");
+      setPageError("Please sign in first.");
       return;
     }
 
@@ -544,7 +561,10 @@ export default function AdminPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ livePrompt: livePromptInput, changeNote }),
+        body: JSON.stringify({
+          livePrompt: livePromptInput,
+          changeNote,
+        }),
       });
 
       const data = await response.json();
@@ -558,7 +578,7 @@ export default function AdminPage() {
       setDbReady(Boolean(data.dbReady));
       setLivePromptInput(data?.prompt?.livePrompt || livePromptInput);
       setChangeNote("");
-      setPageSuccess(data?.message || "Live prompt saved successfully.");
+      setPageSuccess("Live prompt saved.");
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save the live prompt.");
     } finally {
@@ -576,8 +596,9 @@ export default function AdminPage() {
       notes: row?.notes || "",
       is_active: row?.is_active !== false,
     });
+
     setPageError("");
-    setPageSuccess("Mapping loaded into the form.");
+    setPageSuccess("Mapping loaded.");
   }
 
   function handleUseSuggestion(item) {
@@ -590,8 +611,9 @@ export default function AdminPage() {
       notes: item?.notes || "Detected from stored audit results.",
       is_active: true,
     });
+
     setPageError("");
-    setPageSuccess("Mapping form was prefilled from a detected agent.");
+    setPageSuccess("Mapping form updated.");
   }
 
   function handleResetMappingForm() {
@@ -605,12 +627,12 @@ export default function AdminPage() {
     setPageSuccess("");
 
     if (!session?.user) {
-      setPageError("Please sign in first so Admin can save agent mappings.");
+      setPageError("Please sign in first.");
       return;
     }
 
     if (!isAdmin) {
-      setPageError("Only Admin users can save agent mappings.");
+      setPageError("Only Admin users can save mappings.");
       return;
     }
 
@@ -650,21 +672,32 @@ export default function AdminPage() {
 
       if (mappingForm.id || duplicate?.id) {
         const targetId = mappingForm.id || duplicate.id;
-        const { error } = await supabase.from("agent_mappings").update(payload).eq("id", targetId);
-        if (error) throw new Error(error.message || "Could not update the agent mapping.");
-        setPageSuccess("Agent mapping updated successfully.");
+
+        const { error } = await supabase
+          .from("agent_mappings")
+          .update(payload)
+          .eq("id", targetId);
+
+        if (error) throw new Error(error.message || "Could not update mapping.");
+
+        setPageSuccess("Mapping updated.");
       } else {
         const { error } = await supabase
           .from("agent_mappings")
-          .insert({ ...payload, created_at: new Date().toISOString() });
-        if (error) throw new Error(error.message || "Could not create the agent mapping.");
-        setPageSuccess("Agent mapping created successfully.");
+          .insert({
+            ...payload,
+            created_at: new Date().toISOString(),
+          });
+
+        if (error) throw new Error(error.message || "Could not create mapping.");
+
+        setPageSuccess("Mapping created.");
       }
 
       setMappingForm(createEmptyMappingForm());
       await loadMappingsData();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not save the agent mapping.");
+      setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
       setMappingSaveLoading(false);
     }
@@ -675,7 +708,7 @@ export default function AdminPage() {
     setPageSuccess("");
 
     if (!isAdmin) {
-      setPageError("Only Admin users can activate or deactivate mappings.");
+      setPageError("Only Admin users can update mappings.");
       return;
     }
 
@@ -684,16 +717,15 @@ export default function AdminPage() {
     try {
       const { error } = await supabase
         .from("agent_mappings")
-        .update({ is_active: row?.is_active ? false : true, updated_at: new Date().toISOString() })
+        .update({
+          is_active: row?.is_active ? false : true,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", row.id);
 
       if (error) throw new Error(error.message || "Could not update mapping status.");
 
-      setPageSuccess(
-        row?.is_active
-          ? "Agent mapping was deactivated. Historical results stay preserved."
-          : "Agent mapping was reactivated successfully."
-      );
+      setPageSuccess(row?.is_active ? "Mapping deactivated." : "Mapping activated.");
 
       await loadMappingsData();
     } catch (error) {
@@ -708,18 +740,20 @@ export default function AdminPage() {
     setPageSuccess("");
 
     if (!isAdmin) {
-      setPageError("Only Admin users can prefill detected agent mappings.");
+      setPageError("Only Admin users can prefill mappings.");
       return;
     }
 
     if (!mappingSuggestions.length) {
-      setPageError("There are no suggested agent mappings to prefill right now.");
+      setPageError("No detected agents to prefill.");
       return;
     }
 
     setSeedLoading(true);
 
     try {
+      const now = new Date().toISOString();
+
       const rows = mappingSuggestions.map((item) => ({
         intercom_agent_name: item.intercom_agent_name,
         employee_name: item.employee_name || item.intercom_agent_name,
@@ -727,17 +761,18 @@ export default function AdminPage() {
         team_name: item.team_name || null,
         notes: item.notes || "Detected from stored audit results.",
         is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
       }));
 
       const { error } = await supabase.from("agent_mappings").insert(rows);
-      if (error) throw new Error(error.message || "Could not prefill suggested mappings.");
 
-      setPageSuccess(`${rows.length} detected agent mapping(s) were added. Review names, emails, and teams before relying on them for reporting.`);
+      if (error) throw new Error(error.message || "Could not prefill mappings.");
+
+      setPageSuccess(`${rows.length} mapping(s) added.`);
       await loadMappingsData();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not prefill suggested mappings.");
+      setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
     } finally {
       setSeedLoading(false);
     }
@@ -747,13 +782,20 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+    const redirectTo =
+      typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+
     if (error) setPageError(error.message || "Google sign-in failed.");
   }
 
   async function handleLogout() {
     await supabase.auth.signOut();
+
     setSession(null);
     setProfile(null);
     setPromptData(null);
@@ -769,33 +811,56 @@ export default function AdminPage() {
   }
 
   const storedAgentStats = useMemo(() => buildStoredAgentStats(auditRows), [auditRows]);
-  const mappingSuggestions = useMemo(() => buildSuggestions(mappingRows, auditRows), [mappingRows, auditRows]);
-  const unmappedRows = useMemo(() => buildUnmappedRows(mappingRows, auditRows), [mappingRows, auditRows]);
+
+  const mappingSuggestions = useMemo(
+    () => buildSuggestions(mappingRows, auditRows),
+    [mappingRows, auditRows]
+  );
+
+  const unmappedRows = useMemo(
+    () => buildUnmappedRows(mappingRows, auditRows),
+    [mappingRows, auditRows]
+  );
 
   const mappingTableRows = useMemo(
     () =>
       mappingRows.map((row) => {
         const key = normalizeAgentKey(row?.intercom_agent_name);
+
         const stats = storedAgentStats.get(key) || {
           appearances: 0,
           mapped_result_count: 0,
           unmapped_result_count: 0,
           latest_seen_at: null,
         };
-        return { ...row, stats, quality: getMappingQuality(row, stats) };
+
+        return {
+          ...row,
+          stats,
+          quality: getMappingQuality(row, stats),
+        };
       }),
     [mappingRows, storedAgentStats]
   );
 
   const activeMappingsCount = mappingRows.filter((item) => item?.is_active !== false).length;
   const inactiveMappingsCount = mappingRows.length - activeMappingsCount;
+
   const incompleteMappingsCount = mappingTableRows.filter((row) =>
     ["missing_email_team", "missing_email", "missing_team"].includes(row.quality.key)
   ).length;
-  const healthyMappingsCount = mappingTableRows.filter((row) => row.quality.key === "healthy").length;
+
+  const healthyMappingsCount = mappingTableRows.filter(
+    (row) => row.quality.key === "healthy"
+  ).length;
+
   const totalStoredAgentNames = storedAgentStats.size;
+
   const mappedCoveragePercent = totalStoredAgentNames
-    ? Math.max(0, Math.round(((totalStoredAgentNames - unmappedRows.length) / totalStoredAgentNames) * 100))
+    ? Math.max(
+        0,
+        Math.round(((totalStoredAgentNames - unmappedRows.length) / totalStoredAgentNames) * 100)
+      )
     : 100;
 
   const filteredMappings = useMemo(() => {
@@ -806,7 +871,13 @@ export default function AdminPage() {
       if (mappingStatusFilter === "inactive" && row?.is_active !== false) return false;
 
       if (mappingQualityFilter === "needs_attention") {
-        if (!["missing_email_team", "missing_email", "missing_team", "inactive"].includes(row.quality.key)) return false;
+        if (
+          !["missing_email_team", "missing_email", "missing_team", "inactive"].includes(
+            row.quality.key
+          )
+        ) {
+          return false;
+        }
       } else if (mappingQualityFilter !== "all" && row.quality.key !== mappingQualityFilter) {
         return false;
       }
@@ -826,39 +897,45 @@ export default function AdminPage() {
         .join(" ")
         .includes(term);
     });
-  }, [mappingRows, mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
+  }, [mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
 
   const statusCards = [
     {
-      label: "Database Status",
-      value: dbReady ? "Prompt Tables Ready" : "Waiting for Prompt Tables",
-      note: dbReady ? "Supabase prompt storage is connected." : "Prompt storage is not ready yet.",
+      label: "Prompt",
+      value: dbReady ? "Ready" : "Not Ready",
+      note: dbReady ? "Live prompt connected." : "Prompt storage unavailable.",
       tone: dbReady ? "success" : "warning",
     },
     {
-      label: "Mapping Coverage",
+      label: "Coverage",
       value: `${mappedCoveragePercent}%`,
       note: totalStoredAgentNames
-        ? `${formatNumber(totalStoredAgentNames - unmappedRows.length)} of ${formatNumber(totalStoredAgentNames)} stored agent name(s) have active coverage.`
-        : "No stored audit agent sample is available yet.",
+        ? `${formatNumber(totalStoredAgentNames - unmappedRows.length)} of ${formatNumber(
+            totalStoredAgentNames
+          )} agents covered.`
+        : "No stored agent sample.",
       tone: unmappedRows.length ? "warning" : "success",
     },
     {
-      label: "Active / Inactive",
+      label: "Mappings",
       value: `${formatNumber(activeMappingsCount)} / ${formatNumber(inactiveMappingsCount)}`,
-      note: "Active mappings are used for future audit storage. Inactive mappings preserve history safely.",
+      note: "Active / inactive.",
       tone: inactiveMappingsCount ? "notice" : "success",
     },
     {
-      label: "Needs Attention",
+      label: "Needs Work",
       value: String(incompleteMappingsCount + unmappedRows.length),
-      note: `${formatNumber(incompleteMappingsCount)} incomplete saved mapping(s), ${formatNumber(unmappedRows.length)} unmapped stored agent risk(s).`,
+      note: `${formatNumber(incompleteMappingsCount)} incomplete, ${formatNumber(
+        unmappedRows.length
+      )} unmapped.`
+        .replace("1 incomplete", "1 incomplete")
+        .replace("1 unmapped", "1 unmapped"),
       tone: incompleteMappingsCount || unmappedRows.length ? "warning" : "success",
     },
     {
-      label: "Detected Drafts",
+      label: "Detected",
       value: String(mappingSuggestions.length),
-      note: mappingSuggestions.length ? "New raw Intercom names found in stored audit results." : "No new mapping drafts are waiting.",
+      note: mappingSuggestions.length ? "New agents found." : "No drafts waiting.",
       tone: mappingSuggestions.length ? "notice" : "success",
     },
   ];
@@ -867,7 +944,10 @@ export default function AdminPage() {
     return (
       <main className="admin-page">
         <style>{adminStyles}</style>
-        <section className="hero compact"><p className="eyebrow">NEXT Ventures</p><h1>Loading Admin...</h1></section>
+        <section className="hero compact">
+          <p className="eyebrow">NEXT Ventures</p>
+          <h1>Loading Admin...</h1>
+        </section>
       </main>
     );
   }
@@ -881,26 +961,44 @@ export default function AdminPage() {
           <p className="eyebrow">NEXT Ventures</p>
           <strong>Review Approach & Client Sentiment Tracking</strong>
         </div>
-        <span className={isAdmin ? "access-pill active" : "access-pill"}>{isAdmin ? "Admin" : "View Only"}</span>
+
+        <span className={isAdmin ? "access-pill active" : "access-pill"}>
+          {isAdmin ? "Admin" : "View Only"}
+        </span>
       </nav>
 
       <section className="hero">
-        <div className="hero-badge">Premium Internal Tool</div>
-        <h1>Admin control center for prompts, agent mapping, and future system controls.</h1>
-        <p>
-          Manage the live audit prompt and the Supabase-backed mapping layer that translates raw Intercom agent names into employee names, teams, and emails. Historical stored results stay meaningful even if mappings change later.
-        </p>
+        <div className="hero-badge">Admin</div>
+        <h1>Control Center</h1>
+        <p>Manage prompts, mappings, and system settings.</p>
+
         <div className="action-row">
           {!session?.user ? (
-            <button type="button" className="primary-btn" onClick={handleGoogleLogin}>Sign in with Google</button>
+            <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
+              Sign in with Google
+            </button>
           ) : (
-            <button type="button" className="secondary-btn" onClick={handleLogout}>Sign out</button>
+            <button type="button" className="secondary-btn" onClick={handleLogout}>
+              Sign out
+            </button>
           )}
-          <button type="button" className="secondary-btn" onClick={handleReload} disabled={!session || loading || mappingLoading}>
-            {loading || mappingLoading ? "Loading..." : "Reload Admin Data"}
+
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={handleReload}
+            disabled={!session || loading || mappingLoading}
+          >
+            {loading || mappingLoading ? "Loading..." : "Reload"}
           </button>
-          <button type="button" className="primary-btn" onClick={handleSeedSuggestedMappings} disabled={!isAdmin || seedLoading || !mappingSuggestions.length}>
-            {seedLoading ? "Prefilling..." : `Prefill Detected Agents (${mappingSuggestions.length})`}
+
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={handleSeedSuggestedMappings}
+            disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
+          >
+            {seedLoading ? "Prefilling..." : `Prefill Agents (${mappingSuggestions.length})`}
           </button>
         </div>
       </section>
@@ -923,28 +1021,57 @@ export default function AdminPage() {
       )}
 
       {!session?.user ? (
-        <section className="panel"><h2>Sign in required</h2><p className="muted">Use a nextventures.io Google account to access the Admin control center.</p></section>
+        <section className="panel">
+          <h2>Sign in required</h2>
+          <p className="muted">Use a nextventures.io Google account.</p>
+        </section>
       ) : !isAdmin ? (
-        <section className="panel"><h2>Admin access required</h2><p className="muted">You are signed in, but this profile does not currently have Admin or Master Admin access.</p></section>
+        <section className="panel">
+          <h2>Admin access required</h2>
+          <p className="muted">This profile does not have Admin access.</p>
+        </section>
       ) : (
         <>
           <section className="two-col">
             <article className="panel">
               <p className="eyebrow">Prompt Source</p>
               <h2>Original Trusted Prompt</h2>
-              <p className="muted">This preserves the trusted original audit prompt exactly as the Admin API loaded it.</p>
-              <textarea className="textarea tall" value={promptData?.originalTrustedPrompt || ""} readOnly />
+              <p className="muted">Trusted baseline prompt.</p>
+
+              <textarea
+                className="textarea tall"
+                value={promptData?.originalTrustedPrompt || ""}
+                readOnly
+              />
             </article>
 
             <article className="panel">
               <p className="eyebrow">Live Configuration</p>
-              <h2>Live Prompt in Use</h2>
-              <p className="muted">Update the saved live prompt here. The audit run route should use this version instead of hardcoded route text.</p>
-              <textarea className="textarea live" value={livePromptInput} onChange={(event) => setLivePromptInput(event.target.value)} placeholder="The live prompt will appear here once loaded." />
-              <textarea className="textarea note" value={changeNote} onChange={(event) => setChangeNote(event.target.value)} placeholder="Optional change note, such as why this prompt was updated." />
+              <h2>Live Prompt</h2>
+              <p className="muted">Prompt used by new audits.</p>
+
+              <textarea
+                className="textarea live"
+                value={livePromptInput}
+                onChange={(event) => setLivePromptInput(event.target.value)}
+                placeholder="Live prompt"
+              />
+
+              <textarea
+                className="textarea note"
+                value={changeNote}
+                onChange={(event) => setChangeNote(event.target.value)}
+                placeholder="Optional change note"
+              />
+
               <div className="action-row">
-                <button type="button" className="primary-btn" onClick={handleSavePrompt} disabled={saveLoading || !livePromptInput.trim()}>
-                  {saveLoading ? "Saving..." : "Save Live Prompt"}
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={handleSavePrompt}
+                  disabled={saveLoading || !livePromptInput.trim()}
+                >
+                  {saveLoading ? "Saving..." : "Save Prompt"}
                 </button>
               </div>
             </article>
@@ -952,53 +1079,123 @@ export default function AdminPage() {
 
           <section className="two-col mapping-area">
             <article className="panel">
-              <p className="eyebrow">Agent Mapping Form</p>
-              <h2>Intercom agent to employee identity</h2>
-              <p className="muted">Add or edit the employee identity behind each raw Intercom agent name. If no active mapping exists, future audits can be marked as unmapped instead of silently wrong.</p>
+              <p className="eyebrow">Agent Mapping</p>
+              <h2>Map Agent</h2>
+              <p className="muted">Map Intercom names to employees.</p>
 
               <div className="form-grid single">
                 <label>
                   <span>Intercom Agent Name</span>
-                  <input value={mappingForm.intercom_agent_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, intercom_agent_name: event.target.value }))} placeholder="Example: Ryk Hayes" />
+                  <input
+                    value={mappingForm.intercom_agent_name}
+                    onChange={(event) =>
+                      setMappingForm((prev) => ({
+                        ...prev,
+                        intercom_agent_name: event.target.value,
+                      }))
+                    }
+                    placeholder="Intercom name"
+                  />
                 </label>
+
                 <label>
                   <span>Employee Name</span>
-                  <input value={mappingForm.employee_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, employee_name: event.target.value }))} placeholder="Internal employee name" />
+                  <input
+                    value={mappingForm.employee_name}
+                    onChange={(event) =>
+                      setMappingForm((prev) => ({
+                        ...prev,
+                        employee_name: event.target.value,
+                      }))
+                    }
+                    placeholder="Employee name"
+                  />
                 </label>
+
                 <div className="form-grid two">
                   <label>
                     <span>Employee Email</span>
-                    <input type="email" value={mappingForm.employee_email} onChange={(event) => setMappingForm((prev) => ({ ...prev, employee_email: event.target.value }))} placeholder="employee@nextventures.io" />
+                    <input
+                      type="email"
+                      value={mappingForm.employee_email}
+                      onChange={(event) =>
+                        setMappingForm((prev) => ({
+                          ...prev,
+                          employee_email: event.target.value,
+                        }))
+                      }
+                      placeholder="employee@nextventures.io"
+                    />
                   </label>
+
                   <label>
                     <span>Team Name</span>
-                    <input value={mappingForm.team_name} onChange={(event) => setMappingForm((prev) => ({ ...prev, team_name: event.target.value }))} placeholder="Example: CEx" />
+                    <input
+                      value={mappingForm.team_name}
+                      onChange={(event) =>
+                        setMappingForm((prev) => ({
+                          ...prev,
+                          team_name: event.target.value,
+                        }))
+                      }
+                      placeholder="Example: CEx"
+                    />
                   </label>
                 </div>
+
                 <label>
                   <span>Notes</span>
-                  <textarea className="textarea note" value={mappingForm.notes} onChange={(event) => setMappingForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional internal notes for this mapping." />
+                  <textarea
+                    className="textarea note"
+                    value={mappingForm.notes}
+                    onChange={(event) =>
+                      setMappingForm((prev) => ({
+                        ...prev,
+                        notes: event.target.value,
+                      }))
+                    }
+                    placeholder="Optional notes"
+                  />
                 </label>
+
                 <label className="check-row">
-                  <input type="checkbox" checked={mappingForm.is_active} onChange={(event) => setMappingForm((prev) => ({ ...prev, is_active: event.target.checked }))} />
-                  <span>Mapping is active</span>
+                  <input
+                    type="checkbox"
+                    checked={mappingForm.is_active}
+                    onChange={(event) =>
+                      setMappingForm((prev) => ({
+                        ...prev,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Active</span>
                 </label>
+
                 <div className="action-row">
-                  <button type="button" className="primary-btn" onClick={handleSaveMapping} disabled={mappingSaveLoading}>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={handleSaveMapping}
+                    disabled={mappingSaveLoading}
+                  >
                     {mappingSaveLoading ? "Saving..." : mappingForm.id ? "Update Mapping" : "Save Mapping"}
                   </button>
-                  <button type="button" className="secondary-btn" onClick={handleResetMappingForm}>Clear Form</button>
+
+                  <button type="button" className="secondary-btn" onClick={handleResetMappingForm}>
+                    Clear
+                  </button>
                 </div>
               </div>
             </article>
 
             <article className="panel">
-              <p className="eyebrow">Detected From Stored Results</p>
-              <h2>Suggested mapping drafts</h2>
-              <p className="muted">Raw Intercom agent names from stored audit results appear here when they do not already have a saved mapping.</p>
+              <p className="eyebrow">Detected Agents</p>
+              <h2>Suggested Mappings</h2>
+              <p className="muted">Detected agents without saved mappings.</p>
 
               {mappingSuggestions.length === 0 ? (
-                <div className="empty-box">No new agent suggestions are waiting right now.</div>
+                <div className="empty-box">No new agent suggestions.</div>
               ) : (
                 <div className="scroll-stack">
                   {mappingSuggestions.map((item) => (
@@ -1008,13 +1205,33 @@ export default function AdminPage() {
                           <p className="eyebrow">Intercom Agent</p>
                           <h3>{item.intercom_agent_name}</h3>
                         </div>
-                        <button type="button" className="secondary-btn small" onClick={() => handleUseSuggestion(item)}>Use Suggestion</button>
+
+                        <button
+                          type="button"
+                          className="secondary-btn small"
+                          onClick={() => handleUseSuggestion(item)}
+                        >
+                          Use
+                        </button>
                       </div>
+
                       <div className="mini-grid">
-                        <span><b>Employee</b>{item.employee_name || "-"}</span>
-                        <span><b>Email</b>{item.employee_email || "-"}</span>
-                        <span><b>Team</b>{item.team_name || "-"}</span>
-                        <span><b>Seen</b>{formatDateTime(item.latest_seen_at)}</span>
+                        <span>
+                          <b>Employee</b>
+                          {item.employee_name || "-"}
+                        </span>
+                        <span>
+                          <b>Email</b>
+                          {item.employee_email || "-"}
+                        </span>
+                        <span>
+                          <b>Team</b>
+                          {item.team_name || "-"}
+                        </span>
+                        <span>
+                          <b>Seen</b>
+                          {formatDateTime(item.latest_seen_at)}
+                        </span>
                       </div>
                     </article>
                   ))}
@@ -1025,12 +1242,12 @@ export default function AdminPage() {
 
           <section className="two-col">
             <article className="panel">
-              <p className="eyebrow">Unmapped Agent Detection</p>
-              <h2>Stored agent names still needing mapping</h2>
-              <p className="muted">These raw Intercom agent names were found in stored results without active mapping coverage.</p>
+              <p className="eyebrow">Mapping Risk</p>
+              <h2>Unmapped Agents</h2>
+              <p className="muted">Stored agents without active mapping coverage.</p>
 
               {unmappedRows.length === 0 ? (
-                <div className="empty-box success-box">No unmapped stored agents were detected.</div>
+                <div className="empty-box success-box">No unmapped stored agents.</div>
               ) : (
                 <div className="scroll-stack compact-list">
                   {unmappedRows.map((item) => (
@@ -1040,6 +1257,7 @@ export default function AdminPage() {
                           <p className="eyebrow amber">{item.issue_label}</p>
                           <h3>{item.intercom_agent_name}</h3>
                         </div>
+
                         <button
                           type="button"
                           className="secondary-btn small"
@@ -1049,16 +1267,23 @@ export default function AdminPage() {
                               employee_name: item.sample_employee_name || item.intercom_agent_name,
                               employee_email: item.sample_employee_email || "",
                               team_name: item.sample_team_name || "",
-                              notes: "Prefilled from unmapped stored result. Review and save this mapping.",
+                              notes: "Prefilled from unmapped stored result.",
                             })
                           }
                         >
-                          Map This Agent
+                          Map
                         </button>
                       </div>
+
                       <div className="mini-grid two-items">
-                        <span><b>Appearances</b>{item.appearances}</span>
-                        <span><b>Latest seen</b>{formatDateTime(item.latest_seen_at)}</span>
+                        <span>
+                          <b>Count</b>
+                          {item.appearances}
+                        </span>
+                        <span>
+                          <b>Latest</b>
+                          {formatDateTime(item.latest_seen_at)}
+                        </span>
                       </div>
                     </article>
                   ))}
@@ -1067,13 +1292,29 @@ export default function AdminPage() {
             </article>
 
             <article className="panel">
-              <p className="eyebrow">Historical Safety Rules</p>
-              <h2>What happens if mappings change later?</h2>
+              <p className="eyebrow">Mapping Summary</p>
+              <h2>Current Status</h2>
+
               <div className="rule-list">
-                <div><b>Past results stay meaningful.</b><span>Historical stored rows keep their saved employee fields even when a mapping is changed later.</span></div>
-                <div><b>Future audits can become unmapped.</b><span>If a raw Intercom name has no active mapping, future stored results can show an unmapped status.</span></div>
-                <div><b>Safer than delete.</b><span>Activate and deactivate controls preserve mapping history instead of removing records blindly.</span></div>
-                <div><b>Current coverage.</b><span>{activeMappingsCount} active, {inactiveMappingsCount} inactive, {healthyMappingsCount} healthy, {incompleteMappingsCount} needing details.</span></div>
+                <div>
+                  <b>Active</b>
+                  <span>{formatNumber(activeMappingsCount)} mapping(s)</span>
+                </div>
+
+                <div>
+                  <b>Inactive</b>
+                  <span>{formatNumber(inactiveMappingsCount)} mapping(s)</span>
+                </div>
+
+                <div>
+                  <b>Healthy</b>
+                  <span>{formatNumber(healthyMappingsCount)} mapping(s)</span>
+                </div>
+
+                <div>
+                  <b>Needs Work</b>
+                  <span>{formatNumber(incompleteMappingsCount + unmappedRows.length)} item(s)</span>
+                </div>
               </div>
             </article>
           </section>
@@ -1081,34 +1322,59 @@ export default function AdminPage() {
           <section className="panel wide">
             <div className="section-head">
               <div>
-                <p className="eyebrow">Agent Mapping Table</p>
-                <h2>Real mapping records with data quality controls</h2>
-                <p className="muted">Search, review, edit, and activate or deactivate the mapping records that power employee ownership, team filters, leaderboards, and future audit storage.</p>
+                <p className="eyebrow">Mapping Table</p>
+                <h2>Agent Mappings</h2>
+                <p className="muted">Review and manage mapping records.</p>
               </div>
+
               <div className="tiny-metrics">
-                <span><b>{formatNumber(mappingRows.length)}</b>total</span>
-                <span><b>{formatNumber(activeMappingsCount)}</b>active</span>
-                <span><b>{formatNumber(incompleteMappingsCount)}</b>needs detail</span>
-                <span><b>{formatNumber(unmappedRows.length)}</b>risk</span>
+                <span>
+                  <b>{formatNumber(mappingRows.length)}</b>
+                  total
+                </span>
+                <span>
+                  <b>{formatNumber(activeMappingsCount)}</b>
+                  active
+                </span>
+                <span>
+                  <b>{formatNumber(incompleteMappingsCount)}</b>
+                  incomplete
+                </span>
+                <span>
+                  <b>{formatNumber(unmappedRows.length)}</b>
+                  risk
+                </span>
               </div>
             </div>
 
             <div className="filter-grid">
               <label>
                 <span>Search</span>
-                <input value={mappingSearch} onChange={(event) => setMappingSearch(event.target.value)} placeholder="Search agent, employee, email, team, notes, quality" />
+                <input
+                  value={mappingSearch}
+                  onChange={(event) => setMappingSearch(event.target.value)}
+                  placeholder="Search mappings"
+                />
               </label>
+
               <label>
                 <span>Status</span>
-                <select value={mappingStatusFilter} onChange={(event) => setMappingStatusFilter(event.target.value)}>
+                <select
+                  value={mappingStatusFilter}
+                  onChange={(event) => setMappingStatusFilter(event.target.value)}
+                >
                   <option value="all">All statuses</option>
                   <option value="active">Active only</option>
                   <option value="inactive">Inactive only</option>
                 </select>
               </label>
+
               <label>
                 <span>Quality</span>
-                <select value={mappingQualityFilter} onChange={(event) => setMappingQualityFilter(event.target.value)}>
+                <select
+                  value={mappingQualityFilter}
+                  onChange={(event) => setMappingQualityFilter(event.target.value)}
+                >
                   <option value="all">All quality states</option>
                   <option value="needs_attention">Needs attention</option>
                   <option value="missing_email_team">Needs email and team</option>
@@ -1119,47 +1385,114 @@ export default function AdminPage() {
                   <option value="no_stored_usage">Ready, no stored usage</option>
                 </select>
               </label>
-              <button type="button" className="secondary-btn clear-btn" onClick={() => { setMappingSearch(""); setMappingStatusFilter("all"); setMappingQualityFilter("all"); }}>Clear Filters</button>
+
+              <button
+                type="button"
+                className="secondary-btn clear-btn"
+                onClick={() => {
+                  setMappingSearch("");
+                  setMappingStatusFilter("all");
+                  setMappingQualityFilter("all");
+                }}
+              >
+                Clear
+              </button>
             </div>
 
             <div className="chip-row">
-              <span>Showing {formatNumber(filteredMappings.length)} of {formatNumber(mappingRows.length)} mapping(s)</span>
-              <span className={unmappedRows.length ? "chip warning" : "chip success"}>{formatNumber(unmappedRows.length)} stored agent risk(s)</span>
-              <span className={mappingSuggestions.length ? "chip notice" : "chip success"}>{formatNumber(mappingSuggestions.length)} detected draft(s)</span>
+              <span>
+                Showing {formatNumber(filteredMappings.length)} of {formatNumber(mappingRows.length)}
+              </span>
+              <span className={unmappedRows.length ? "chip warning" : "chip success"}>
+                {formatNumber(unmappedRows.length)} risk
+              </span>
+              <span className={mappingSuggestions.length ? "chip notice" : "chip success"}>
+                {formatNumber(mappingSuggestions.length)} detected
+              </span>
             </div>
 
             {mappingLoading ? (
-              <div className="empty-box">Loading mapping records...</div>
+              <div className="empty-box">Loading mappings...</div>
             ) : filteredMappings.length === 0 ? (
-              <div className="empty-box">No mapping rows match the current search or filters.</div>
+              <div className="empty-box">No matching mapping rows.</div>
             ) : (
               <div className="table-shell">
                 <table>
                   <thead>
                     <tr>
                       <th>Intercom Agent</th>
-                      <th>Employee Identity</th>
+                      <th>Employee</th>
                       <th>Team</th>
                       <th>Quality</th>
-                      <th>Stored Usage</th>
+                      <th>Usage</th>
                       <th>Status</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {filteredMappings.map((row) => (
                       <tr key={row.id || row.intercom_agent_name}>
-                        <td><strong>{row.intercom_agent_name || "-"}</strong><small>Raw Intercom display name</small></td>
-                        <td><strong>{row.employee_name || "-"}</strong><small>{row.employee_email || "No employee email saved"}</small>{row.notes ? <em>{row.notes}</em> : null}</td>
-                        <td>{row.team_name ? <span className="team-pill">{row.team_name}</span> : <span className="missing-text">No team</span>}</td>
-                        <td><span className={toneClass(row.quality.tone)}>{row.quality.label}</span><small>{row.quality.detail}</small></td>
-                        <td><strong>{formatNumber(row.stats.appearances)}</strong><small>{row.stats.appearances ? `Latest: ${formatDateTime(row.stats.latest_seen_at)}` : "No stored usage found"}</small></td>
-                        <td><span className={row.is_active === false ? "status inactive" : "status active"}>{row.is_active === false ? "Inactive" : "Active"}</span></td>
+                        <td>
+                          <strong>{row.intercom_agent_name || "-"}</strong>
+                          <small>Raw Intercom name</small>
+                        </td>
+
+                        <td>
+                          <strong>{row.employee_name || "-"}</strong>
+                          <small>{row.employee_email || "No email"}</small>
+                          {row.notes ? <em>{row.notes}</em> : null}
+                        </td>
+
+                        <td>
+                          {row.team_name ? (
+                            <span className="team-pill">{row.team_name}</span>
+                          ) : (
+                            <span className="missing-text">No team</span>
+                          )}
+                        </td>
+
+                        <td>
+                          <span className={toneClass(row.quality.tone)}>{row.quality.label}</span>
+                          <small>{row.quality.detail}</small>
+                        </td>
+
+                        <td>
+                          <strong>{formatNumber(row.stats.appearances)}</strong>
+                          <small>
+                            {row.stats.appearances
+                              ? `Latest: ${formatDateTime(row.stats.latest_seen_at)}`
+                              : "No stored usage"}
+                          </small>
+                        </td>
+
+                        <td>
+                          <span className={row.is_active === false ? "status inactive" : "status active"}>
+                            {row.is_active === false ? "Inactive" : "Active"}
+                          </span>
+                        </td>
+
                         <td>
                           <div className="table-actions">
-                            <button type="button" className="secondary-btn small" onClick={() => handleEditMapping(row)}>Edit</button>
-                            <button type="button" className="secondary-btn small" disabled={mappingToggleLoadingId === row.id} onClick={() => handleToggleMappingActive(row)}>
-                              {mappingToggleLoadingId === row.id ? "Saving..." : row.is_active === false ? "Activate" : "Deactivate"}
+                            <button
+                              type="button"
+                              className="secondary-btn small"
+                              onClick={() => handleEditMapping(row)}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              className="secondary-btn small"
+                              disabled={mappingToggleLoadingId === row.id}
+                              onClick={() => handleToggleMappingActive(row)}
+                            >
+                              {mappingToggleLoadingId === row.id
+                                ? "Saving..."
+                                : row.is_active === false
+                                ? "Activate"
+                                : "Deactivate"}
                             </button>
                           </div>
                         </td>
@@ -1175,19 +1508,23 @@ export default function AdminPage() {
             <div className="section-head">
               <div>
                 <p className="eyebrow">Prompt History</p>
-                <h2>Recent Admin prompt changes</h2>
-                <p className="muted">The prompt history is loaded through the protected Admin prompt API.</p>
+                <h2>Recent Changes</h2>
+                <p className="muted">Recent saved prompt changes.</p>
               </div>
             </div>
 
             {historyRows.length === 0 ? (
-              <div className="empty-box">No prompt history is available yet.</div>
+              <div className="empty-box">No prompt history yet.</div>
             ) : (
               <div className="history-list">
                 {historyRows.slice(0, 12).map((item, index) => (
                   <article className="history-card" key={item?.id || index}>
-                    <div><strong>{getHistoryLabel(item)}</strong><span>{formatDateTime(item?.created_at || item?.updated_at)}</span></div>
-                    <p>{item?.change_note || item?.notes || "No change note saved."}</p>
+                    <div>
+                      <strong>{getHistoryLabel(item)}</strong>
+                      <span>{formatDateTime(item?.created_at || item?.updated_at)}</span>
+                    </div>
+
+                    <p>{item?.change_note || item?.notes || "No change note."}</p>
                   </article>
                 ))}
               </div>
@@ -1250,7 +1587,9 @@ const adminStyles = `
     text-transform: uppercase;
   }
 
-  .eyebrow.amber { color: #fcd34d; }
+  .eyebrow.amber {
+    color: #fcd34d;
+  }
 
   .access-pill,
   .hero-badge,
@@ -1302,7 +1641,10 @@ const adminStyles = `
     pointer-events: none;
   }
 
-  .hero.compact { max-width: 900px; margin-top: 80px; }
+  .hero.compact {
+    max-width: 900px;
+    margin-top: 80px;
+  }
 
   .hero-badge {
     padding: 8px 12px;
@@ -1315,7 +1657,9 @@ const adminStyles = `
   h1,
   h2,
   h3,
-  p { position: relative; }
+  p {
+    position: relative;
+  }
 
   h1 {
     max-width: 1000px;
@@ -1332,7 +1676,10 @@ const adminStyles = `
     letter-spacing: -0.04em;
   }
 
-  h3 { margin: 0; font-size: 18px; }
+  h3 {
+    margin: 0;
+    font-size: 18px;
+  }
 
   .hero p,
   .muted {
@@ -1444,8 +1791,13 @@ const adminStyles = `
     background: rgba(59,130,246,0.12);
   }
 
-  .stat-card.success::before { background: rgba(16,185,129,0.12); }
-  .stat-card.warning::before { background: rgba(245,158,11,0.14); }
+  .stat-card.success::before {
+    background: rgba(16,185,129,0.12);
+  }
+
+  .stat-card.warning::before {
+    background: rgba(245,158,11,0.14);
+  }
 
   .stat-card p {
     margin: 0 0 10px;
@@ -1501,7 +1853,9 @@ const adminStyles = `
     border-radius: 24px;
   }
 
-  .panel.wide { margin-bottom: 24px; }
+  .panel.wide {
+    margin-bottom: 24px;
+  }
 
   .textarea,
   input,
@@ -1528,16 +1882,28 @@ const adminStyles = `
     resize: vertical;
   }
 
-  .textarea.tall { min-height: 420px; }
-  .textarea.live { min-height: 320px; margin-bottom: 14px; }
-  .textarea.note { min-height: 88px; margin-bottom: 14px; }
+  .textarea.tall {
+    min-height: 420px;
+  }
+
+  .textarea.live {
+    min-height: 320px;
+    margin-bottom: 14px;
+  }
+
+  .textarea.note {
+    min-height: 88px;
+    margin-bottom: 14px;
+  }
 
   .form-grid {
     display: grid;
     gap: 14px;
   }
 
-  .form-grid.two { grid-template-columns: 1fr 1fr; }
+  .form-grid.two {
+    grid-template-columns: 1fr 1fr;
+  }
 
   label span,
   .filter-grid label span {
@@ -1556,8 +1922,18 @@ const adminStyles = `
     gap: 10px;
   }
 
-  .check-row input { width: auto; min-height: auto; }
-  .check-row span { margin: 0; color: #dbe7ff; letter-spacing: 0; text-transform: none; font-size: 14px; }
+  .check-row input {
+    width: auto;
+    min-height: auto;
+  }
+
+  .check-row span {
+    margin: 0;
+    color: #dbe7ff;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: 14px;
+  }
 
   .empty-box {
     padding: 20px;
@@ -1582,7 +1958,9 @@ const adminStyles = `
     padding-right: 4px;
   }
 
-  .scroll-stack.compact-list { max-height: 520px; }
+  .scroll-stack.compact-list {
+    max-height: 520px;
+  }
 
   .mini-card {
     padding: 16px;
@@ -1674,7 +2052,9 @@ const adminStyles = `
     margin-bottom: 16px;
   }
 
-  .clear-btn { min-height: 50px; }
+  .clear-btn {
+    min-height: 50px;
+  }
 
   .chip-row {
     margin-bottom: 16px;
@@ -1692,9 +2072,23 @@ const adminStyles = `
     font-weight: 800;
   }
 
-  .chip.success { color: #bbf7d0; border-color: rgba(16,185,129,0.22); background: rgba(16,185,129,0.08); }
-  .chip.warning { color: #fde68a; border-color: rgba(245,158,11,0.22); background: rgba(245,158,11,0.09); }
-  .chip.notice { color: #bfdbfe; border-color: rgba(96,165,250,0.22); background: rgba(59,130,246,0.1); }
+  .chip.success {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.22);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .chip.warning {
+    color: #fde68a;
+    border-color: rgba(245,158,11,0.22);
+    background: rgba(245,158,11,0.09);
+  }
+
+  .chip.notice {
+    color: #bfdbfe;
+    border-color: rgba(96,165,250,0.22);
+    background: rgba(59,130,246,0.1);
+  }
 
   .table-shell {
     max-height: 760px;
@@ -1730,7 +2124,9 @@ const adminStyles = `
     text-transform: uppercase;
   }
 
-  tr:nth-child(even) td { background: rgba(255,255,255,0.018); }
+  tr:nth-child(even) td {
+    background: rgba(255,255,255,0.018);
+  }
 
   td strong,
   td small,
@@ -1738,9 +2134,23 @@ const adminStyles = `
     display: block;
   }
 
-  td strong { color: #f5f7ff; margin-bottom: 4px; }
-  td small { color: #a9b4d0; line-height: 1.5; }
-  td em { margin-top: 8px; color: #8ea0d6; font-size: 12px; line-height: 1.5; font-style: normal; }
+  td strong {
+    color: #f5f7ff;
+    margin-bottom: 4px;
+  }
+
+  td small {
+    color: #a9b4d0;
+    line-height: 1.5;
+  }
+
+  td em {
+    margin-top: 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    line-height: 1.5;
+    font-style: normal;
+  }
 
   .team-pill {
     padding: 7px 11px;
@@ -1749,7 +2159,10 @@ const adminStyles = `
     background: rgba(59,130,246,0.1);
   }
 
-  .missing-text { color: #fcd34d; font-weight: 800; }
+  .missing-text {
+    color: #fcd34d;
+    font-weight: 800;
+  }
 
   .tone,
   .status {
@@ -1758,12 +2171,36 @@ const adminStyles = `
   }
 
   .tone.success,
-  .status.active { color: #bbf7d0; border: 1px solid rgba(16,185,129,0.22); background: rgba(16,185,129,0.1); }
+  .status.active {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.22);
+    background: rgba(16,185,129,0.1);
+  }
+
   .tone.warning,
-  .status.inactive { color: #fde68a; border: 1px solid rgba(245,158,11,0.24); background: rgba(245,158,11,0.1); }
-  .tone.notice { color: #bfdbfe; border: 1px solid rgba(96,165,250,0.24); background: rgba(59,130,246,0.1); }
-  .tone.neutral { color: #dbe7ff; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); }
-  .tone.danger { color: #fecdd3; border: 1px solid rgba(244,63,94,0.24); background: rgba(244,63,94,0.1); }
+  .status.inactive {
+    color: #fde68a;
+    border: 1px solid rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.1);
+  }
+
+  .tone.notice {
+    color: #bfdbfe;
+    border: 1px solid rgba(96,165,250,0.24);
+    background: rgba(59,130,246,0.1);
+  }
+
+  .tone.neutral {
+    color: #dbe7ff;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+  }
+
+  .tone.danger {
+    color: #fecdd3;
+    border: 1px solid rgba(244,63,94,0.24);
+    background: rgba(244,63,94,0.1);
+  }
 
   .history-list {
     display: grid;
