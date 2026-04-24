@@ -814,19 +814,16 @@ function DonutChart({ title, entries, total, onSelect }) {
         overflow: "hidden",
       }}
     >
-      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "12px" }}>
+      <div style={{ fontSize: "20px", fontWeight: 700, marginBottom: "14px" }}>
         {title}
       </div>
 
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(180px, 220px) minmax(0, 1fr)",
-          gap: "14px",
-          alignItems: "center",
-          flex: 1,
-          minHeight: 0,
           width: "100%",
+          display: "grid",
+          placeItems: "center",
+          marginBottom: "16px",
         }}
       >
         <div
@@ -834,7 +831,6 @@ function DonutChart({ title, entries, total, onSelect }) {
             width: "100%",
             maxWidth: "220px",
             aspectRatio: "1 / 1",
-            margin: "0 auto",
             borderRadius: "50%",
             background: gradient,
             display: "grid",
@@ -869,87 +865,88 @@ function DonutChart({ title, entries, total, onSelect }) {
             </div>
           </div>
         </div>
+      </div>
 
-        <div
-          style={{
-            display: "grid",
-            gap: "8px",
-            alignContent: "start",
-            minWidth: 0,
-            width: "100%",
-          }}
-        >
-          {segments.length ? (
-            segments.map((segment) => (
-              <button
-                key={segment.label}
-                type="button"
-                onClick={() => onSelect(segment.label)}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "10px minmax(0, 1fr) auto",
-                  gap: "10px",
-                  alignItems: "center",
-                  padding: "10px 12px",
-                  borderRadius: "14px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "#eef3ff",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  minWidth: 0,
-                  width: "100%",
-                }}
-              >
-                <span
-                  style={{
-                    width: "10px",
-                    height: "10px",
-                    borderRadius: "999px",
-                    background: segment.color,
-                    boxShadow: `0 0 14px ${segment.color}`,
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    minWidth: 0,
-                  }}
-                >
-                  {segment.label}
-                </span>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: "#cdd7ff",
-                    fontWeight: 700,
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                  }}
-                >
-                  {segment.count} · {formatPercent(segment.percent)}
-                </span>
-              </button>
-            ))
-          ) : (
-            <div
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: "10px",
+          alignContent: "start",
+          width: "100%",
+        }}
+      >
+        {segments.length ? (
+          segments.map((segment) => (
+            <button
+              key={segment.label}
+              type="button"
+              onClick={() => onSelect(segment.label)}
               style={{
-                borderRadius: "16px",
-                border: "1px dashed rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.02)",
-                padding: "18px",
-                color: "#9fb0d4",
-                fontSize: "14px",
+                display: "grid",
+                gridTemplateColumns: "10px minmax(0, 1fr) auto",
+                gap: "10px",
+                alignItems: "center",
+                padding: "10px 12px",
+                borderRadius: "14px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.03)",
+                color: "#eef3ff",
+                cursor: "pointer",
+                textAlign: "left",
+                minWidth: 0,
+                width: "100%",
               }}
             >
-              No data for this section.
-            </div>
-          )}
-        </div>
+              <span
+                style={{
+                  width: "10px",
+                  height: "10px",
+                  borderRadius: "999px",
+                  background: segment.color,
+                  boxShadow: `0 0 14px ${segment.color}`,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                }}
+                title={segment.label}
+              >
+                {segment.label}
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "#cdd7ff",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+              >
+                {segment.count} · {formatPercent(segment.percent)}
+              </span>
+            </button>
+          ))
+        ) : (
+          <div
+            style={{
+              borderRadius: "16px",
+              border: "1px dashed rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.02)",
+              padding: "18px",
+              color: "#9fb0d4",
+              fontSize: "14px",
+            }}
+          >
+            No data for this section.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1074,8 +1071,8 @@ function HorizontalBarChart({ title, entries, total, onSelect, kind }) {
   );
 }
 
-function KPIStat({ label, value, accent }) {
-  return (
+function KPIStat({ label, value, accent, onClick }) {
+  const content = (
     <div
       style={{
         borderRadius: "20px",
@@ -1086,6 +1083,8 @@ function KPIStat({ label, value, accent }) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
+        transition: "transform 0.18s ease, box-shadow 0.18s ease",
+        boxShadow: onClick ? "0 10px 22px rgba(0,0,0,0.18)" : "none",
       }}
     >
       <div
@@ -1111,6 +1110,24 @@ function KPIStat({ label, value, accent }) {
         {value}
       </div>
     </div>
+  );
+
+  if (!onClick) return content;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: "none",
+        padding: 0,
+        background: "transparent",
+        textAlign: "left",
+        cursor: "pointer",
+      }}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -1907,31 +1924,73 @@ export default function DashboardPage() {
             label="Unique Conversations"
             value={total}
             accent="linear-gradient(135deg, rgba(37,99,235,0.18), rgba(99,102,241,0.12))"
+            onClick={() =>
+              openDetail("KPI Drilldown", "Unique Conversations", filteredRows)
+            }
           />
           <KPIStat
             label="Missed Opportunities"
             value={missedCount}
             accent="linear-gradient(135deg, rgba(245,158,11,0.18), rgba(249,115,22,0.12))"
+            onClick={() =>
+              openDetail(
+                "KPI Drilldown",
+                "Missed Opportunities",
+                filteredRows.filter(
+                  (row) => row.review_sentiment === "Missed Opportunity"
+                )
+              )
+            }
           />
           <KPIStat
             label="Very Positive"
             value={veryPositiveCount}
             accent="linear-gradient(135deg, rgba(16,185,129,0.18), rgba(6,182,212,0.12))"
+            onClick={() =>
+              openDetail(
+                "KPI Drilldown",
+                "Very Positive",
+                filteredRows.filter(
+                  (row) => row.client_sentiment === "Very Positive"
+                )
+              )
+            }
           />
           <KPIStat
             label="Resolution Rate"
             value={formatPercent(total ? (resolvedCount / total) * 100 : 0)}
             accent="linear-gradient(135deg, rgba(14,165,233,0.18), rgba(34,197,94,0.12))"
+            onClick={() =>
+              openDetail(
+                "KPI Drilldown",
+                "Resolved",
+                filteredRows.filter((row) => row.resolution_status === "Resolved")
+              )
+            }
           />
           <KPIStat
             label="Unresolved"
             value={unresolvedCount}
             accent="linear-gradient(135deg, rgba(244,63,94,0.18), rgba(168,85,247,0.12))"
+            onClick={() =>
+              openDetail(
+                "KPI Drilldown",
+                "Unresolved",
+                filteredRows.filter((row) => row.resolution_status === "Unresolved")
+              )
+            }
           />
           <KPIStat
             label="Mapped Records"
             value={`${mappedCount}/${total}`}
             accent="linear-gradient(135deg, rgba(59,130,246,0.14), rgba(16,185,129,0.12))"
+            onClick={() =>
+              openDetail(
+                "KPI Drilldown",
+                "Mapped Records",
+                filteredRows.filter((row) => row.employee_match_status === "mapped")
+              )
+            }
           />
         </section>
 
