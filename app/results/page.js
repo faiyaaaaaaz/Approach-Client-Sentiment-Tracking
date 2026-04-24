@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
+
+const INTERCOM_CONVERSATION_URL_PREFIX =
+  "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -42,11 +45,12 @@ const CLIENT_SENTIMENT_OPTIONS = [
   "Very Positive",
 ];
 
-const RESOLUTION_STATUS_OPTIONS = [
-  "Resolved",
-  "Unresolved",
-  "Pending",
-  "Unclear",
+const RESOLUTION_STATUS_OPTIONS = ["Resolved", "Unresolved", "Pending", "Unclear"];
+
+const MAPPING_STATUS_OPTIONS = [
+  { value: "all", label: "All Mapping" },
+  { value: "mapped", label: "Mapped" },
+  { value: "unmapped", label: "Unmapped" },
 ];
 
 function normalizeToStartOfDay(date) {
@@ -79,31 +83,16 @@ function getPresetRange(key) {
       return { startDate: formatDateInput(today), endDate: formatDateInput(today) };
     case "yesterday": {
       const yesterday = shiftDays(today, -1);
-      return {
-        startDate: formatDateInput(yesterday),
-        endDate: formatDateInput(yesterday),
-      };
+      return { startDate: formatDateInput(yesterday), endDate: formatDateInput(yesterday) };
     }
     case "past_7_days":
-      return {
-        startDate: formatDateInput(shiftDays(today, -6)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -6)), endDate: formatDateInput(today) };
     case "past_30_days":
-      return {
-        startDate: formatDateInput(shiftDays(today, -29)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -29)), endDate: formatDateInput(today) };
     case "this_month":
-      return {
-        startDate: formatDateInput(startOfMonth(today)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(startOfMonth(today)), endDate: formatDateInput(today) };
     case "past_90_days":
-      return {
-        startDate: formatDateInput(shiftDays(today, -89)),
-        endDate: formatDateInput(today),
-      };
+      return { startDate: formatDateInput(shiftDays(today, -89)), endDate: formatDateInput(today) };
     default:
       return null;
   }
@@ -114,10 +103,20 @@ function safeText(value, fallback = "-") {
   return text || fallback;
 }
 
-function formatDateTime(value) {
-  if (!value) return "-";
+function toValidDate(value) {
+  if (!value) return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toDateInputFromValue(value) {
+  const date = toValidDate(value);
+  return date ? formatDateInput(date) : "";
+}
+
+function formatDateTime(value) {
+  const date = toValidDate(value);
+  if (!date) return value ? String(value) : "-";
 
   return date.toLocaleString(undefined, {
     year: "numeric",
@@ -129,15 +128,18 @@ function formatDateTime(value) {
 }
 
 function formatShortDate(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = toValidDate(value);
+  if (!date) return value ? String(value) : "-";
 
   return date.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "2-digit",
   });
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
 }
 
 function buildFallbackProfile(user) {
@@ -169,26 +171,74 @@ function canManageResults(profile) {
 function getResultType(item) {
   if (item?.error) return "error";
 
-  if (safeText(item?.review_sentiment, "") === "Missed Opportunity") {
-    return "opportunity_case";
-  }
+  const reviewSentiment = safeText(item?.review_sentiment, "");
+
+  if (reviewSentiment === "Missed Opportunity") return "opportunity_case";
 
   if (
-    safeText(item?.review_sentiment, "") === "Likely Positive Review" ||
-    safeText(item?.review_sentiment, "") === "Highly Likely Positive Review"
+    reviewSentiment === "Likely Positive Review" ||
+    reviewSentiment === "Highly Likely Positive Review"
   ) {
     return "positive_signal";
   }
 
   if (
-    safeText(item?.review_sentiment, "") === "Likely Negative Review" ||
-    safeText(item?.review_sentiment, "") === "Highly Likely Negative Review" ||
-    safeText(item?.review_sentiment, "") === "Negative Outcome - No Review Request"
+    reviewSentiment === "Likely Negative Review" ||
+    reviewSentiment === "Highly Likely Negative Review" ||
+    reviewSentiment === "Negative Outcome - No Review Request"
   ) {
     return "negative_risk";
   }
 
   return "success";
+}
+
+function getResultTypeLabel(type) {
+  if (type === "error") return "Error";
+  if (type === "opportunity_case") return "Opportunity";
+  if (type === "positive_signal") return "Positive";
+  if (type === "negative_risk") return "Risk";
+  return "Stored";
+}
+
+function getResultTypeTone(type) {
+  if (type === "error") return "danger";
+  if (type === "opportunity_case") return "warning";
+  if (type === "positive_signal") return "success";
+  if (type === "negative_risk") return "danger";
+  return "neutral";
+}
+
+function getReviewTone(value) {
+  const text = safeText(value, "");
+  if (text.includes("Positive")) return "success";
+  if (text === "Missed Opportunity") return "warning";
+  if (text.includes("Negative")) return "danger";
+  return "neutral";
+}
+
+function getResolutionTone(value) {
+  const text = safeText(value, "");
+  if (text === "Resolved") return "success";
+  if (text === "Pending") return "warning";
+  if (text === "Unresolved") return "danger";
+  return "neutral";
+}
+
+function getClientTone(value) {
+  const text = safeText(value, "");
+  if (text.includes("Positive")) return "success";
+  if (text.includes("Negative")) return "danger";
+  if (text === "Neutral") return "neutral";
+  return "notice";
+}
+
+function getMappingStatus(item) {
+  const status = safeText(item?.employee_match_status, "").toLowerCase();
+  if (status === "mapped") return "mapped";
+  if (status === "unmapped") return "unmapped";
+  if (safeText(item?.employee_name, "") || safeText(item?.employee_email, "")) return "mapped";
+  return "unmapped";
 }
 
 function matchesResultType(item, value) {
@@ -224,81 +274,13 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-function getPillStyle(kind) {
-  const base = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    padding: "7px 12px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: 700,
-    letterSpacing: "0.02em",
-    border: "1px solid rgba(255,255,255,0.08)",
-    whiteSpace: "nowrap",
-  };
-
-  if (kind === "resolved" || kind === "positive_signal") {
-    return {
-      ...base,
-      background: "rgba(16,185,129,0.12)",
-      border: "1px solid rgba(52,211,153,0.18)",
-      color: "#d1fae5",
-      boxShadow: "0 0 0 1px rgba(16,185,129,0.03), 0 0 24px rgba(16,185,129,0.08)",
-    };
-  }
-
-  if (kind === "opportunity_case" || kind === "pending") {
-    return {
-      ...base,
-      background: "rgba(245,158,11,0.12)",
-      border: "1px solid rgba(251,191,36,0.18)",
-      color: "#fef3c7",
-      boxShadow: "0 0 0 1px rgba(245,158,11,0.03), 0 0 24px rgba(245,158,11,0.08)",
-    };
-  }
-
-  if (kind === "negative_risk" || kind === "unresolved" || kind === "error") {
-    return {
-      ...base,
-      background: "rgba(244,63,94,0.12)",
-      border: "1px solid rgba(251,113,133,0.18)",
-      color: "#ffe4e6",
-      boxShadow: "0 0 0 1px rgba(244,63,94,0.03), 0 0 24px rgba(244,63,94,0.08)",
-    };
-  }
-
-  return {
-    ...base,
-    background: "rgba(59,130,246,0.12)",
-    border: "1px solid rgba(96,165,250,0.18)",
-    color: "#dbeafe",
-    boxShadow: "0 0 0 1px rgba(59,130,246,0.03), 0 0 24px rgba(59,130,246,0.08)",
-  };
-}
-
-function PresetCalendarIcon() {
+function CalendarIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M8 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M16 2V5" stroke="#DCE7FF" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M3.5 9H20.5" stroke="#7FA2FF" strokeWidth="1.8" strokeLinecap="round" />
-      <rect
-        x="3.5"
-        y="4.5"
-        width="17"
-        height="16"
-        rx="3"
-        stroke="url(#resultsCalendarGradient)"
-        strokeWidth="1.5"
-      />
-      <defs>
-        <linearGradient id="resultsCalendarGradient" x1="3.5" y1="4.5" x2="20.5" y2="20.5">
-          <stop stopColor="#60A5FA" />
-          <stop offset="0.5" stopColor="#8B5CF6" />
-          <stop offset="1" stopColor="#EC4899" />
-        </linearGradient>
-      </defs>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M8 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M16 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.5 9H20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <rect x="3.5" y="4.5" width="17" height="16" rx="3" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -325,6 +307,9 @@ export default function ResultsPage() {
 
   const [searchText, setSearchText] = useState("");
   const [agentFilter, setAgentFilter] = useState("all");
+  const [employeeFilter, setEmployeeFilter] = useState("all");
+  const [teamFilter, setTeamFilter] = useState("all");
+  const [mappingStatusFilter, setMappingStatusFilter] = useState("all");
   const [reviewSentimentFilter, setReviewSentimentFilter] = useState("all");
   const [clientSentimentFilter, setClientSentimentFilter] = useState("all");
   const [resolutionStatusFilter, setResolutionStatusFilter] = useState("all");
@@ -341,16 +326,11 @@ export default function ResultsPage() {
     const email = user?.email?.toLowerCase() || "";
     const domain = email.split("@")[1] || "";
 
-    if (!user) {
-      return { profile: null, message: "" };
-    }
+    if (!user) return { profile: null, message: "" };
 
     if (domain !== "nextventures.io") {
       await supabase.auth.signOut();
-      return {
-        profile: null,
-        message: "Access blocked. Only nextventures.io Google accounts are allowed.",
-      };
+      return { profile: null, message: "Access blocked. Use a nextventures.io Google account." };
     }
 
     const fallbackProfile = buildFallbackProfile(user);
@@ -362,27 +342,13 @@ export default function ResultsPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (data) {
-        return { profile: data, message: "" };
-      }
+      if (data) return { profile: data, message: "" };
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
-
-      return {
-        profile: null,
-        message: "Signed in, but no profile record is available yet.",
-      };
+      return { profile: null, message: "Signed in, but no profile record is available." };
     } catch (_error) {
-      if (fallbackProfile) {
-        return { profile: fallbackProfile, message: "" };
-      }
-
-      return {
-        profile: null,
-        message: "Signed in, but profile loading failed.",
-      };
+      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
+      return { profile: null, message: "Signed in, but profile loading failed." };
     }
   }
 
@@ -418,10 +384,9 @@ export default function ResultsPage() {
       setRuns(Array.isArray(data?.runs) ? data.runs : []);
       setResults(Array.isArray(data?.results) ? data.results : []);
       setSelectedIds([]);
+      setExpandedRows({});
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not load stored results."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not load stored results.");
       setRuns([]);
       setResults([]);
       setSelectedIds([]);
@@ -475,6 +440,8 @@ export default function ResultsPage() {
       if (!active) return;
 
       setSession(newSession ?? null);
+      setPageError("");
+      setPageSuccess("");
 
       if (!newSession?.user) {
         setProfile(null);
@@ -482,6 +449,7 @@ export default function ResultsPage() {
         setAuthLoading(false);
         setRuns([]);
         setResults([]);
+        setSelectedIds([]);
         setLoading(false);
         return;
       }
@@ -505,9 +473,7 @@ export default function ResultsPage() {
   useEffect(() => {
     function handleClickOutside(event) {
       if (!presetMenuRef.current) return;
-      if (!presetMenuRef.current.contains(event.target)) {
-        setShowPresetMenu(false);
-      }
+      if (!presetMenuRef.current.contains(event.target)) setShowPresetMenu(false);
     }
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -533,8 +499,27 @@ export default function ResultsPage() {
     setShowPresetMenu(false);
   }
 
+  function resetFilters() {
+    const range = getPresetRange("past_7_days");
+    setSelectedDatePreset("past_7_days");
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+    setSearchText("");
+    setAgentFilter("all");
+    setEmployeeFilter("all");
+    setTeamFilter("all");
+    setMappingStatusFilter("all");
+    setReviewSentimentFilter("all");
+    setClientSentimentFilter("all");
+    setResolutionStatusFilter("all");
+    setResultTypeFilter("all");
+    setSelectedIds([]);
+    setShowAllRows(false);
+  }
+
   async function handleGoogleLogin() {
     setAuthMessage("");
+
     const redirectTo =
       typeof window !== "undefined" ? `${window.location.origin}/results` : undefined;
 
@@ -543,9 +528,7 @@ export default function ResultsPage() {
       options: { redirectTo },
     });
 
-    if (error) {
-      setAuthMessage(error.message || "Google sign-in failed.");
-    }
+    if (error) setAuthMessage(error.message || "Google sign-in failed.");
   }
 
   async function handleLogout() {
@@ -556,17 +539,14 @@ export default function ResultsPage() {
     setAuthLoading(false);
     setRuns([]);
     setResults([]);
+    setSelectedIds([]);
   }
 
   const runsById = useMemo(() => {
     const map = new Map();
-
     for (const run of runs) {
-      if (run?.id) {
-        map.set(run.id, run);
-      }
+      if (run?.id) map.set(run.id, run);
     }
-
     return map;
   }, [runs]);
 
@@ -579,68 +559,78 @@ export default function ResultsPage() {
 
   const agentOptions = useMemo(() => {
     return Array.from(
+      new Set(decoratedResults.map((item) => safeText(item.agent_name, "Unassigned")).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+  }, [decoratedResults]);
+
+  const employeeOptions = useMemo(() => {
+    return Array.from(
       new Set(
         decoratedResults
-          .map((item) => safeText(item.agent_name, "Unassigned"))
+          .map((item) => safeText(item.employee_name, getMappingStatus(item) === "mapped" ? "Mapped Employee" : "Unmapped"))
           .filter(Boolean)
       )
     ).sort((a, b) => a.localeCompare(b));
   }, [decoratedResults]);
 
+  const teamOptions = useMemo(() => {
+    return Array.from(
+      new Set(decoratedResults.map((item) => safeText(item.team_name, "No Team")).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+  }, [decoratedResults]);
+
   const filteredResults = useMemo(() => {
     return decoratedResults.filter((item) => {
-      const sourceDate = item?.replied_at || item?.created_at || null;
-      const sourceDateOnly = sourceDate ? formatDateInput(new Date(sourceDate)) : "";
+      const sourceDateOnly = toDateInputFromValue(item?.replied_at || item?.created_at);
 
       if (startDate && sourceDateOnly && sourceDateOnly < startDate) return false;
       if (endDate && sourceDateOnly && sourceDateOnly > endDate) return false;
 
-      if (agentFilter !== "all" && safeText(item.agent_name, "Unassigned") !== agentFilter) {
+      if (agentFilter !== "all" && safeText(item.agent_name, "Unassigned") !== agentFilter) return false;
+
+      const employeeName = safeText(
+        item.employee_name,
+        getMappingStatus(item) === "mapped" ? "Mapped Employee" : "Unmapped"
+      );
+      if (employeeFilter !== "all" && employeeName !== employeeFilter) return false;
+
+      if (teamFilter !== "all" && safeText(item.team_name, "No Team") !== teamFilter) return false;
+
+      if (mappingStatusFilter !== "all" && getMappingStatus(item) !== mappingStatusFilter) return false;
+
+      if (reviewSentimentFilter !== "all" && safeText(item.review_sentiment, "") !== reviewSentimentFilter) {
         return false;
       }
 
-      if (
-        reviewSentimentFilter !== "all" &&
-        safeText(item.review_sentiment, "") !== reviewSentimentFilter
-      ) {
+      if (clientSentimentFilter !== "all" && safeText(item.client_sentiment, "") !== clientSentimentFilter) {
         return false;
       }
 
-      if (
-        clientSentimentFilter !== "all" &&
-        safeText(item.client_sentiment, "") !== clientSentimentFilter
-      ) {
+      if (resolutionStatusFilter !== "all" && safeText(item.resolution_status, "") !== resolutionStatusFilter) {
         return false;
       }
 
-      if (
-        resolutionStatusFilter !== "all" &&
-        safeText(item.resolution_status, "") !== resolutionStatusFilter
-      ) {
-        return false;
-      }
-
-      if (!matchesResultType(item, resultTypeFilter)) {
-        return false;
-      }
+      if (!matchesResultType(item, resultTypeFilter)) return false;
 
       const haystack = [
         item?.conversation_id,
         item?.agent_name,
+        item?.employee_name,
+        item?.employee_email,
+        item?.team_name,
         item?.client_email,
         item?.review_sentiment,
         item?.client_sentiment,
         item?.resolution_status,
         item?.ai_verdict,
         item?.error,
+        item?.employee_match_status,
         item?.runMeta?.requested_by_email,
       ]
         .map((value) => String(value ?? "").toLowerCase())
         .join(" ");
 
-      if (searchText.trim() && !haystack.includes(searchText.trim().toLowerCase())) {
-        return false;
-      }
+      if (searchText.trim() && !haystack.includes(searchText.trim().toLowerCase())) return false;
 
       return true;
     });
@@ -649,6 +639,9 @@ export default function ResultsPage() {
     startDate,
     endDate,
     agentFilter,
+    employeeFilter,
+    teamFilter,
+    mappingStatusFilter,
     reviewSentimentFilter,
     clientSentimentFilter,
     resolutionStatusFilter,
@@ -656,7 +649,7 @@ export default function ResultsPage() {
     searchText,
   ]);
 
-  const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 20);
+  const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 25);
   const allVisibleIds = visibleResults.map((item) => item.id).filter(Boolean);
   const allFilteredIds = filteredResults.map((item) => item.id).filter(Boolean);
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -665,32 +658,33 @@ export default function ResultsPage() {
     return new Set(filteredResults.map((item) => item.run_id).filter(Boolean)).size;
   }, [filteredResults]);
 
-  const totalErrors = filteredResults.filter((item) => item?.error).length;
-  const totalSuccess = filteredResults.length - totalErrors;
-
-  const positiveResolutionRate = useMemo(() => {
-    if (!filteredResults.length) return 0;
-    const positiveCount = filteredResults.filter(
-      (item) => safeText(item.resolution_status, "") === "Resolved"
-    ).length;
-    return (positiveCount / filteredResults.length) * 100;
+  const uniqueConversations = useMemo(() => {
+    return new Set(filteredResults.map((item) => item.conversation_id).filter(Boolean)).size;
   }, [filteredResults]);
 
-  const totalMissedOpportunities = useMemo(() => {
-    return filteredResults.filter(
-      (item) => safeText(item.review_sentiment, "") === "Missed Opportunity"
+  const totalErrors = filteredResults.filter((item) => item?.error).length;
+  const totalSuccess = filteredResults.length - totalErrors;
+  const totalMissedOpportunities = filteredResults.filter(
+    (item) => safeText(item.review_sentiment, "") === "Missed Opportunity"
+  ).length;
+  const totalNegativeRisk = filteredResults.filter((item) => getResultType(item) === "negative_risk").length;
+  const mappedRowsCount = filteredResults.filter((item) => getMappingStatus(item) === "mapped").length;
+
+  const resolutionRate = useMemo(() => {
+    if (!filteredResults.length) return 0;
+    const resolvedCount = filteredResults.filter(
+      (item) => safeText(item.resolution_status, "") === "Resolved"
     ).length;
+    return (resolvedCount / filteredResults.length) * 100;
   }, [filteredResults]);
 
   const latestStoredAt = useMemo(() => {
     const latest = decoratedResults[0]?.created_at || decoratedResults[0]?.replied_at;
-    return latest ? formatDateTime(latest) : "No stored results yet";
+    return latest ? formatDateTime(latest) : "No stored results";
   }, [decoratedResults]);
 
   function toggleSingle(id) {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   }
 
   function selectAllVisible() {
@@ -706,15 +700,12 @@ export default function ResultsPage() {
   }
 
   function toggleRowExpanded(id) {
-    setExpandedRows((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   async function handleDeleteSelected() {
     if (!selectedIds.length) {
-      setPageError("Please select at least one stored result first.");
+      setPageError("Select at least one stored result first.");
       setPageSuccess("");
       return;
     }
@@ -762,10 +753,7 @@ export default function ResultsPage() {
           throw new Error(remainingError.message || "Could not verify remaining run records.");
         }
 
-        const remainingRunSet = new Set(
-          (remainingRows || []).map((item) => item.run_id).filter(Boolean)
-        );
-
+        const remainingRunSet = new Set((remainingRows || []).map((item) => item.run_id).filter(Boolean));
         const emptyRunIds = uniqueRunIds.filter((id) => !remainingRunSet.has(id));
 
         if (emptyRunIds.length) {
@@ -781,12 +769,10 @@ export default function ResultsPage() {
       }
 
       setSelectedIds([]);
-      setPageSuccess(`${selectedIds.length} stored result(s) deleted successfully.`);
+      setPageSuccess(`${selectedIds.length} stored result(s) deleted.`);
       await loadStoredResults();
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : "Could not delete selected results."
-      );
+      setPageError(error instanceof Error ? error.message : "Could not delete selected results.");
     } finally {
       setDeleting(false);
     }
@@ -804,8 +790,13 @@ export default function ResultsPage() {
         "Result ID",
         "Run ID",
         "Conversation ID",
+        "Intercom Link",
         "Replied At",
         "Agent Name",
+        "Employee Name",
+        "Employee Email",
+        "Team Name",
+        "Mapping Status",
         "Client Email",
         "CSAT Score",
         "Review Sentiment",
@@ -820,8 +811,13 @@ export default function ResultsPage() {
         item.id,
         item.run_id,
         item.conversation_id,
+        item.conversation_id ? `${INTERCOM_CONVERSATION_URL_PREFIX}/${item.conversation_id}` : "",
         item.replied_at || item.created_at || "",
         item.agent_name || "",
+        item.employee_name || "",
+        item.employee_email || "",
+        item.team_name || "",
+        item.employee_match_status || getMappingStatus(item),
         item.client_email || "",
         item.csat_score || "",
         item.review_sentiment || "",
@@ -834,997 +830,1063 @@ export default function ResultsPage() {
       ]),
     ];
 
-    downloadCsv(
-      `stored-results-${startDate || "start"}-to-${endDate || "end"}.csv`,
-      rows
-    );
-
-    setPageSuccess("Filtered results exported successfully.");
+    downloadCsv(`stored-results-${startDate || "start"}-to-${endDate || "end"}.csv`, rows);
+    setPageSuccess("Filtered results exported.");
     setPageError("");
   }
 
   const stats = [
-    {
-      label: "Stored Results",
-      value: filteredResults.length.toLocaleString(),
-      helper: "Live stored audit rows in the current filtered view",
-    },
-    {
-      label: "Stored Runs",
-      value: totalStoredRuns.toLocaleString(),
-      helper: "Unique saved audit batches in the filtered range",
-    },
-    {
-      label: "Missed Opportunities",
-      value: totalMissedOpportunities.toLocaleString(),
-      helper: "Review opportunities that were not used",
-    },
-    {
-      label: "Positive Resolution Rate",
-      value: `${positiveResolutionRate.toFixed(1)}%`,
-      helper: "Resolved conversations in the current filtered range",
-    },
+    { label: "Stored Results", value: formatNumber(filteredResults.length), tone: "violet" },
+    { label: "Conversations", value: formatNumber(uniqueConversations), tone: "cyan" },
+    { label: "Missed Opportunities", value: formatNumber(totalMissedOpportunities), tone: "amber" },
+    { label: "Resolution Rate", value: `${resolutionRate.toFixed(1)}%`, tone: "emerald" },
+    { label: "Mapped Rows", value: formatNumber(mappedRowsCount), tone: "blue" },
+    { label: "Negative Risk", value: formatNumber(totalNegativeRisk), tone: "rose" },
   ];
 
-  const pageStyle = {
-    minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 20%), radial-gradient(circle at top right, rgba(168,85,247,0.14), transparent 22%), radial-gradient(circle at bottom center, rgba(236,72,153,0.08), transparent 20%), linear-gradient(180deg, #040714 0%, #060b1d 45%, #04060d 100%)",
-    color: "#f5f7ff",
-    padding: "32px 20px 60px",
-    fontFamily:
-      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  };
-
-  const shellStyle = {
-    width: "min(1520px, 100%)",
-    margin: "0 auto",
-  };
-
-  const panelStyle = {
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "linear-gradient(180deg, rgba(15,22,43,0.88), rgba(7,10,24,0.96))",
-    borderRadius: "28px",
-    padding: "28px",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04)",
-  };
-
-  const subPanelStyle = {
-    borderRadius: "20px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
-    padding: "18px",
-  };
-
-  const labelStyle = {
-    display: "block",
-    fontSize: "12px",
-    color: "#8ea0d6",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    marginBottom: "8px",
-    fontWeight: 600,
-  };
-
-  const inputStyle = {
-    width: "100%",
-    height: "52px",
-    borderRadius: "14px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(5,8,18,0.92)",
-    color: "#e7ecff",
-    padding: "0 16px",
-    fontSize: "15px",
-    outline: "none",
-    boxSizing: "border-box",
-    appearance: "none",
-    WebkitAppearance: "none",
-    MozAppearance: "none",
-    colorScheme: "dark",
-  };
-
-  const actionButtonStyle = {
-    height: "42px",
-    borderRadius: "14px",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.04)",
-    color: "#f5f7ff",
-    padding: "0 14px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-  };
-
-  const primaryActionStyle = {
-    ...actionButtonStyle,
-    border: "1px solid rgba(168,85,247,0.22)",
-    background:
-      "linear-gradient(135deg, rgba(59,130,246,0.92), rgba(139,92,246,0.96), rgba(236,72,153,0.92))",
-    boxShadow: "0 14px 40px rgba(139,92,246,0.24)",
-  };
-
-  const tableHeadCellStyle = {
-    padding: "16px 14px",
-    textAlign: "left",
-    fontSize: "12px",
-    color: "#8ea0d6",
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    fontWeight: 700,
-    position: "sticky",
-    top: 0,
-    background: "rgba(10,18,34,0.96)",
-    backdropFilter: "blur(18px)",
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
-    zIndex: 2,
-    whiteSpace: "nowrap",
-  };
-
-  const tableCellStyle = {
-    padding: "16px 14px",
-    verticalAlign: "top",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    fontSize: "14px",
-    color: "#dbe7ff",
-  };
+  if (authLoading) {
+    return (
+      <main className="results-page">
+        <style>{resultsStyles}</style>
+        <section className="hero compact">
+          <p className="eyebrow">NEXT Ventures</p>
+          <h1>Loading Results...</h1>
+        </section>
+      </main>
+    );
+  }
 
   return (
-    <main style={pageStyle}>
-      <div style={shellStyle}>
-        <section style={{ ...panelStyle, marginBottom: "24px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1.15fr) minmax(320px, 0.85fr)",
-              gap: "24px",
-              alignItems: "start",
-            }}
-          >
-            <div>
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 12px",
-                  borderRadius: "999px",
-                  background: "rgba(99,102,241,0.14)",
-                  border: "1px solid rgba(129,140,248,0.2)",
-                  color: "#cdd7ff",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  marginBottom: "18px",
-                }}
-              >
-                Premium Results Archive
-              </div>
+    <main className="results-page">
+      <style>{resultsStyles}</style>
 
-              <h1
-                style={{
-                  fontSize: "52px",
-                  lineHeight: 1.02,
-                  letterSpacing: "-0.05em",
-                  margin: "0 0 16px",
-                  maxWidth: "900px",
-                }}
-              >
-                Stored audit results with a clean premium archive layout.
-              </h1>
+      <nav className="topbar">
+        <div>
+          <p className="eyebrow">NEXT Ventures</p>
+          <strong>Review Approach & Client Sentiment Tracking</strong>
+        </div>
+        <div className="nav-actions">
+          <Link href="/" className="nav-link">Dashboard</Link>
+          <Link href="/run" className="nav-link">Run Audit</Link>
+          <Link href="/admin" className="nav-link">Admin</Link>
+          <span className={session?.user ? "access-pill active" : "access-pill"}>
+            {session?.user ? "Signed In" : "Signed Out"}
+          </span>
+        </div>
+      </nav>
 
-              <p
-                style={{
-                  margin: "0 0 22px",
-                  color: "#a9b4d0",
-                  fontSize: "17px",
-                  lineHeight: 1.75,
-                  maxWidth: "900px",
-                }}
-              >
-                This page is now focused on real stored results only. The table is the main product
-                here. Dashboard will later handle the visual analytics and world-class charts.
-              </p>
+      <section className="hero">
+        <div>
+          <div className="hero-badge">Results Archive</div>
+          <h1>Stored Results</h1>
+          <p>Search, filter, export, and manage saved audit records.</p>
+        </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", marginBottom: "12px" }}>
-                <Link
-                  href="/run"
-                  style={{
-                    ...primaryActionStyle,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    textDecoration: "none",
-                  }}
-                >
-                  Run New Audit
-                </Link>
+        <div className="hero-panel">
+          <span>Latest Save</span>
+          <strong>{latestStoredAt}</strong>
+          <small>{formatNumber(results.length)} total stored row(s)</small>
+        </div>
+      </section>
 
-                <button type="button" onClick={handleExportFiltered} style={actionButtonStyle}>
-                  Export Filtered CSV
-                </button>
-
-                <button type="button" onClick={() => loadStoredResults()} style={actionButtonStyle}>
-                  Reload Results
-                </button>
-
-                {!session?.user ? (
-                  <button type="button" onClick={handleGoogleLogin} style={actionButtonStyle}>
-                    Sign in with Google
-                  </button>
-                ) : (
-                  <button type="button" onClick={handleLogout} style={actionButtonStyle}>
-                    Sign out
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div style={subPanelStyle}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  marginBottom: "16px",
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#f5f7ff" }}>
-                    Archive status
-                  </div>
-                  <div style={{ marginTop: "6px", fontSize: "13px", color: "#a9b4d0" }}>
-                    Latest stored result: {latestStoredAt}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    padding: "8px 12px",
-                    borderRadius: "999px",
-                    background: "rgba(34,211,238,0.12)",
-                    border: "1px solid rgba(34,211,238,0.18)",
-                    color: "#cffafe",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                  }}
-                >
-                  Real Supabase Data
-                </div>
-              </div>
-
-              <div ref={presetMenuRef} style={{ position: "relative", marginBottom: "14px" }}>
-                <label style={labelStyle}>Quick Range</label>
-                <button
-                  type="button"
-                  onClick={() => setShowPresetMenu((prev) => !prev)}
-                  style={{
-                    ...inputStyle,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    paddingRight: "14px",
-                  }}
-                >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}>
-                    <PresetCalendarIcon />
-                    <span style={{ fontWeight: 600, color: "#f5f7ff" }}>
-                      {DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label ||
-                        "Custom"}
-                    </span>
-                    <span style={{ fontSize: "12px", color: "#8ea0d6" }}>
-                      {startDate} - {endDate}
-                    </span>
-                  </span>
-                  <span style={{ color: "#8ea0d6" }}>{showPresetMenu ? "▲" : "▼"}</span>
-                </button>
-
-                {showPresetMenu ? (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      top: "calc(100% + 8px)",
-                      borderRadius: "18px",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(7,10,24,0.98)",
-                      boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
-                      overflow: "hidden",
-                      zIndex: 10,
-                    }}
-                  >
-                    {DATE_PRESET_OPTIONS.map((option) => (
-                      <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => applyDatePreset(option.key)}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "12px 16px",
-                          background:
-                            selectedDatePreset === option.key
-                              ? "rgba(139,92,246,0.14)"
-                              : "transparent",
-                          color: selectedDatePreset === option.key ? "#f5f3ff" : "#dbe7ff",
-                          border: "none",
-                          borderBottom: "1px solid rgba(255,255,255,0.04)",
-                          cursor: "pointer",
-                          fontSize: "14px",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div>
-                  <label style={labelStyle}>Start Date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      setSelectedDatePreset("custom");
-                      setStartDate(e.target.value);
-                    }}
-                    style={inputStyle}
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>End Date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      setSelectedDatePreset("custom");
-                      setEndDate(e.target.value);
-                    }}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: "14px",
-                  fontSize: "14px",
-                  lineHeight: 1.65,
-                  color: "#a9b4d0",
-                }}
-              >
-                Results = storage, filtering, export, selection, expansion, and delete.
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {(authMessage || pageError || pageSuccess) ? (
-          <section style={{ marginBottom: "24px", display: "grid", gap: "10px" }}>
-            {authMessage ? (
-              <div
-                style={{
-                  borderRadius: "16px",
-                  border: "1px solid rgba(251,113,133,0.18)",
-                  background: "rgba(244,63,94,0.10)",
-                  color: "#ffe4e6",
-                  padding: "14px 16px",
-                  fontSize: "14px",
-                }}
-              >
-                {authMessage}
-              </div>
-            ) : null}
-
-            {pageError ? (
-              <div
-                style={{
-                  borderRadius: "16px",
-                  border: "1px solid rgba(251,113,133,0.18)",
-                  background: "rgba(244,63,94,0.10)",
-                  color: "#ffe4e6",
-                  padding: "14px 16px",
-                  fontSize: "14px",
-                }}
-              >
-                {pageError}
-              </div>
-            ) : null}
-
-            {pageSuccess ? (
-              <div
-                style={{
-                  borderRadius: "16px",
-                  border: "1px solid rgba(52,211,153,0.18)",
-                  background: "rgba(16,185,129,0.10)",
-                  color: "#d1fae5",
-                  padding: "14px 16px",
-                  fontSize: "14px",
-                }}
-              >
-                {pageSuccess}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: "16px",
-            marginBottom: "24px",
-          }}
-        >
-          {stats.map((stat, index) => (
-            <div
-              key={stat.label}
-              style={{
-                ...subPanelStyle,
-                background:
-                  index === 0
-                    ? "linear-gradient(180deg, rgba(99,102,241,0.14), rgba(255,255,255,0.03))"
-                    : index === 1
-                    ? "linear-gradient(180deg, rgba(34,211,238,0.12), rgba(255,255,255,0.03))"
-                    : index === 2
-                    ? "linear-gradient(180deg, rgba(245,158,11,0.12), rgba(255,255,255,0.03))"
-                    : "linear-gradient(180deg, rgba(16,185,129,0.12), rgba(255,255,255,0.03))",
-              }}
-            >
-              <div
-                style={{
-                  display: "inline-flex",
-                  padding: "7px 11px",
-                  borderRadius: "999px",
-                  marginBottom: "14px",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                  color:
-                    index === 0
-                      ? "#ddd6fe"
-                      : index === 1
-                      ? "#cffafe"
-                      : index === 2
-                      ? "#fde68a"
-                      : "#d1fae5",
-                  border:
-                    index === 0
-                      ? "1px solid rgba(196,181,253,0.18)"
-                      : index === 1
-                      ? "1px solid rgba(103,232,249,0.18)"
-                      : index === 2
-                      ? "1px solid rgba(253,224,71,0.18)"
-                      : "1px solid rgba(110,231,183,0.18)",
-                }}
-              >
-                Stored
-              </div>
-
-              <div style={{ color: "#8ea0d6", fontSize: "13px", marginBottom: "10px" }}>
-                {stat.label}
-              </div>
-              <div
-                style={{
-                  fontSize: "34px",
-                  fontWeight: 800,
-                  letterSpacing: "-0.04em",
-                  color: "#f5f7ff",
-                  marginBottom: "8px",
-                }}
-              >
-                {stat.value}
-              </div>
-              <div style={{ color: "#a9b4d0", fontSize: "13px", lineHeight: 1.6 }}>
-                {stat.helper}
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section style={{ ...panelStyle, marginBottom: "24px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.4fr 1fr 1fr",
-              gap: "14px",
-              marginBottom: "18px",
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Search</label>
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Conversation ID, agent, client email, verdict, requester"
-                style={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Agent</label>
-              <select
-                value={agentFilter}
-                onChange={(e) => setAgentFilter(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="all">All Agents</option>
-                {agentOptions.map((agent) => (
-                  <option key={agent} value={agent}>
-                    {agent}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Result Type</label>
-              <select
-                value={resultTypeFilter}
-                onChange={(e) => setResultTypeFilter(e.target.value)}
-                style={inputStyle}
-              >
-                {RESULT_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-              gap: "14px",
-              marginBottom: "20px",
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Review Sentiment</label>
-              <select
-                value={reviewSentimentFilter}
-                onChange={(e) => setReviewSentimentFilter(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="all">All Review Sentiments</option>
-                {REVIEW_SENTIMENT_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Client Sentiment</label>
-              <select
-                value={clientSentimentFilter}
-                onChange={(e) => setClientSentimentFilter(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="all">All Client Sentiments</option>
-                {CLIENT_SENTIMENT_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Resolution Status</label>
-              <select
-                value={resolutionStatusFilter}
-                onChange={(e) => setResolutionStatusFilter(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="all">All Resolution Statuses</option>
-                {RESOLUTION_STATUS_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "10px",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-              <button type="button" onClick={selectAllVisible} style={actionButtonStyle}>
-                Select Visible
-              </button>
-              <button type="button" onClick={selectAllFiltered} style={actionButtonStyle}>
-                Select All Filtered
-              </button>
-              <button type="button" onClick={clearSelection} style={actionButtonStyle}>
-                Clear Selection
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteSelected}
-                disabled={!selectedIds.length || deleting}
-                style={{
-                  ...actionButtonStyle,
-                  opacity: !selectedIds.length || deleting ? 0.55 : 1,
-                  cursor: !selectedIds.length || deleting ? "not-allowed" : "pointer",
-                  border: "1px solid rgba(251,113,133,0.18)",
-                  background: "rgba(244,63,94,0.10)",
-                  color: "#ffe4e6",
-                }}
-              >
-                {deleting ? "Deleting..." : `Delete Selected (${selectedIds.length})`}
-              </button>
-            </div>
-
-            <div
-              style={{
-                color: "#a9b4d0",
-                fontSize: "13px",
-              }}
-            >
-              Showing {visibleResults.length} of {filteredResults.length} filtered result(s)
-            </div>
-          </div>
-        </section>
-
-        <section style={panelStyle}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "end",
-              justifyContent: "space-between",
-              gap: "12px",
-              marginBottom: "18px",
-            }}
-          >
-            <div>
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: "28px",
-                  letterSpacing: "-0.03em",
-                  color: "#f5f7ff",
-                }}
-              >
-                Stored Results Table
-              </h2>
-              <p
-                style={{
-                  margin: "8px 0 0",
-                  color: "#a9b4d0",
-                  fontSize: "14px",
-                  lineHeight: 1.7,
-                  maxWidth: "880px",
-                }}
-              >
-                Agent names now stand cleanly on their own. Result state, review sentiment,
-                client sentiment, and resolution all have separate columns.
-              </p>
-            </div>
-
-            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>
-                Successful: {totalSuccess}
-              </div>
-              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>•</div>
-              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>Errors: {totalErrors}</div>
-              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>•</div>
-              <div style={{ color: "#8ea0d6", fontSize: "13px" }}>
-                Selected: {selectedIds.length}
-              </div>
-            </div>
-          </div>
-
-          {loading || authLoading ? (
-            <div
-              style={{
-                ...subPanelStyle,
-                textAlign: "center",
-                color: "#a9b4d0",
-                fontSize: "15px",
-                padding: "42px 20px",
-              }}
-            >
-              Loading stored audit results...
-            </div>
-          ) : !filteredResults.length ? (
-            <div
-              style={{
-                ...subPanelStyle,
-                textAlign: "center",
-                color: "#a9b4d0",
-                fontSize: "15px",
-                padding: "42px 20px",
-              }}
-            >
-              No stored results match the current filters.
-            </div>
+      <section className="action-strip">
+        <div className="action-row">
+          <Link href="/run" className="primary-btn">Run New Audit</Link>
+          <button type="button" className="secondary-btn" onClick={handleExportFiltered}>Export CSV</button>
+          <button type="button" className="secondary-btn" onClick={() => loadStoredResults()}>Reload</button>
+          {!session?.user ? (
+            <button type="button" className="secondary-btn" onClick={handleGoogleLogin}>Sign in</button>
           ) : (
-            <>
-              <div
-                style={{
-                  overflow: "hidden",
-                  borderRadius: "22px",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: "rgba(4,8,20,0.72)",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
-                }}
-              >
-                <div style={{ maxHeight: "920px", overflow: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      minWidth: "1480px",
-                      borderCollapse: "collapse",
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        <th style={tableHeadCellStyle}>
-                          <input
-                            type="checkbox"
-                            checked={
-                              allVisibleIds.length > 0 &&
-                              allVisibleIds.every((id) => selectedIdSet.has(id))
-                            }
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                selectAllVisible();
-                              } else {
-                                setSelectedIds((prev) =>
-                                  prev.filter((id) => !allVisibleIds.includes(id))
-                                );
-                              }
-                            }}
-                          />
-                        </th>
-                        <th style={tableHeadCellStyle}>Conversation</th>
-                        <th style={tableHeadCellStyle}>Agent</th>
-                        <th style={tableHeadCellStyle}>Type</th>
-                        <th style={tableHeadCellStyle}>Review Sentiment</th>
-                        <th style={tableHeadCellStyle}>Client Sentiment</th>
-                        <th style={tableHeadCellStyle}>Resolution</th>
-                        <th style={tableHeadCellStyle}>Replied At</th>
-                        <th style={tableHeadCellStyle}>Requested By</th>
-                        <th style={tableHeadCellStyle}>Details</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {visibleResults.map((item, index) => {
-                        const resultType = getResultType(item);
-                        const resolution = safeText(item.resolution_status, "");
-                        const rowBackground =
-                          index % 2 === 0 ? "rgba(255,255,255,0.018)" : "transparent";
-                        const isExpanded = Boolean(expandedRows[item.id]);
-
-                        return (
-                          <>
-                            <tr key={item.id} style={{ background: rowBackground }}>
-                              <td style={tableCellStyle}>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIdSet.has(item.id)}
-                                  onChange={() => toggleSingle(item.id)}
-                                />
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <div style={{ color: "#f5f7ff", fontWeight: 700, marginBottom: "6px" }}>
-                                  {safeText(item.conversation_id, "Unknown Conversation")}
-                                </div>
-                                <div style={{ color: "#a9b4d0", fontSize: "12px", marginBottom: "4px" }}>
-                                  Client: {safeText(item.client_email)}
-                                </div>
-                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
-                                  CSAT: {safeText(item.csat_score)}
-                                </div>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <div style={{ color: "#f5f7ff", fontWeight: 600 }}>
-                                  {safeText(item.agent_name, "Unassigned")}
-                                </div>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <span
-                                  style={
-                                    resultType === "error"
-                                      ? getPillStyle("error")
-                                      : resultType === "opportunity_case"
-                                      ? getPillStyle("opportunity_case")
-                                      : resultType === "positive_signal"
-                                      ? getPillStyle("positive_signal")
-                                      : resultType === "negative_risk"
-                                      ? getPillStyle("negative_risk")
-                                      : getPillStyle("pending")
-                                  }
-                                >
-                                  {resultType === "error"
-                                    ? "Error"
-                                    : resultType === "opportunity_case"
-                                    ? "Opportunity"
-                                    : resultType === "positive_signal"
-                                    ? "Positive"
-                                    : resultType === "negative_risk"
-                                    ? "Risk"
-                                    : "Stored"}
-                                </span>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <span
-                                  style={
-                                    safeText(item.review_sentiment, "") === "Missed Opportunity"
-                                      ? getPillStyle("opportunity_case")
-                                      : safeText(item.review_sentiment, "") ===
-                                          "Likely Positive Review" ||
-                                        safeText(item.review_sentiment, "") ===
-                                          "Highly Likely Positive Review"
-                                      ? getPillStyle("positive_signal")
-                                      : safeText(item.review_sentiment, "") ===
-                                          "Likely Negative Review" ||
-                                        safeText(item.review_sentiment, "") ===
-                                          "Highly Likely Negative Review" ||
-                                        safeText(item.review_sentiment, "") ===
-                                          "Negative Outcome - No Review Request"
-                                      ? getPillStyle("negative_risk")
-                                      : getPillStyle("pending")
-                                  }
-                                >
-                                  {safeText(item.review_sentiment)}
-                                </span>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <div style={{ color: "#dbe7ff", fontWeight: 600 }}>
-                                  {safeText(item.client_sentiment)}
-                                </div>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <span
-                                  style={
-                                    resolution === "Resolved"
-                                      ? getPillStyle("resolved")
-                                      : resolution === "Pending"
-                                      ? getPillStyle("pending")
-                                      : resolution === "Unresolved"
-                                      ? getPillStyle("unresolved")
-                                      : getPillStyle("pending")
-                                  }
-                                >
-                                  {safeText(item.resolution_status)}
-                                </span>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <div style={{ color: "#f5f7ff", fontWeight: 600, marginBottom: "4px" }}>
-                                  {formatDateTime(item.replied_at || item.created_at)}
-                                </div>
-                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
-                                  {formatShortDate(item.replied_at || item.created_at)}
-                                </div>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <div style={{ color: "#f5f7ff", fontWeight: 600, marginBottom: "4px" }}>
-                                  {safeText(item.runMeta?.requested_by_email)}
-                                </div>
-                                <div style={{ color: "#7f8db3", fontSize: "12px", marginBottom: "2px" }}>
-                                  {safeText(item.runMeta?.audit_mode, "live_gpt")}
-                                </div>
-                                <div style={{ color: "#7f8db3", fontSize: "12px" }}>
-                                  {formatShortDate(item.runMeta?.created_at)}
-                                </div>
-                              </td>
-
-                              <td style={tableCellStyle}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleRowExpanded(item.id)}
-                                  style={{
-                                    ...actionButtonStyle,
-                                    height: "38px",
-                                    fontSize: "13px",
-                                  }}
-                                >
-                                  {isExpanded ? "Hide" : "View"}
-                                </button>
-                              </td>
-                            </tr>
-
-                            {isExpanded ? (
-                              <tr key={`${item.id}-expanded`} style={{ background: "rgba(255,255,255,0.02)" }}>
-                                <td colSpan={10} style={{ ...tableCellStyle, paddingTop: "0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                                  <div
-                                    style={{
-                                      margin: "0 0 8px",
-                                      borderRadius: "18px",
-                                      border: item.error
-                                        ? "1px solid rgba(251,113,133,0.18)"
-                                        : "1px solid rgba(255,255,255,0.08)",
-                                      background: item.error
-                                        ? "rgba(244,63,94,0.08)"
-                                        : "rgba(255,255,255,0.03)",
-                                      padding: "18px",
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontSize: "12px",
-                                        color: "#8ea0d6",
-                                        textTransform: "uppercase",
-                                        letterSpacing: "0.12em",
-                                        marginBottom: "10px",
-                                        fontWeight: 700,
-                                      }}
-                                    >
-                                      {item.error ? "Error Details" : "Full Verdict"}
-                                    </div>
-
-                                    <div
-                                      style={{
-                                        color: item.error ? "#ffe4e6" : "#dbe7ff",
-                                        fontSize: "14px",
-                                        lineHeight: 1.8,
-                                        whiteSpace: "pre-wrap",
-                                      }}
-                                    >
-                                      {safeText(item.error || item.ai_verdict)}
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            ) : null}
-                          </>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {filteredResults.length > 20 ? (
-                <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowAllRows((prev) => !prev)}
-                    style={actionButtonStyle}
-                  >
-                    {showAllRows
-                      ? "Show Less"
-                      : `Show More (${filteredResults.length - visibleResults.length} more)`}
-                  </button>
-                </div>
-              ) : null}
-            </>
+            <button type="button" className="secondary-btn" onClick={handleLogout}>Sign out</button>
           )}
+        </div>
+        <div className="mini-status">
+          <span>{formatNumber(totalSuccess)} successful</span>
+          <span>{formatNumber(totalErrors)} errors</span>
+          <span>{formatNumber(totalStoredRuns)} run(s)</span>
+          <span>{formatNumber(selectedIds.length)} selected</span>
+        </div>
+      </section>
+
+      {(authMessage || pageError || pageSuccess) ? (
+        <section className="message-stack">
+          {authMessage ? <div className="message error">{authMessage}</div> : null}
+          {pageError ? <div className="message error">{pageError}</div> : null}
+          {pageSuccess ? <div className="message success">{pageSuccess}</div> : null}
         </section>
-      </div>
+      ) : null}
+
+      <section className="stats-grid">
+        {stats.map((stat) => (
+          <article key={stat.label} className={`stat-card ${stat.tone}`}>
+            <p>{stat.label}</p>
+            <strong>{stat.value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <section className="filters-panel">
+        <div className="filters-top">
+          <div ref={presetMenuRef} className="preset-wrap">
+            <label>Quick Range</label>
+            <button type="button" className="date-preset-btn" onClick={() => setShowPresetMenu((prev) => !prev)}>
+              <span><CalendarIcon />{DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom"}</span>
+              <small>{startDate} - {endDate}</small>
+              <b>{showPresetMenu ? "▲" : "▼"}</b>
+            </button>
+
+            {showPresetMenu ? (
+              <div className="preset-menu">
+                {DATE_PRESET_OPTIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={selectedDatePreset === option.key ? "active" : ""}
+                    onClick={() => applyDatePreset(option.key)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <label>
+            <span>Start Date</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(event) => {
+                setSelectedDatePreset("custom");
+                setStartDate(event.target.value);
+              }}
+            />
+          </label>
+
+          <label>
+            <span>End Date</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => {
+                setSelectedDatePreset("custom");
+                setEndDate(event.target.value);
+              }}
+            />
+          </label>
+
+          <label className="search-field">
+            <span>Search</span>
+            <input
+              type="text"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="Conversation, agent, employee, client, verdict"
+            />
+          </label>
+        </div>
+
+        <div className="filters-grid">
+          <label>
+            <span>Agent</span>
+            <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
+              <option value="all">All Agents</option>
+              {agentOptions.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Employee</span>
+            <select value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)}>
+              <option value="all">All Employees</option>
+              {employeeOptions.map((employee) => <option key={employee} value={employee}>{employee}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Team</span>
+            <select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)}>
+              <option value="all">All Teams</option>
+              {teamOptions.map((team) => <option key={team} value={team}>{team}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Mapping</span>
+            <select value={mappingStatusFilter} onChange={(event) => setMappingStatusFilter(event.target.value)}>
+              {MAPPING_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Result Type</span>
+            <select value={resultTypeFilter} onChange={(event) => setResultTypeFilter(event.target.value)}>
+              {RESULT_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Review</span>
+            <select value={reviewSentimentFilter} onChange={(event) => setReviewSentimentFilter(event.target.value)}>
+              <option value="all">All Review Sentiments</option>
+              {REVIEW_SENTIMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Client</span>
+            <select value={clientSentimentFilter} onChange={(event) => setClientSentimentFilter(event.target.value)}>
+              <option value="all">All Client Sentiments</option>
+              {CLIENT_SENTIMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>Resolution</span>
+            <select value={resolutionStatusFilter} onChange={(event) => setResolutionStatusFilter(event.target.value)}>
+              <option value="all">All Resolution Statuses</option>
+              {RESOLUTION_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="selection-row">
+          <div className="action-row">
+            <button type="button" className="secondary-btn" onClick={selectAllVisible}>Select Visible</button>
+            <button type="button" className="secondary-btn" onClick={selectAllFiltered}>Select All Filtered</button>
+            <button type="button" className="secondary-btn" onClick={clearSelection}>Clear Selection</button>
+            <button type="button" className="secondary-btn" onClick={resetFilters}>Reset Filters</button>
+            <button
+              type="button"
+              className="danger-btn"
+              onClick={handleDeleteSelected}
+              disabled={!selectedIds.length || deleting}
+            >
+              {deleting ? "Deleting..." : `Delete (${selectedIds.length})`}
+            </button>
+          </div>
+          <span>Showing {formatNumber(visibleResults.length)} of {formatNumber(filteredResults.length)}</span>
+        </div>
+      </section>
+
+      <section className="table-panel">
+        <div className="section-head">
+          <div>
+            <p className="eyebrow">Archive Table</p>
+            <h2>Audit Results</h2>
+          </div>
+          <div className="table-summary">
+            <span>{formatNumber(totalSuccess)} successful</span>
+            <span>{formatNumber(totalErrors)} errors</span>
+            <span>{formatNumber(selectedIds.length)} selected</span>
+          </div>
+        </div>
+
+        {loading || authLoading ? (
+          <div className="empty-box">Loading stored audit results...</div>
+        ) : !session?.user ? (
+          <div className="empty-box">Sign in to view stored results.</div>
+        ) : !filteredResults.length ? (
+          <div className="empty-box">No stored results match the current filters.</div>
+        ) : (
+          <>
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIdSet.has(id))}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            selectAllVisible();
+                          } else {
+                            setSelectedIds((prev) => prev.filter((id) => !allVisibleIds.includes(id)));
+                          }
+                        }}
+                      />
+                    </th>
+                    <th>Conversation</th>
+                    <th>Agent</th>
+                    <th>Employee</th>
+                    <th>Type</th>
+                    <th>Review</th>
+                    <th>Client</th>
+                    <th>Resolution</th>
+                    <th>Date</th>
+                    <th>Requester</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {visibleResults.map((item) => {
+                    const resultType = getResultType(item);
+                    const isExpanded = Boolean(expandedRows[item.id]);
+                    const conversationUrl = item.conversation_id
+                      ? `${INTERCOM_CONVERSATION_URL_PREFIX}/${item.conversation_id}`
+                      : "";
+                    const mappingStatus = getMappingStatus(item);
+
+                    return (
+                      <Fragment key={item.id || item.conversation_id}>
+                        <tr>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedIdSet.has(item.id)}
+                              onChange={() => toggleSingle(item.id)}
+                            />
+                          </td>
+                          <td>
+                            <strong>{safeText(item.conversation_id, "Unknown")}</strong>
+                            <small>{safeText(item.client_email)}</small>
+                            {conversationUrl ? (
+                              <a href={conversationUrl} target="_blank" rel="noreferrer" className="mini-link">Open Intercom</a>
+                            ) : null}
+                          </td>
+                          <td>
+                            <strong>{safeText(item.agent_name, "Unassigned")}</strong>
+                            <small>CSAT {safeText(item.csat_score)}</small>
+                          </td>
+                          <td>
+                            <strong>{safeText(item.employee_name, mappingStatus === "mapped" ? "Mapped" : "Unmapped")}</strong>
+                            <small>{safeText(item.employee_email, mappingStatus)}</small>
+                            <span className="team-chip">{safeText(item.team_name, "No Team")}</span>
+                          </td>
+                          <td><span className={`pill ${getResultTypeTone(resultType)}`}>{getResultTypeLabel(resultType)}</span></td>
+                          <td><span className={`pill ${getReviewTone(item.review_sentiment)}`}>{safeText(item.review_sentiment)}</span></td>
+                          <td><span className={`pill ${getClientTone(item.client_sentiment)}`}>{safeText(item.client_sentiment)}</span></td>
+                          <td><span className={`pill ${getResolutionTone(item.resolution_status)}`}>{safeText(item.resolution_status)}</span></td>
+                          <td>
+                            <strong>{formatDateTime(item.replied_at || item.created_at)}</strong>
+                            <small>{formatShortDate(item.replied_at || item.created_at)}</small>
+                          </td>
+                          <td>
+                            <strong>{safeText(item.runMeta?.requested_by_email)}</strong>
+                            <small>{safeText(item.runMeta?.audit_mode, "live_gpt")}</small>
+                          </td>
+                          <td>
+                            <button type="button" className="secondary-btn small" onClick={() => toggleRowExpanded(item.id)}>
+                              {isExpanded ? "Hide" : "View"}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {isExpanded ? (
+                          <tr className="expanded-row">
+                            <td colSpan={11}>
+                              <div className={item.error ? "verdict-box error" : "verdict-box"}>
+                                <div className="verdict-head">
+                                  <span>{item.error ? "Error Details" : "Full Verdict"}</span>
+                                  <small>Run {safeText(item.run_id)}</small>
+                                </div>
+                                <pre>{safeText(item.error || item.ai_verdict)}</pre>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredResults.length > 25 ? (
+              <div className="show-more-row">
+                <button type="button" className="secondary-btn" onClick={() => setShowAllRows((prev) => !prev)}>
+                  {showAllRows ? "Show Less" : `Show More (${formatNumber(filteredResults.length - visibleResults.length)} more)`}
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
     </main>
   );
 }
+
+const resultsStyles = `
+  .results-page {
+    min-height: 100vh;
+    padding: 32px 20px 64px;
+    color: #f5f7ff;
+    background:
+      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
+      radial-gradient(circle at top right, rgba(168,85,247,0.15), transparent 22%),
+      radial-gradient(circle at bottom center, rgba(236,72,153,0.08), transparent 22%),
+      linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .topbar,
+  .hero,
+  .action-strip,
+  .message-stack,
+  .stats-grid,
+  .filters-panel,
+  .table-panel {
+    max-width: 1520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .topbar,
+  .hero,
+  .action-strip,
+  .filters-panel,
+  .table-panel,
+  .stat-card {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(180deg, rgba(15,22,43,0.88), rgba(7,10,24,0.96));
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+    border-radius: 22px;
+    background: rgba(9,13,29,0.72);
+    backdrop-filter: blur(14px);
+  }
+
+  .topbar strong {
+    display: block;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+  }
+
+  .nav-actions,
+  .action-row,
+  .mini-status,
+  .selection-row,
+  .table-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .nav-link,
+  .access-pill,
+  .hero-badge,
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn,
+  .pill,
+  .team-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    border-radius: 999px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .nav-link {
+    min-height: 38px;
+    padding: 0 13px;
+    color: #dbe7ff;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.035);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .access-pill {
+    min-height: 38px;
+    padding: 0 13px;
+    color: #fde68a;
+    border: 1px solid rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.11);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .access-pill.active {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.25);
+    background: rgba(16,185,129,0.12);
+  }
+
+  .eyebrow,
+  label span,
+  .preset-wrap label {
+    margin: 0 0 8px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 30px;
+    margin-bottom: 18px;
+    border-radius: 28px;
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: auto -80px -120px auto;
+    width: 360px;
+    height: 360px;
+    border-radius: 50%;
+    background: rgba(124,58,237,0.18);
+    filter: blur(50px);
+    pointer-events: none;
+  }
+
+  .hero.compact {
+    max-width: 900px;
+    margin-top: 80px;
+  }
+
+  .hero-badge {
+    padding: 8px 12px;
+    margin-bottom: 18px;
+    color: #dbe7ff;
+    border: 1px solid rgba(129,140,248,0.22);
+    background: rgba(99,102,241,0.14);
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  h1,
+  h2,
+  p {
+    position: relative;
+  }
+
+  h1 {
+    margin: 0 0 12px;
+    font-size: clamp(42px, 5vw, 72px);
+    line-height: 0.98;
+    letter-spacing: -0.07em;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 30px;
+    letter-spacing: -0.04em;
+  }
+
+  .hero p {
+    margin: 0;
+    color: #a9b4d0;
+    font-size: 18px;
+    line-height: 1.6;
+  }
+
+  .hero-panel {
+    position: relative;
+    z-index: 1;
+    min-width: 300px;
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .hero-panel span,
+  .hero-panel small {
+    display: block;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .hero-panel strong {
+    display: block;
+    margin: 8px 0;
+    color: #f5f7ff;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .action-strip {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px;
+    margin-bottom: 18px;
+    border-radius: 22px;
+    background: rgba(9,13,29,0.66);
+  }
+
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn {
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .primary-btn {
+    color: #fff;
+    border: 0;
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
+    box-shadow: 0 14px 30px rgba(91,33,182,0.35);
+  }
+
+  .secondary-btn {
+    color: #e5ebff;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .secondary-btn.small {
+    min-height: 36px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .danger-btn {
+    color: #ffe4e6;
+    border: 1px solid rgba(251,113,133,0.2);
+    background: rgba(244,63,94,0.1);
+  }
+
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .mini-status span,
+  .table-summary span {
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .message-stack {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .message {
+    padding: 14px 16px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .message.error {
+    color: #fecdd3;
+    border: 1px solid rgba(244,63,94,0.23);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .message.success {
+    color: #bbf7d0;
+    border: 1px solid rgba(16,185,129,0.23);
+    background: rgba(16,185,129,0.08);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    left: -48px;
+    top: -48px;
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    filter: blur(30px);
+    background: rgba(59,130,246,0.16);
+  }
+
+  .stat-card.violet::before { background: rgba(139,92,246,0.18); }
+  .stat-card.cyan::before { background: rgba(34,211,238,0.16); }
+  .stat-card.amber::before { background: rgba(245,158,11,0.16); }
+  .stat-card.emerald::before { background: rgba(16,185,129,0.16); }
+  .stat-card.rose::before { background: rgba(244,63,94,0.16); }
+
+  .stat-card p {
+    margin: 0 0 10px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .stat-card strong {
+    display: block;
+    color: #f5f7ff;
+    font-size: 30px;
+    letter-spacing: -0.04em;
+  }
+
+  .filters-panel,
+  .table-panel {
+    padding: 22px;
+    margin-bottom: 18px;
+    border-radius: 26px;
+  }
+
+  .filters-top,
+  .filters-grid {
+    display: grid;
+    gap: 14px;
+  }
+
+  .filters-top {
+    grid-template-columns: 340px 180px 180px minmax(260px, 1fr);
+    margin-bottom: 14px;
+  }
+
+  .filters-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 16px;
+  }
+
+  label {
+    display: block;
+  }
+
+  input,
+  select,
+  button {
+    font: inherit;
+  }
+
+  input,
+  select,
+  .date-preset-btn {
+    width: 100%;
+    min-height: 50px;
+    box-sizing: border-box;
+    color: #e7ecff;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    outline: none;
+    background: rgba(5,8,18,0.9);
+  }
+
+  input,
+  select {
+    padding: 0 14px;
+    color-scheme: dark;
+  }
+
+  .preset-wrap {
+    position: relative;
+  }
+
+  .date-preset-btn {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+
+  .date-preset-btn span {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 900;
+  }
+
+  .date-preset-btn small {
+    color: #8ea0d6;
+    font-size: 12px;
+  }
+
+  .date-preset-btn b {
+    color: #8ea0d6;
+    font-size: 11px;
+  }
+
+  .preset-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 10;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    background: rgba(7,10,24,0.98);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  }
+
+  .preset-menu button {
+    width: 100%;
+    padding: 13px 16px;
+    color: #dbe7ff;
+    border: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: transparent;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .preset-menu button.active,
+  .preset-menu button:hover {
+    color: #f5f3ff;
+    background: rgba(139,92,246,0.16);
+  }
+
+  .selection-row {
+    justify-content: space-between;
+    padding-top: 4px;
+  }
+
+  .selection-row > span {
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .empty-box {
+    padding: 36px 20px;
+    color: #a9b4d0;
+    text-align: center;
+    border: 1px dashed rgba(255,255,255,0.12);
+    border-radius: 20px;
+    background: rgba(255,255,255,0.025);
+    line-height: 1.7;
+  }
+
+  .table-shell {
+    overflow: auto;
+    max-height: 920px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 22px;
+    background: rgba(4,8,20,0.72);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  table {
+    width: 100%;
+    min-width: 1640px;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 15px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    vertical-align: top;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    color: #8ea0d6;
+    background: rgba(10,18,34,0.98);
+    backdrop-filter: blur(18px);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  tr:nth-child(even) td {
+    background: rgba(255,255,255,0.018);
+  }
+
+  td strong,
+  td small,
+  td em {
+    display: block;
+  }
+
+  td strong {
+    color: #f5f7ff;
+    margin-bottom: 5px;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  td small {
+    color: #a9b4d0;
+    line-height: 1.5;
+    font-size: 12px;
+  }
+
+  .mini-link {
+    display: inline-flex;
+    margin-top: 8px;
+    color: #93c5fd;
+    font-size: 12px;
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .team-chip {
+    margin-top: 8px;
+    padding: 6px 10px;
+    color: #dbe7ff;
+    border: 1px solid rgba(96,165,250,0.2);
+    background: rgba(59,130,246,0.1);
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .pill {
+    padding: 7px 11px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.05);
+    color: #dbe7ff;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.25;
+  }
+
+  .pill.success {
+    color: #bbf7d0;
+    border-color: rgba(16,185,129,0.22);
+    background: rgba(16,185,129,0.1);
+  }
+
+  .pill.warning {
+    color: #fde68a;
+    border-color: rgba(245,158,11,0.24);
+    background: rgba(245,158,11,0.1);
+  }
+
+  .pill.danger {
+    color: #fecdd3;
+    border-color: rgba(244,63,94,0.24);
+    background: rgba(244,63,94,0.1);
+  }
+
+  .pill.notice,
+  .pill.neutral {
+    color: #bfdbfe;
+    border-color: rgba(96,165,250,0.24);
+    background: rgba(59,130,246,0.1);
+  }
+
+  .expanded-row td {
+    padding-top: 0;
+    background: rgba(255,255,255,0.02) !important;
+  }
+
+  .verdict-box {
+    margin: 0 0 8px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .verdict-box.error {
+    border-color: rgba(251,113,133,0.18);
+    background: rgba(244,63,94,0.08);
+  }
+
+  .verdict-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .verdict-head span,
+  .verdict-head small {
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  pre {
+    margin: 0;
+    white-space: pre-wrap;
+    color: #dbe7ff;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .show-more-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+
+  @media (max-width: 1200px) {
+    .stats-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .filters-top,
+    .filters-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 820px) {
+    .topbar,
+    .hero,
+    .action-strip,
+    .section-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .hero-panel {
+      min-width: 0;
+    }
+
+    .stats-grid,
+    .filters-top,
+    .filters-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+`;
