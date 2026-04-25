@@ -282,7 +282,7 @@ async function getEmployeeOptions(adminClient) {
     .select("id, intercom_agent_name, employee_name, employee_email, team_name, is_active")
     .eq("is_active", true)
     .order("employee_name", { ascending: true })
-    .limit(3000);
+    .limit(5000);
 
   if (error) {
     throw new Error(error.message || "Could not load employee options.");
@@ -312,46 +312,52 @@ async function getEmployeeOptions(adminClient) {
 }
 
 async function loadSupervisorTeams(adminClient) {
-  const { data, error } = await adminClient
+  const { data: teamsData, error: teamsError } = await adminClient
     .from("supervisor_teams")
-    .select(
-      `
-      id,
-      supervisor_name,
-      supervisor_email,
-      notes,
-      is_active,
-      created_at,
-      updated_at,
-      supervisor_team_members (
-        id,
-        supervisor_team_id,
-        employee_name,
-        employee_email,
-        intercom_agent_name,
-        team_name,
-        is_active,
-        created_at,
-        updated_at
-      )
-    `
-    )
-    .order("supervisor_name", { ascending: true });
+    .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+    .order("supervisor_name", { ascending: true })
+    .limit(1000);
 
-  if (error) {
-    throw new Error(error.message || "Could not load Supervisor Teams.");
+  if (teamsError) {
+    throw new Error(teamsError.message || "Could not load Supervisor Teams.");
   }
 
-  return (Array.isArray(data) ? data : []).map((team) => ({
+  const teams = Array.isArray(teamsData) ? teamsData : [];
+  const teamIds = teams.map((team) => team.id).filter(Boolean);
+
+  let members = [];
+
+  if (teamIds.length > 0) {
+    const { data: membersData, error: membersError } = await adminClient
+      .from("supervisor_team_members")
+      .select(
+        "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
+      )
+      .in("supervisor_team_id", teamIds)
+      .order("employee_name", { ascending: true })
+      .limit(10000);
+
+    if (membersError) {
+      throw new Error(membersError.message || "Could not load Supervisor Team members.");
+    }
+
+    members = Array.isArray(membersData) ? membersData : [];
+  }
+
+  const membersByTeam = new Map();
+
+  for (const member of members) {
+    if (member?.is_active === false) continue;
+
+    const teamId = member.supervisor_team_id;
+    const existing = membersByTeam.get(teamId) || [];
+    existing.push(member);
+    membersByTeam.set(teamId, existing);
+  }
+
+  return teams.map((team) => ({
     ...team,
-    members: Array.isArray(team.supervisor_team_members)
-      ? team.supervisor_team_members
-          .filter((member) => member?.is_active !== false)
-          .sort((a, b) =>
-            String(a.employee_name || "").localeCompare(String(b.employee_name || ""))
-          )
-      : [],
-    supervisor_team_members: undefined,
+    members: membersByTeam.get(team.id) || [],
   }));
 }
 
@@ -398,6 +404,7 @@ export async function GET(request) {
       ok: true,
       teams,
       employeeOptions,
+      supervisorOptions: employeeOptions,
     });
   } catch (error) {
     return jsonResponse(
@@ -460,7 +467,7 @@ export async function POST(request) {
           updated_at: now,
         })
         .eq("id", existing.id)
-        .select("*")
+        .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
         .single();
 
       if (error) {
@@ -479,7 +486,7 @@ export async function POST(request) {
           created_at: now,
           updated_at: now,
         })
-        .select("*")
+        .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
         .single();
 
       if (error) {
@@ -521,8 +528,10 @@ export async function POST(request) {
       }
     }
 
-    const teams = await loadSupervisorTeams(adminClient);
-    const employeeOptions = await getEmployeeOptions(adminClient);
+    const [teams, employeeOptions] = await Promise.all([
+      loadSupervisorTeams(adminClient),
+      getEmployeeOptions(adminClient),
+    ]);
 
     return jsonResponse({
       ok: true,
@@ -532,6 +541,7 @@ export async function POST(request) {
       team: savedTeam,
       teams,
       employeeOptions,
+      supervisorOptions: employeeOptions,
       changedBy: profile?.email || null,
     });
   } catch (error) {
@@ -567,7 +577,7 @@ export async function PATCH(request) {
 
     const { data: currentTeam, error: currentError } = await adminClient
       .from("supervisor_teams")
-      .select("*")
+      .select("id, is_active")
       .eq("id", id)
       .maybeSingle();
 
@@ -589,15 +599,17 @@ export async function PATCH(request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .select("*")
+      .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
       .single();
 
     if (error) {
       throw new Error(error.message || "Could not update Supervisor Team status.");
     }
 
-    const teams = await loadSupervisorTeams(adminClient);
-    const employeeOptions = await getEmployeeOptions(adminClient);
+    const [teams, employeeOptions] = await Promise.all([
+      loadSupervisorTeams(adminClient),
+      getEmployeeOptions(adminClient),
+    ]);
 
     return jsonResponse({
       ok: true,
@@ -607,6 +619,7 @@ export async function PATCH(request) {
       team: data,
       teams,
       employeeOptions,
+      supervisorOptions: employeeOptions,
       changedBy: profile?.email || null,
     });
   } catch (error) {
