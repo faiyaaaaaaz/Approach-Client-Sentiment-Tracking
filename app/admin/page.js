@@ -123,14 +123,6 @@ function canManageUsers(profile) {
   );
 }
 
-function canSavePrompt(profile) {
-  return canManageAdmin(profile);
-}
-
-function canSaveMappings(profile) {
-  return canManageAdmin(profile);
-}
-
 function createEmptyMappingForm() {
   return {
     id: "",
@@ -394,6 +386,18 @@ function getLockedNameForEmail(email, mappings) {
   return String(match?.employee_name || "").trim();
 }
 
+async function readApiJson(response) {
+  const text = await response.text();
+
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    throw new Error(`Server returned a non-JSON response. Status ${response.status}.`);
+  }
+}
+
 export default function AdminPage() {
   const mappingFormRef = useRef(null);
   const roleFormRef = useRef(null);
@@ -433,6 +437,17 @@ export default function AdminPage() {
 
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
+
+  async function getFreshSession() {
+    const { data, error } = await supabase.auth.getSession();
+
+    if (error || !data?.session?.access_token) {
+      throw new Error("Your login session is missing or expired. Please sign in again.");
+    }
+
+    setSession(data.session);
+    return data.session;
+  }
 
   async function loadProfile(user) {
     const email = normalizeEmail(user?.email);
@@ -514,7 +529,7 @@ export default function AdminPage() {
       },
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response);
 
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || "Could not load Admin prompt settings.");
@@ -526,35 +541,27 @@ export default function AdminPage() {
     setLivePromptInput(data?.prompt?.livePrompt || "");
   }
 
-  async function loadMappingsData() {
+  async function loadMappingsData(activeSession = session) {
     setMappingLoading(true);
 
     try {
-      const [mappingsResponse, auditResponse] = await Promise.all([
-        supabase
-          .from("agent_mappings")
-          .select("*")
-          .order("employee_name", { ascending: true })
-          .order("intercom_agent_name", { ascending: true }),
-        supabase
-          .from("audit_results")
-          .select(
-            "id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at"
-          )
-          .order("created_at", { ascending: false })
-          .limit(5000),
-      ]);
+      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
 
-      if (mappingsResponse.error) {
-        throw new Error(mappingsResponse.error.message || "Could not load agent mappings.");
+      const response = await fetch("/api/admin/mappings", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+      });
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load mapping data.");
       }
 
-      if (auditResponse.error) {
-        throw new Error(auditResponse.error.message || "Could not load audit rows.");
-      }
-
-      setMappingRows(Array.isArray(mappingsResponse.data) ? mappingsResponse.data : []);
-      setAuditRows(Array.isArray(auditResponse.data) ? auditResponse.data : []);
+      setMappingRows(Array.isArray(data.mappings) ? data.mappings : []);
+      setAuditRows(Array.isArray(data.auditRows) ? data.auditRows : []);
     } finally {
       setMappingLoading(false);
     }
@@ -585,7 +592,7 @@ export default function AdminPage() {
     try {
       await Promise.all([
         loadPromptData(activeSession),
-        loadMappingsData(),
+        loadMappingsData(activeSession),
         loadProfilesData(),
       ]);
     } catch (error) {
@@ -692,12 +699,16 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!session?.access_token) {
-      setPageError("Please sign in first.");
+    let usableSession;
+
+    try {
+      usableSession = await getFreshSession();
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Please sign in first.");
       return;
     }
 
-    if (!canSavePrompt(profile)) {
+    if (!isAdmin) {
       setPageError("Only Master Admins and Co-Admins can save prompt settings.");
       return;
     }
@@ -714,7 +725,7 @@ export default function AdminPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${usableSession.access_token}`,
         },
         body: JSON.stringify({
           livePrompt: livePromptInput,
@@ -722,7 +733,7 @@ export default function AdminPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiJson(response);
 
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || "Could not save the live prompt.");
@@ -789,12 +800,7 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!session?.user) {
-      setPageError("Please sign in first.");
-      return;
-    }
-
-    if (!canSaveMappings(profile)) {
+    if (!isAdmin) {
       setPageError("Only Master Admins and Co-Admins can save mappings.");
       return;
     }
@@ -823,47 +829,36 @@ export default function AdminPage() {
     setMappingSaveLoading(true);
 
     try {
-      const duplicate = mappingRows.find(
-        (item) =>
-          normalizeAgentKey(item?.intercom_agent_name) === normalizeAgentKey(intercomAgentName)
-      );
+      const usableSession = await getFreshSession();
 
-      const payload = {
-        intercom_agent_name: intercomAgentName,
-        employee_name: employeeName,
-        employee_email: employeeEmail || null,
-        team_name: teamName || null,
-        notes: notes || null,
-        is_active: mappingForm.is_active !== false,
-        updated_at: new Date().toISOString(),
-      };
+      const response = await fetch("/api/admin/mappings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+        body: JSON.stringify({
+          mapping: {
+            id: mappingForm.id,
+            intercom_agent_name: intercomAgentName,
+            employee_name: employeeName,
+            employee_email: employeeEmail || null,
+            team_name: teamName || null,
+            notes: notes || null,
+            is_active: mappingForm.is_active !== false,
+          },
+        }),
+      });
 
-      if (mappingForm.id || duplicate?.id) {
-        const targetId = mappingForm.id || duplicate.id;
+      const data = await readApiJson(response);
 
-        const { error } = await supabase
-          .from("agent_mappings")
-          .update(payload)
-          .eq("id", targetId);
-
-        if (error) throw new Error(error.message || "Could not update mapping.");
-
-        setPageSuccess("Mapping updated successfully.");
-      } else {
-        const { error } = await supabase
-          .from("agent_mappings")
-          .insert({
-            ...payload,
-            created_at: new Date().toISOString(),
-          });
-
-        if (error) throw new Error(error.message || "Could not create mapping.");
-
-        setPageSuccess("Mapping created successfully.");
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not save mapping.");
       }
 
+      setPageSuccess(data.message || "Mapping saved successfully.");
       setMappingForm(createEmptyMappingForm());
-      await Promise.all([loadMappingsData(), loadProfilesData()]);
+      await Promise.all([loadMappingsData(usableSession), loadProfilesData()]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
@@ -875,28 +870,54 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!canSaveMappings(profile)) {
+    if (!isAdmin) {
       setPageError("Only Master Admins and Co-Admins can update mappings.");
       return;
     }
 
     setMappingToggleLoadingId(row?.id || "");
 
+    const previousRows = mappingRows;
+    const nextActive = row?.is_active === false;
+
+    setMappingRows((currentRows) =>
+      currentRows.map((item) =>
+        item.id === row.id
+          ? {
+              ...item,
+              is_active: nextActive,
+              updated_at: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+
     try {
-      const { error } = await supabase
-        .from("agent_mappings")
-        .update({
-          is_active: row?.is_active ? false : true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", row.id);
+      const usableSession = await getFreshSession();
 
-      if (error) throw new Error(error.message || "Could not update mapping status.");
+      const response = await fetch("/api/admin/mappings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+        body: JSON.stringify({
+          id: row.id,
+          action: "set_active",
+          is_active: nextActive,
+        }),
+      });
 
-      setPageSuccess(row?.is_active ? "Mapping deactivated." : "Mapping activated.");
+      const data = await readApiJson(response);
 
-      await loadMappingsData();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not update mapping status.");
+      }
+
+      setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
+      await loadMappingsData(usableSession);
     } catch (error) {
+      setMappingRows(previousRows);
       setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
     } finally {
       setMappingToggleLoadingId("");
@@ -907,7 +928,7 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!canSaveMappings(profile)) {
+    if (!isAdmin) {
       setPageError("Only Master Admins and Co-Admins can prefill mappings.");
       return;
     }
@@ -920,25 +941,39 @@ export default function AdminPage() {
     setSeedLoading(true);
 
     try {
-      const now = new Date().toISOString();
+      const usableSession = await getFreshSession();
+      let savedCount = 0;
 
-      const rows = mappingSuggestions.map((item) => ({
-        intercom_agent_name: item.intercom_agent_name,
-        employee_name: item.employee_name || item.intercom_agent_name,
-        employee_email: item.employee_email || null,
-        team_name: item.team_name || null,
-        notes: item.notes || "Detected from stored audit results.",
-        is_active: true,
-        created_at: now,
-        updated_at: now,
-      }));
+      for (const item of mappingSuggestions) {
+        const response = await fetch("/api/admin/mappings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${usableSession.access_token}`,
+          },
+          body: JSON.stringify({
+            mapping: {
+              intercom_agent_name: item.intercom_agent_name,
+              employee_name: item.employee_name || item.intercom_agent_name,
+              employee_email: item.employee_email || null,
+              team_name: item.team_name || null,
+              notes: item.notes || "Detected from stored audit results.",
+              is_active: true,
+            },
+          }),
+        });
 
-      const { error } = await supabase.from("agent_mappings").insert(rows);
+        const data = await readApiJson(response);
 
-      if (error) throw new Error(error.message || "Could not prefill mappings.");
+        if (!response.ok || !data?.ok) {
+          throw new Error(data?.error || "Could not prefill mappings.");
+        }
 
-      setPageSuccess(`${rows.length} mapping(s) added.`);
-      await loadMappingsData();
+        savedCount += 1;
+      }
+
+      setPageSuccess(`${savedCount} mapping(s) added.`);
+      await loadMappingsData(usableSession);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
     } finally {
