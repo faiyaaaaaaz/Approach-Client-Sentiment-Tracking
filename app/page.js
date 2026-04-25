@@ -2343,7 +2343,7 @@ const dashboardStyles = `
     padding: 18px;
     border-radius: 28px;
     margin-bottom: 18px;
-    z-index: 5000;
+    z-index: 100;
     isolation: isolate;
   }
 
@@ -2356,7 +2356,7 @@ const dashboardStyles = `
   .leaderboard-panel .filter-panel,
   .weekly-panel .filter-panel,
   .modal-filter-block .filter-panel {
-    z-index: 8000;
+    z-index: 300;
   }
 
   .leaderboard-cards,
@@ -2476,7 +2476,7 @@ const dashboardStyles = `
     position: absolute;
     top: calc(100% + 10px);
     left: 0;
-    z-index: 99999;
+    z-index: 2000;
     overflow: hidden;
     border-radius: 22px;
     border: 1px solid rgba(147, 197, 253, 0.26);
@@ -3167,7 +3167,7 @@ const dashboardStyles = `
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 2000;
+    z-index: 200000;
     display: grid;
     place-items: center;
     padding: 24px;
@@ -3176,6 +3176,8 @@ const dashboardStyles = `
   }
 
   .drill-modal {
+    position: relative;
+    z-index: 200001;
     width: min(1440px, 96vw);
     max-height: 92vh;
     overflow: visible;
@@ -3239,7 +3241,7 @@ const dashboardStyles = `
 
   .modal-filter-block .date-picker-popover,
   .modal-filter-block .multi-menu {
-    z-index: 120000;
+    z-index: 200010;
   }
 
   .modal-search {
