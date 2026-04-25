@@ -3178,7 +3178,7 @@ const dashboardStyles = `
   .drill-modal {
     width: min(1440px, 96vw);
     max-height: 92vh;
-    overflow: hidden;
+    overflow: visible;
     border-radius: 28px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: linear-gradient(180deg, rgba(15, 22, 43, 0.98), rgba(7, 10, 24, 0.99));
@@ -3210,14 +3210,36 @@ const dashboardStyles = `
   }
 
   .modal-filter-block {
+    position: relative;
+    z-index: 30;
     padding: 16px 24px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0b1122;
   }
 
   .modal-filter-block .filter-panel {
-    margin-bottom: 12px;
+    position: relative;
+    z-index: 40;
+    isolation: auto;
+    padding: 0;
+    margin: 0 0 12px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
-    z-index: 9000;
+  }
+
+  .modal-filter-block .filter-row.first {
+    grid-template-columns: minmax(260px, 1.2fr) minmax(210px, 1fr) minmax(210px, 1fr) auto;
+  }
+
+  .modal-filter-block .filter-row.second {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  }
+
+  .modal-filter-block .date-picker-popover,
+  .modal-filter-block .multi-menu {
+    z-index: 120000;
   }
 
   .modal-search {
@@ -3225,8 +3247,10 @@ const dashboardStyles = `
   }
 
   .modal-table-wrap {
+    position: relative;
+    z-index: 1;
     max-height: calc(92vh - 360px);
-    border-radius: 0;
+    border-radius: 0 0 28px 28px;
     border-left: 0;
     border-right: 0;
     border-bottom: 0;
@@ -3340,6 +3364,11 @@ const dashboardStyles = `
 
     .date-picker-popover {
       width: 92vw;
+      grid-template-columns: 1fr;
+    }
+
+    .modal-filter-block .filter-row.first,
+    .modal-filter-block .filter-row.second {
       grid-template-columns: 1fr;
     }
 
