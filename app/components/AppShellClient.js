@@ -7,7 +7,7 @@ import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
 const SESSION_TIMEOUT_MS = 8000;
-const PROFILE_TIMEOUT_MS = 8000;
+const PROFILE_TIMEOUT_MS = 10000;
 
 const navItems = [
   { label: "Dashboard", href: "/", permission: "dashboard" },
@@ -34,6 +34,10 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
 function buildFallbackProfile(user) {
   const email = normalizeEmail(user?.email);
 
@@ -52,7 +56,10 @@ function buildFallbackProfile(user) {
     return {
       id: user.id,
       email,
-      full_name: user.user_metadata?.full_name || "",
+      full_name:
+        normalizeText(user.user_metadata?.full_name) ||
+        normalizeText(user.user_metadata?.name) ||
+        "",
       role: "viewer",
       can_run_tests: false,
       is_active: true,
@@ -195,7 +202,9 @@ export default function AppShellClient({ children }) {
   const lockReason = getLockReason(pathname, session, profile);
   const pageLocked = Boolean(!authLoading && lockReason);
 
-  async function loadProfile(user) {
+  async function loadProfile(nextSession) {
+    const user = nextSession?.user;
+
     if (!user) {
       return { profile: null, message: "" };
     }
@@ -213,6 +222,37 @@ export default function AppShellClient({ children }) {
     const fallbackProfile = buildFallbackProfile(user);
 
     try {
+      if (nextSession?.access_token) {
+        const response = await withTimeout(
+          fetch("/api/auth/profile", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${nextSession.access_token}`,
+            },
+          }),
+          "Profile sync",
+          PROFILE_TIMEOUT_MS
+        );
+
+        const data = await response.json().catch(() => null);
+
+        if (response.ok && data?.ok && data?.profile) {
+          return {
+            profile: data.profile,
+            message:
+              data.source === "role_grant"
+                ? ""
+                : data.grant_applied
+                ? ""
+                : "",
+          };
+        }
+
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+      }
+
       const { data, error } = await withTimeout(
         supabase
           .from("profiles")
@@ -252,21 +292,19 @@ export default function AppShellClient({ children }) {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
-        profile: {
-          id: user.id,
-          email,
-          full_name: user.user_metadata?.full_name || "",
-          role: "viewer",
-          can_run_tests: false,
-          is_active: true,
-        },
-        message: "",
+        profile: null,
+        message: "Signed in, but this account has not been granted access.",
       };
     } catch (error) {
       if (fallbackProfile) {
         return {
           profile: fallbackProfile,
-          message: "",
+          message:
+            email === MASTER_ADMIN_EMAIL
+              ? ""
+              : error instanceof Error
+              ? error.message
+              : "Signed in, but profile sync failed.",
         };
       }
 
@@ -292,7 +330,7 @@ export default function AppShellClient({ children }) {
       return;
     }
 
-    const result = await loadProfile(nextSession.user);
+    const result = await loadProfile(nextSession);
 
     if (runId !== authRunIdRef.current) return;
 
