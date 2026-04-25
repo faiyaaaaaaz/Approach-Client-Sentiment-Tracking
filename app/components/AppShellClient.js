@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const SESSION_TIMEOUT_MS = 8000;
+const PROFILE_TIMEOUT_MS = 8000;
 
 const navItems = [
   { label: "Dashboard", href: "/", permission: "dashboard" },
@@ -14,8 +16,26 @@ const navItems = [
   { label: "Admin", href: "/admin", permission: "admin" },
 ];
 
+function withTimeout(promise, label, timeoutMs = SESSION_TIMEOUT_MS) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} took too long. Please refresh once or sign in again.`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function buildFallbackProfile(user) {
-  const email = String(user?.email || "").toLowerCase();
+  const email = normalizeEmail(user?.email);
 
   if (email === MASTER_ADMIN_EMAIL) {
     return {
@@ -24,6 +44,17 @@ function buildFallbackProfile(user) {
       full_name: user.user_metadata?.full_name || "Faiyaz Muhtasim Ahmed",
       role: "master_admin",
       can_run_tests: true,
+      is_active: true,
+    };
+  }
+
+  if (email.endsWith("@nextventures.io")) {
+    return {
+      id: user.id,
+      email,
+      full_name: user.user_metadata?.full_name || "",
+      role: "viewer",
+      can_run_tests: false,
       is_active: true,
     };
   }
@@ -143,6 +174,7 @@ export default function AppShellClient({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const profileMenuRef = useRef(null);
+  const authRunIdRef = useRef(0);
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -168,7 +200,7 @@ export default function AppShellClient({ children }) {
       return { profile: null, message: "" };
     }
 
-    const email = String(user.email || "").toLowerCase();
+    const email = normalizeEmail(user.email);
     const domain = email.split("@")[1] || "";
 
     if (domain !== "nextventures.io") {
@@ -181,11 +213,15 @@ export default function AppShellClient({ children }) {
     const fallbackProfile = buildFallbackProfile(user);
 
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role, can_run_tests, is_active")
-        .eq("id", user.id)
-        .maybeSingle();
+      const { data, error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id, email, full_name, role, can_run_tests, is_active")
+          .or(`id.eq.${user.id},email.eq.${email}`)
+          .maybeSingle(),
+        "Profile check",
+        PROFILE_TIMEOUT_MS
+      );
 
       if (error) {
         if (fallbackProfile) return { profile: fallbackProfile, message: "" };
@@ -196,7 +232,23 @@ export default function AppShellClient({ children }) {
         };
       }
 
-      if (data) return { profile: data, message: "" };
+      if (data) {
+        if (email === MASTER_ADMIN_EMAIL) {
+          return {
+            profile: {
+              ...data,
+              email,
+              role: "master_admin",
+              can_run_tests: true,
+              is_active: true,
+            },
+            message: "",
+          };
+        }
+
+        return { profile: data, message: "" };
+      }
+
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
@@ -210,48 +262,77 @@ export default function AppShellClient({ children }) {
         },
         message: "",
       };
-    } catch (_error) {
-      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
+    } catch (error) {
+      if (fallbackProfile) {
+        return {
+          profile: fallbackProfile,
+          message: "",
+        };
+      }
 
       return {
         profile: null,
-        message: "Signed in, but profile loading failed.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Signed in, but profile loading failed.",
       };
     }
+  }
+
+  async function completeSessionCheck(nextSession, runId) {
+    if (runId !== authRunIdRef.current) return;
+
+    setSession(nextSession || null);
+
+    if (!nextSession?.user) {
+      setProfile(null);
+      setAuthMessage("");
+      setAuthLoading(false);
+      return;
+    }
+
+    const result = await loadProfile(nextSession.user);
+
+    if (runId !== authRunIdRef.current) return;
+
+    setProfile(result.profile);
+    setAuthMessage(result.message);
+    setAuthLoading(false);
   }
 
   useEffect(() => {
     let active = true;
 
     async function init() {
+      const runId = authRunIdRef.current + 1;
+      authRunIdRef.current = runId;
+
+      setAuthLoading(true);
+      setAuthMessage("");
+
       try {
         const {
           data: { session: currentSession },
-        } = await supabase.auth.getSession();
+        } = await withTimeout(
+          supabase.auth.getSession(),
+          "Session check",
+          SESSION_TIMEOUT_MS
+        );
 
         if (!active) return;
 
-        setSession(currentSession || null);
-
-        if (!currentSession?.user) {
-          setProfile(null);
-          setAuthLoading(false);
-          return;
-        }
-
-        const result = await loadProfile(currentSession.user);
-
-        if (!active) return;
-
-        setProfile(result.profile);
-        setAuthMessage(result.message);
-        setAuthLoading(false);
-      } catch (_error) {
-        if (!active) return;
+        await completeSessionCheck(currentSession || null, runId);
+      } catch (error) {
+        if (!active || runId !== authRunIdRef.current) return;
 
         setSession(null);
         setProfile(null);
-        setAuthMessage("Could not complete session check.");
+        setAuthMessage(
+          error instanceof Error
+            ? error.message
+            : "Could not complete session check."
+        );
         setAuthLoading(false);
       }
     }
@@ -263,20 +344,22 @@ export default function AppShellClient({ children }) {
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       if (!active) return;
 
-      setSession(newSession || null);
+      const runId = authRunIdRef.current + 1;
+      authRunIdRef.current = runId;
 
-      if (!newSession?.user) {
-        setProfile(null);
-        setAuthMessage("");
-        setAuthLoading(false);
-        return;
-      }
+      setAuthLoading(true);
+      setAuthMessage("");
 
-      loadProfile(newSession.user).then((result) => {
-        if (!active) return;
+      completeSessionCheck(newSession || null, runId).catch((error) => {
+        if (!active || runId !== authRunIdRef.current) return;
 
-        setProfile(result.profile);
-        setAuthMessage(result.message);
+        setSession(newSession || null);
+        setProfile(buildFallbackProfile(newSession?.user) || null);
+        setAuthMessage(
+          error instanceof Error
+            ? error.message
+            : "Could not complete session check."
+        );
         setAuthLoading(false);
       });
     });
