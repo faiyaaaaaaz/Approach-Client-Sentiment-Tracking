@@ -513,6 +513,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [pageError, setPageError] = useState("");
   const [pageSuccess, setPageSuccess] = useState("");
+  const [showJumpTop, setShowJumpTop] = useState(false);
 
   const [dbReady, setDbReady] = useState(false);
   const [promptData, setPromptData] = useState(null);
@@ -967,6 +968,16 @@ export default function AdminPage() {
       active = false;
       subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    function handleScroll() {
+      setShowJumpTop(window.scrollY > 700);
+    }
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   async function handleReload() {
@@ -2137,10 +2148,10 @@ export default function AdminPage() {
 
       <section className="hero">
         <div>
-          <div className="hero-badge">Admin</div>
+          <div className="hero-badge">Admin operations</div>
           <h1>Control center</h1>
           <p>
-            Manage prompts, agent mappings, Supervisor Teams, user roles, and future system settings from one polished workspace.
+            Manage live prompts, secure keys, role access, agent mappings, and Supervisor Teams from one premium command workspace.
           </p>
         </div>
 
@@ -2150,24 +2161,34 @@ export default function AdminPage() {
           <small>{profile?.email || session?.user?.email || "Not signed in"}</small>
         </div>
 
-        <div className="action-row">
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={handleReload}
-            disabled={!session || loading || mappingLoading || supervisorLoading || profileLoading}
-          >
-            {loading || mappingLoading || supervisorLoading || profileLoading ? "Loading..." : "Reload"}
-          </button>
+        <div className="hero-actions">
+          <div className="action-row">
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={handleReload}
+              disabled={!session || loading || mappingLoading || supervisorLoading || profileLoading}
+            >
+              {loading || mappingLoading || supervisorLoading || profileLoading ? "Loading..." : "Reload"}
+            </button>
 
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={handleSeedSuggestedMappings}
-            disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
-          >
-            {seedLoading ? "Prefilling..." : `Prefill agents (${mappingSuggestions.length})`}
-          </button>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={handleSeedSuggestedMappings}
+              disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
+            >
+              {seedLoading ? "Prefilling..." : `Prefill agents (${mappingSuggestions.length})`}
+            </button>
+          </div>
+
+          <div className="admin-quick-nav" aria-label="Admin quick navigation">
+            <a href="#live-prompt">Prompt</a>
+            {canManageApiKeysNow ? <a href="#api-vault">API vault</a> : null}
+            <a href="#supervisor-teams">Supervisor teams</a>
+            <a href="#user-roles">Roles</a>
+            <a href="#agent-mappings">Mappings</a>
+          </div>
         </div>
       </section>
 
@@ -2207,7 +2228,7 @@ export default function AdminPage() {
       ) : (
         <>
           <section className={canManageApiKeysNow ? "control-grid" : "control-grid single-column"}>
-            <article className="panel prompt-panel">
+            <article className="panel prompt-panel" id="live-prompt">
               <div className="section-head">
                 <div>
                   <p className="eyebrow">Live configuration</p>
@@ -2259,7 +2280,7 @@ export default function AdminPage() {
             </article>
 
             {canManageApiKeysNow ? (
-              <article className="panel api-panel">
+              <article className="panel api-panel" id="api-vault">
                 <div className="section-head">
                   <div>
                     <p className="eyebrow">Creator Master Admin only</p>
@@ -2406,7 +2427,7 @@ export default function AdminPage() {
             ) : null}
           </section>
 
-          <section className="control-grid supervisor-area" ref={supervisorFormRef}>
+          <section className="control-grid supervisor-area" id="supervisor-teams" ref={supervisorFormRef}>
             <article className="panel supervisor-builder">
               <div className="section-head">
                 <div>
@@ -2688,7 +2709,7 @@ export default function AdminPage() {
             </article>
           </section>
 
-          <section className="control-grid mapping-area">
+          <section className="control-grid mapping-area" id="mapping-workbench">
             <article className="panel" ref={mappingFormRef}>
               <div className="section-head">
                 <div>
@@ -2948,7 +2969,7 @@ export default function AdminPage() {
             </article>
           </section>
 
-          <section className="panel wide" ref={roleFormRef}>
+          <section className="panel wide" id="user-roles" ref={roleFormRef}>
             <div className="section-head">
               <div>
                 <p className="eyebrow">Access control</p>
@@ -3162,7 +3183,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="panel wide">
+          <section className="panel wide" id="agent-mappings">
             <div className="section-head">
               <div>
                 <p className="eyebrow">Mapping table</p>
@@ -3347,7 +3368,7 @@ export default function AdminPage() {
             )}
           </section>
 
-          <section className="panel wide">
+          <section className="panel wide" id="prompt-history">
             <div className="section-head">
               <div>
                 <p className="eyebrow">Prompt history</p>
@@ -3375,6 +3396,16 @@ export default function AdminPage() {
           </section>
         </>
       )}
+
+      {showJumpTop ? (
+        <button
+          type="button"
+          className="jump-top"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        >
+          Jump to top
+        </button>
+      ) : null}
     </main>
   );
 }
@@ -3382,15 +3413,15 @@ export default function AdminPage() {
 const adminStyles = `
   .admin-page {
     min-height: 100vh;
-    padding: 28px 20px 64px;
+    padding: 22px 18px 76px;
     color: #f5f7ff;
     background:
-      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
-      radial-gradient(circle at top right, rgba(168,85,247,0.17), transparent 22%),
-      radial-gradient(circle at 50% 12%, rgba(99,102,241,0.12), transparent 22%),
-      radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 24%),
-      linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
+      radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.14), transparent 24%),
+      radial-gradient(circle at 88% 3%, rgba(139, 92, 246, 0.16), transparent 26%),
+      radial-gradient(circle at 50% 100%, rgba(6, 182, 212, 0.08), transparent 24%),
+      linear-gradient(180deg, #040714 0%, #050918 46%, #04060d 100%);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    scroll-behavior: smooth;
   }
 
   .hero,
@@ -3399,17 +3430,37 @@ const adminStyles = `
   .status-grid,
   .control-grid,
   .message-stack {
-    max-width: 1480px;
+    max-width: 1440px;
     margin-left: auto;
     margin-right: auto;
   }
 
+  .hero,
+  .panel,
+  .stat-card,
+  .mini-card,
+  .history-card,
+  .api-card,
+  .role-form-card,
+  .role-table-card,
+  .profile-card,
+  .member-picker,
+  .supervisor-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      linear-gradient(180deg, rgba(14, 20, 40, 0.92), rgba(7, 10, 24, 0.96));
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
   .eyebrow {
     margin: 0 0 8px;
-    color: #9fb2ee;
-    font-size: 12px;
-    font-weight: 850;
-    letter-spacing: 0.12em;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .eyebrow.amber {
@@ -3420,26 +3471,35 @@ const adminStyles = `
     position: relative;
     overflow: hidden;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 24px;
-    align-items: center;
-    padding: 34px;
-    margin-bottom: 20px;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 32px;
-    background: linear-gradient(180deg, rgba(15,22,43,0.92), rgba(7,10,24,0.97));
-    box-shadow: 0 24px 70px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 340px);
+    gap: 22px;
+    align-items: stretch;
+    padding: 30px;
+    margin-bottom: 18px;
+    border-radius: 30px;
+  }
+
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -170px auto auto -130px;
+    width: 390px;
+    height: 390px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.14);
+    filter: blur(62px);
+    pointer-events: none;
   }
 
   .hero::after {
     content: "";
     position: absolute;
-    inset: -120px -110px auto auto;
-    width: 420px;
-    height: 420px;
-    border-radius: 50%;
-    background: rgba(124,58,237,0.22);
-    filter: blur(55px);
+    inset: -140px -120px auto auto;
+    width: 440px;
+    height: 440px;
+    border-radius: 999px;
+    background: rgba(124, 58, 237, 0.22);
+    filter: blur(58px);
     pointer-events: none;
   }
 
@@ -3452,21 +3512,27 @@ const adminStyles = `
   .team-pill,
   .chip,
   .tone,
-  .status {
+  .status,
+  .admin-quick-nav a {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     width: fit-content;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 850;
+    font-weight: 900;
+    text-decoration: none;
   }
 
   .hero-badge {
-    padding: 8px 12px;
+    min-height: 34px;
+    padding: 0 12px;
     margin-bottom: 16px;
-    color: #dbe7ff;
-    border: 1px solid rgba(129,140,248,0.22);
-    background: rgba(99,102,241,0.14);
+    color: #e7ecff;
+    border: 1px solid rgba(129, 140, 248, 0.24);
+    background: rgba(99, 102, 241, 0.16);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   h1,
@@ -3477,7 +3543,7 @@ const adminStyles = `
   }
 
   h1 {
-    max-width: 1000px;
+    max-width: 940px;
     margin: 0 0 16px;
     font-size: clamp(42px, 5vw, 72px);
     line-height: 0.98;
@@ -3504,16 +3570,21 @@ const adminStyles = `
   }
 
   .hero p {
-    max-width: 840px;
+    max-width: 820px;
     margin: 0 0 20px;
     font-size: 18px;
   }
 
   .hero-side-card {
-    padding: 18px;
-    border-radius: 22px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.04);
+    align-self: stretch;
+    display: grid;
+    align-content: center;
+    padding: 20px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.16), transparent 42%),
+      rgba(255, 255, 255, 0.04);
   }
 
   .hero-side-card span,
@@ -3524,10 +3595,11 @@ const adminStyles = `
 
   .hero-side-card span {
     margin-bottom: 8px;
-    color: #9fb2ee;
-    font-size: 12px;
-    font-weight: 850;
-    letter-spacing: 0.12em;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .hero-side-card strong {
@@ -3541,12 +3613,37 @@ const adminStyles = `
     word-break: break-word;
   }
 
+  .hero-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding-top: 4px;
+  }
+
   .action-row,
   .chip-row,
-  .table-actions {
+  .table-actions,
+  .admin-quick-nav {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
+  }
+
+  .admin-quick-nav a {
+    min-height: 38px;
+    padding: 0 13px;
+    color: #dbe7ff;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    background: rgba(59, 130, 246, 0.07);
+    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+
+  .admin-quick-nav a:hover {
+    transform: translateY(-1px);
+    border-color: rgba(96, 165, 250, 0.32);
+    background: rgba(59, 130, 246, 0.13);
   }
 
   button,
@@ -3568,21 +3665,28 @@ const adminStyles = `
     border-radius: 15px;
     padding: 12px 18px;
     font-size: 14px;
-    font-weight: 850;
+    font-weight: 900;
     cursor: pointer;
+    transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+
+  .primary-btn:hover,
+  .secondary-btn:hover,
+  .jump-top:hover {
+    transform: translateY(-1px);
   }
 
   .primary-btn {
     color: white;
     border: 0;
-    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
-    box-shadow: 0 14px 30px rgba(91,33,182,0.35);
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 52%, #db2777 100%);
+    box-shadow: 0 16px 34px rgba(91, 33, 182, 0.34);
   }
 
   .secondary-btn {
     color: #e5ebff;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .secondary-btn.small {
@@ -3599,12 +3703,12 @@ const adminStyles = `
   }
 
   .status-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    margin-bottom: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    margin-bottom: 18px;
   }
 
   .control-grid {
-    grid-template-columns: minmax(0, 1.18fr) minmax(420px, 0.82fr);
+    grid-template-columns: minmax(0, 1.14fr) minmax(400px, 0.86fr);
     margin-bottom: 20px;
   }
 
@@ -3612,26 +3716,11 @@ const adminStyles = `
     grid-template-columns: 1fr;
   }
 
-  .stat-card,
-  .panel,
-  .mini-card,
-  .history-card,
-  .api-card,
-  .role-form-card,
-  .role-table-card,
-  .profile-card,
-  .member-picker,
-  .supervisor-card {
-    border: 1px solid rgba(255,255,255,0.08);
-    background: linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96));
-    box-shadow: 0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03);
-  }
-
   .stat-card {
     position: relative;
     overflow: hidden;
     padding: 20px;
-    border-radius: 22px;
+    border-radius: 24px;
   }
 
   .stat-card::before {
@@ -3643,34 +3732,34 @@ const adminStyles = `
     height: 150px;
     border-radius: 50%;
     filter: blur(34px);
-    background: rgba(59,130,246,0.12);
+    background: rgba(59, 130, 246, 0.13);
   }
 
-  .stat-card.success::before {
-    background: rgba(16,185,129,0.12);
-  }
+  .stat-card.success::before { background: rgba(16, 185, 129, 0.13); }
+  .stat-card.warning::before { background: rgba(245, 158, 11, 0.15); }
+  .stat-card.notice::before { background: rgba(59, 130, 246, 0.14); }
 
-  .stat-card.warning::before {
-    background: rgba(245,158,11,0.14);
-  }
-
-  .stat-card.notice::before {
-    background: rgba(59,130,246,0.13);
+  .stat-card p,
+  .stat-card strong,
+  .stat-card span {
+    position: relative;
+    z-index: 1;
   }
 
   .stat-card p {
     margin: 0 0 10px;
-    color: #9fb2ee;
-    font-size: 12px;
-    font-weight: 850;
-    letter-spacing: 0.1em;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .stat-card strong {
     display: block;
     margin-bottom: 8px;
-    font-size: 28px;
-    letter-spacing: -0.04em;
+    font-size: 30px;
+    letter-spacing: -0.05em;
   }
 
   .stat-card span {
@@ -3681,7 +3770,7 @@ const adminStyles = `
   }
 
   .message-stack {
-    margin-bottom: 20px;
+    margin-bottom: 18px;
     display: grid;
     gap: 12px;
   }
@@ -3695,25 +3784,44 @@ const adminStyles = `
 
   .message.error {
     color: #fecdd3;
-    border: 1px solid rgba(244,63,94,0.23);
-    background: rgba(244,63,94,0.08);
+    border: 1px solid rgba(244, 63, 94, 0.23);
+    background: rgba(244, 63, 94, 0.08);
   }
 
   .message.warning {
     color: #fde68a;
-    border: 1px solid rgba(245,158,11,0.23);
-    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245, 158, 11, 0.23);
+    background: rgba(245, 158, 11, 0.08);
   }
 
   .message.success {
     color: #bbf7d0;
-    border: 1px solid rgba(16,185,129,0.23);
-    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16, 185, 129, 0.23);
+    background: rgba(16, 185, 129, 0.08);
   }
 
   .panel {
+    position: relative;
+    overflow: hidden;
     padding: 24px;
-    border-radius: 26px;
+    border-radius: 28px;
+  }
+
+  .panel::before {
+    content: "";
+    position: absolute;
+    inset: -120px auto auto -120px;
+    width: 250px;
+    height: 250px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.06);
+    filter: blur(42px);
+    pointer-events: none;
+  }
+
+  .panel > * {
+    position: relative;
+    z-index: 1;
   }
 
   .panel.wide {
@@ -3743,16 +3851,17 @@ const adminStyles = `
     width: 100%;
     box-sizing: border-box;
     color: #e7ecff;
-    border: 1px solid rgba(255,255,255,0.09);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 16px;
     outline: none;
-    background: rgba(5,8,18,0.9);
+    background: rgba(5, 8, 18, 0.9);
   }
 
   input,
   select {
     min-height: 50px;
     padding: 0 14px;
+    color-scheme: dark;
   }
 
   .textarea {
@@ -3760,6 +3869,13 @@ const adminStyles = `
     padding: 15px;
     line-height: 1.7;
     resize: vertical;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: rgba(96, 165, 250, 0.38);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
   }
 
   .textarea.live {
@@ -3781,14 +3897,14 @@ const adminStyles = `
     margin-top: 18px;
     padding: 16px;
     border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .trusted-prompt-drawer summary {
     cursor: pointer;
     color: #e5ebff;
-    font-weight: 850;
+    font-weight: 900;
   }
 
   .trusted-prompt-drawer p {
@@ -3803,8 +3919,10 @@ const adminStyles = `
 
   .api-card {
     padding: 18px;
-    border-radius: 20px;
-    background: rgba(255,255,255,0.035);
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.1), transparent 34%),
+      rgba(255, 255, 255, 0.035);
   }
 
   .api-card span,
@@ -3815,10 +3933,11 @@ const adminStyles = `
 
   .api-card span {
     margin-bottom: 8px;
-    color: #9fb2ee;
-    font-size: 12px;
-    font-weight: 850;
-    letter-spacing: 0.1em;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .api-card strong {
@@ -3851,11 +3970,18 @@ const adminStyles = `
     gap: 10px;
   }
 
+  .api-meta-grid div,
+  .api-key-form,
+  .key-record,
+  .rule-list div,
+  .permission-check {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
   .api-meta-grid div {
     padding: 12px;
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(5,8,18,0.72);
   }
 
   .api-meta-grid b,
@@ -3865,7 +3991,7 @@ const adminStyles = `
 
   .api-meta-grid b {
     margin-bottom: 5px;
-    color: #9fb2ee;
+    color: #8ea0d6;
     font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -3881,8 +4007,6 @@ const adminStyles = `
     gap: 12px;
     padding: 14px;
     border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.025);
   }
 
   .api-active-check {
@@ -3901,8 +4025,6 @@ const adminStyles = `
     align-items: center;
     padding: 13px;
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(5,8,18,0.58);
   }
 
   .key-record strong,
@@ -3927,9 +4049,9 @@ const adminStyles = `
   }
 
   .danger-soft {
-    border-color: rgba(244,63,94,0.18);
+    border-color: rgba(244, 63, 94, 0.18);
     color: #fecdd3;
-    background: rgba(244,63,94,0.08);
+    background: rgba(244, 63, 94, 0.08);
   }
 
   .form-grid {
@@ -3945,10 +4067,11 @@ const adminStyles = `
   .filter-grid label span {
     display: block;
     margin-bottom: 8px;
-    color: #9fb2ee;
-    font-size: 12px;
-    font-weight: 850;
-    letter-spacing: 0.1em;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .supervisor-name-field,
@@ -3962,16 +4085,16 @@ const adminStyles = `
     left: 0;
     right: 0;
     top: calc(100% + 8px);
-    z-index: 20;
+    z-index: 30;
     display: grid;
     gap: 8px;
     max-height: 360px;
     overflow: auto;
     padding: 10px;
     border-radius: 18px;
-    border: 1px solid rgba(96,165,250,0.22);
-    background: rgba(5,8,18,0.98);
-    box-shadow: 0 22px 50px rgba(0,0,0,0.55);
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(5, 8, 18, 0.98);
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.55);
   }
 
   .supervisor-suggestion,
@@ -3980,18 +4103,18 @@ const adminStyles = `
     gap: 3px;
     width: 100%;
     text-align: left;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     padding: 12px;
     color: #e5ebff;
-    background: rgba(255,255,255,0.035);
+    background: rgba(255, 255, 255, 0.035);
     cursor: pointer;
   }
 
   .supervisor-suggestion:hover,
   .role-candidate-option:hover {
-    border-color: rgba(16,185,129,0.35);
-    background: rgba(16,185,129,0.09);
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.09);
   }
 
   .supervisor-suggestion strong,
@@ -4025,8 +4148,8 @@ const adminStyles = `
     padding: 12px;
     color: #a9b4d0;
     border-radius: 14px;
-    border: 1px dashed rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.03);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
     line-height: 1.5;
   }
 
@@ -4046,6 +4169,7 @@ const adminStyles = `
     color: #dbe7ff;
     letter-spacing: 0;
     font-size: 14px;
+    text-transform: none;
   }
 
   .permission-grid {
@@ -4057,8 +4181,6 @@ const adminStyles = `
   .permission-check {
     padding: 14px;
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.035);
   }
 
   .lock-note {
@@ -4071,16 +4193,16 @@ const adminStyles = `
   .empty-box {
     padding: 20px;
     color: #a9b4d0;
-    border: 1px dashed rgba(255,255,255,0.12);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
     border-radius: 18px;
-    background: rgba(255,255,255,0.025);
+    background: rgba(255, 255, 255, 0.025);
     line-height: 1.7;
   }
 
   .success-box {
     color: #bbf7d0;
-    border-color: rgba(16,185,129,0.22);
-    background: rgba(16,185,129,0.07);
+    border-color: rgba(16, 185, 129, 0.22);
+    background: rgba(16, 185, 129, 0.07);
   }
 
   .scroll-stack {
@@ -4097,13 +4219,13 @@ const adminStyles = `
 
   .mini-card {
     padding: 16px;
-    border-radius: 18px;
-    background: rgba(255,255,255,0.035);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .warning-card {
-    border-color: rgba(251,191,36,0.18);
-    background: rgba(245,158,11,0.08);
+    border-color: rgba(251, 191, 36, 0.18);
+    background: rgba(245, 158, 11, 0.08);
   }
 
   .mini-head {
@@ -4128,17 +4250,18 @@ const adminStyles = `
 
   .mini-grid b {
     display: block;
-    color: #9fb2ee;
+    color: #8ea0d6;
     font-size: 11px;
     letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .member-picker {
     padding: 18px;
     border-radius: 22px;
     background:
-      radial-gradient(circle at top left, rgba(59,130,246,0.12), transparent 32%),
-      rgba(255,255,255,0.03);
+      radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 32%),
+      rgba(255, 255, 255, 0.03);
   }
 
   .member-picker-head {
@@ -4160,13 +4283,13 @@ const adminStyles = `
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    border: 1px solid rgba(16,185,129,0.24);
-    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16, 185, 129, 0.24);
+    background: rgba(16, 185, 129, 0.08);
     color: #bbf7d0;
     border-radius: 999px;
     padding: 8px 10px;
     font-size: 12px;
-    font-weight: 850;
+    font-weight: 900;
     cursor: pointer;
   }
 
@@ -4191,8 +4314,8 @@ const adminStyles = `
     gap: 12px;
     align-items: center;
     text-align: left;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(5,8,18,0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(5, 8, 18, 0.72);
     color: #e5ebff;
     border-radius: 16px;
     padding: 12px;
@@ -4200,8 +4323,8 @@ const adminStyles = `
   }
 
   .member-option.selected {
-    border-color: rgba(16,185,129,0.34);
-    background: rgba(16,185,129,0.09);
+    border-color: rgba(16, 185, 129, 0.34);
+    background: rgba(16, 185, 129, 0.09);
   }
 
   .member-check {
@@ -4210,13 +4333,13 @@ const adminStyles = `
     display: grid;
     place-items: center;
     border-radius: 12px;
-    background: rgba(255,255,255,0.06);
+    background: rgba(255, 255, 255, 0.06);
     color: #bfdbfe;
     font-weight: 900;
   }
 
   .member-option.selected .member-check {
-    background: rgba(16,185,129,0.18);
+    background: rgba(16, 185, 129, 0.18);
     color: #bbf7d0;
   }
 
@@ -4255,8 +4378,8 @@ const adminStyles = `
     padding: 18px;
     border-radius: 22px;
     background:
-      radial-gradient(circle at top right, rgba(139,92,246,0.11), transparent 34%),
-      rgba(255,255,255,0.035);
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.11), transparent 34%),
+      rgba(255, 255, 255, 0.035);
   }
 
   .supervisor-card.inactive {
@@ -4297,8 +4420,8 @@ const adminStyles = `
     padding: 7px 10px;
     border-radius: 999px;
     color: #dbe7ff;
-    background: rgba(96,165,250,0.1);
-    border: 1px solid rgba(96,165,250,0.18);
+    background: rgba(96, 165, 250, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.18);
     font-size: 12px;
     font-weight: 800;
   }
@@ -4311,8 +4434,6 @@ const adminStyles = `
   .rule-list div {
     padding: 16px;
     border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
   }
 
   .rule-list b,
@@ -4353,11 +4474,12 @@ const adminStyles = `
     align-items: center;
     padding: 16px;
     border-radius: 18px;
-    background: rgba(255,255,255,0.035);
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .profile-card strong,
-  .profile-card small {
+  .profile-card small,
+  .profile-card em {
     display: block;
   }
 
@@ -4365,6 +4487,13 @@ const adminStyles = `
     margin-top: 5px;
     color: #a9b4d0;
     word-break: break-word;
+  }
+
+  .profile-card em {
+    margin-top: 6px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-style: normal;
   }
 
   .profile-card-meta {
@@ -4385,8 +4514,8 @@ const adminStyles = `
     padding: 12px;
     color: #a9b4d0;
     border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .tiny-metrics b {
@@ -4418,37 +4547,37 @@ const adminStyles = `
   .chip {
     padding: 8px 12px;
     color: #dbe7ff;
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 999px;
-    background: rgba(255,255,255,0.04);
+    background: rgba(255, 255, 255, 0.04);
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 900;
   }
 
   .chip.success {
     color: #bbf7d0;
-    border-color: rgba(16,185,129,0.22);
-    background: rgba(16,185,129,0.08);
+    border-color: rgba(16, 185, 129, 0.22);
+    background: rgba(16, 185, 129, 0.08);
   }
 
   .chip.warning {
     color: #fde68a;
-    border-color: rgba(245,158,11,0.22);
-    background: rgba(245,158,11,0.09);
+    border-color: rgba(245, 158, 11, 0.22);
+    background: rgba(245, 158, 11, 0.09);
   }
 
   .chip.notice {
     color: #bfdbfe;
-    border-color: rgba(96,165,250,0.22);
-    background: rgba(59,130,246,0.1);
+    border-color: rgba(96, 165, 250, 0.22);
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .table-shell {
     max-height: 760px;
     overflow: auto;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 22px;
-    background: rgba(4,8,20,0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    background: rgba(4, 8, 20, 0.72);
   }
 
   table {
@@ -4461,7 +4590,7 @@ const adminStyles = `
   td {
     padding: 15px 14px;
     text-align: left;
-    border-bottom: 1px solid rgba(255,255,255,0.065);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.065);
     vertical-align: top;
   }
 
@@ -4469,15 +4598,20 @@ const adminStyles = `
     position: sticky;
     top: 0;
     z-index: 2;
-    color: #9fb2ee;
-    background: rgba(10,18,34,0.98);
+    color: #8ea0d6;
+    background: rgba(10, 18, 34, 0.98);
     font-size: 12px;
     font-weight: 900;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
   }
 
   tr:nth-child(even) td {
-    background: rgba(255,255,255,0.018);
+    background: rgba(255, 255, 255, 0.018);
+  }
+
+  tr:hover td {
+    background: rgba(59, 130, 246, 0.035);
   }
 
   td strong,
@@ -4507,13 +4641,13 @@ const adminStyles = `
   .team-pill {
     padding: 7px 11px;
     color: #dbe7ff;
-    border: 1px solid rgba(96,165,250,0.2);
-    background: rgba(59,130,246,0.1);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .missing-text {
     color: #fcd34d;
-    font-weight: 850;
+    font-weight: 900;
   }
 
   .tone,
@@ -4525,34 +4659,34 @@ const adminStyles = `
   .tone.success,
   .status.active {
     color: #bbf7d0;
-    border: 1px solid rgba(16,185,129,0.22);
-    background: rgba(16,185,129,0.1);
+    border: 1px solid rgba(16, 185, 129, 0.22);
+    background: rgba(16, 185, 129, 0.1);
   }
 
   .tone.warning,
   .status.inactive {
     color: #fde68a;
-    border: 1px solid rgba(245,158,11,0.24);
-    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245, 158, 11, 0.24);
+    background: rgba(245, 158, 11, 0.1);
   }
 
   .tone.notice,
   .status.neutral {
     color: #bfdbfe;
-    border: 1px solid rgba(96,165,250,0.24);
-    background: rgba(59,130,246,0.1);
+    border: 1px solid rgba(96, 165, 250, 0.24);
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .tone.neutral {
     color: #dbe7ff;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .tone.danger {
     color: #fecdd3;
-    border: 1px solid rgba(244,63,94,0.24);
-    background: rgba(244,63,94,0.1);
+    border: 1px solid rgba(244, 63, 94, 0.24);
+    background: rgba(244, 63, 94, 0.1);
   }
 
   .history-list {
@@ -4563,7 +4697,7 @@ const adminStyles = `
   .history-card {
     padding: 16px;
     border-radius: 18px;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .history-card div {
@@ -4580,6 +4714,24 @@ const adminStyles = `
     line-height: 1.6;
   }
 
+  .jump-top {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 50;
+    min-height: 46px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    background: rgba(8, 13, 28, 0.92);
+    color: #dbeafe;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+  }
+
   @media (max-width: 1180px) {
     .hero,
     .control-grid,
@@ -4590,6 +4742,11 @@ const adminStyles = `
     .hero-side-card {
       max-width: 100%;
     }
+
+    .hero-actions {
+      align-items: flex-start;
+      flex-direction: column;
+    }
   }
 
   @media (max-width: 980px) {
@@ -4597,16 +4754,17 @@ const adminStyles = `
     .form-grid.two,
     .permission-grid,
     .api-meta-grid,
-    .key-record {
+    .key-record,
+    .profile-card {
       grid-template-columns: 1fr;
     }
 
     .section-head,
     .mini-head,
-    .profile-card,
     .supervisor-card-head,
     .supervisor-card-foot,
-    .member-picker-head {
+    .member-picker-head,
+    .api-card-top {
       grid-template-columns: 1fr;
       flex-direction: column;
       align-items: stretch;
@@ -4616,15 +4774,20 @@ const adminStyles = `
       min-width: 0;
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .profile-card-meta {
+      justify-content: flex-start;
+    }
   }
 
   @media (max-width: 640px) {
     .admin-page {
-      padding: 20px 12px 56px;
+      padding: 18px 12px 60px;
     }
 
-    .hero {
-      padding: 24px;
+    .hero,
+    .panel {
+      padding: 22px;
     }
 
     h1 {
@@ -4634,6 +4797,11 @@ const adminStyles = `
     .tiny-metrics,
     .mini-grid {
       grid-template-columns: 1fr;
+    }
+
+    .primary-btn,
+    .secondary-btn {
+      width: 100%;
     }
   }
 `;
