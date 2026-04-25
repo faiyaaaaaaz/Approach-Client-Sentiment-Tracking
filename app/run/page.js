@@ -783,6 +783,14 @@ export default function RunPage() {
     };
   }, []);
 
+  function toggleAutoRun() {
+    setAutoRunAfterFetch((prev) => {
+      const next = !prev;
+      addLog(`Auto-run ${next ? "enabled" : "disabled"}.`, next ? "success" : "neutral");
+      return next;
+    });
+  }
+
   function handleCancelFetch() {
     cancelRequestedRef.current = true;
 
@@ -1622,13 +1630,7 @@ export default function RunPage() {
             <button
               type="button"
               className={autoRunAfterFetch ? "toggle-chip on" : "toggle-chip"}
-              onClick={() => {
-                setAutoRunAfterFetch((prev) => !prev);
-                addLog(
-                  `Auto-run ${!autoRunAfterFetch ? "enabled" : "disabled"}.`,
-                  !autoRunAfterFetch ? "success" : "neutral"
-                );
-              }}
+              onClick={toggleAutoRun}
             >
               <span />
               {autoRunAfterFetch ? "Auto-run enabled" : "Auto-run after fetch"}
@@ -1785,19 +1787,38 @@ export default function RunPage() {
                   )}
                 </div>
 
-                <div className="behavior-card">
+                <div
+                  className={autoRunAfterFetch ? "behavior-card interactive active" : "behavior-card interactive"}
+                  role="button"
+                  tabIndex={0}
+                  onClick={toggleAutoRun}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleAutoRun();
+                    }
+                  }}
+                >
                   <div className="behavior-row">
                     <div>
                       <span className="mini-label">Auto-run</span>
                       <strong>{autoRunAfterFetch ? "Enabled" : "Disabled"}</strong>
                     </div>
-                    <div className={`pill ${autoRunAfterFetch ? "success" : "neutral"}`}>
-                      {autoRunAfterFetch ? "On" : "Off"}
-                    </div>
+                    <button
+                      type="button"
+                      className={autoRunAfterFetch ? "switch on" : "switch"}
+                      aria-label="Toggle auto-run after fetch"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleAutoRun();
+                      }}
+                    >
+                      <span />
+                    </button>
                   </div>
 
                   <small className="behavior-copy">
-                    If enabled, audit starts automatically after fetch. Duplicate checks still apply.
+                    Click this card to turn auto-run on or off. When enabled, the audit starts automatically after fetch.
                   </small>
                 </div>
               </div>
@@ -1819,8 +1840,19 @@ export default function RunPage() {
                   <strong>{formatNumber(queuedConversationCount)}</strong>
                 </div>
                 <div>
-                  <span className="mini-label">Duplicate mode</span>
-                  <strong>{duplicateWarningOpen ? "Waiting" : autoRunAfterFetch ? "Automatic" : "Manual"}</strong>
+                  <span className="mini-label">Duplicate handling</span>
+                  <strong>
+                    {duplicateWarningOpen
+                      ? "Decision needed"
+                      : autoRunAfterFetch
+                      ? "Auto decision"
+                      : "Ask before audit"}
+                  </strong>
+                  <small>
+                    {autoRunAfterFetch
+                      ? "Auto-run applies the safe duplicate rule."
+                      : "Manual runs pause only if duplicates are found."}
+                  </small>
                 </div>
               </div>
 
@@ -2902,6 +2934,24 @@ const runStyles = `
     padding: 16px;
   }
 
+  .behavior-card.interactive {
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+
+  .behavior-card.interactive:hover,
+  .behavior-card.interactive:focus {
+    transform: translateY(-1px);
+    border-color: rgba(96, 165, 250, 0.32);
+    background: rgba(59, 130, 246, 0.08);
+    outline: none;
+  }
+
+  .behavior-card.interactive.active {
+    border-color: rgba(16, 185, 129, 0.28);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
   .behavior-row {
     display: flex;
     align-items: center;
@@ -2973,6 +3023,15 @@ const runStyles = `
     font-size: 17px;
     line-height: 1.45;
     color: #ffffff;
+  }
+
+  .action-summary-grid small {
+    display: block;
+    margin-top: 6px;
+    color: #a9b4d0;
+    font-size: 12px;
+    line-height: 1.55;
+    font-weight: 700;
   }
 
   .button-row {
