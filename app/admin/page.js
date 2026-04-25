@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const CLIENT_TIMEOUT_MS = 15000;
 
 const ROLE_OPTIONS = [
   {
@@ -37,6 +38,24 @@ const ROLE_OPTIONS = [
     defaultCanRunTests: false,
   },
 ];
+
+function withClientTimeout(promise, label, timeoutMs = CLIENT_TIMEOUT_MS) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          `${label} took too long to respond. Please refresh once and try again. If it repeats, check Supabase table access for Supervisor Teams.`
+        )
+      );
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -405,6 +424,36 @@ function getMemberKey(member) {
   return normalizeEmail(member?.employee_email) || normalizeName(member?.employee_name).toLowerCase();
 }
 
+function sortSupervisorTeams(teams) {
+  return [...(teams || [])].sort((a, b) =>
+    String(a?.supervisor_name || "").localeCompare(String(b?.supervisor_name || ""))
+  );
+}
+
+function buildEmployeeOptionsFromRows(rows) {
+  const byEmployee = new Map();
+
+  for (const row of rows || []) {
+    const employeeName = normalizeName(row?.employee_name);
+    if (!employeeName) continue;
+
+    const key = normalizeEmail(row?.employee_email) || employeeName.toLowerCase();
+
+    if (!byEmployee.has(key)) {
+      byEmployee.set(key, {
+        employee_name: employeeName,
+        employee_email: row?.employee_email || null,
+        intercom_agent_name: row?.intercom_agent_name || null,
+        team_name: row?.team_name || null,
+      });
+    }
+  }
+
+  return Array.from(byEmployee.values()).sort((a, b) =>
+    a.employee_name.localeCompare(b.employee_name)
+  );
+}
+
 async function readApiJson(response) {
   const text = await response.text();
 
@@ -589,34 +638,92 @@ export default function AdminPage() {
         throw new Error(data?.error || "Could not load mapping data.");
       }
 
-      setMappingRows(Array.isArray(data.mappings) ? data.mappings : []);
+      const nextMappings = Array.isArray(data.mappings) ? data.mappings : [];
+
+      setMappingRows(nextMappings);
       setAuditRows(Array.isArray(data.auditRows) ? data.auditRows : []);
+
+      if (!supervisorEmployeeOptions.length) {
+        setSupervisorEmployeeOptions(buildEmployeeOptionsFromRows(nextMappings));
+      }
     } finally {
       setMappingLoading(false);
     }
   }
 
-  async function loadSupervisorTeamsData(activeSession = session) {
+  async function loadSupervisorTeamsData() {
     setSupervisorLoading(true);
 
     try {
-      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
+      const teamsResult = await withClientTimeout(
+        supabase
+          .from("supervisor_teams")
+          .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+          .order("supervisor_name", { ascending: true })
+          .limit(1000),
+        "Loading Supervisor Teams"
+      );
 
-      const response = await fetch("/api/admin/supervisor-teams", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-      });
-
-      const data = await readApiJson(response);
-
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not load Supervisor Teams.");
+      if (teamsResult?.error) {
+        throw new Error(teamsResult.error.message || "Could not load Supervisor Teams.");
       }
 
-      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
-      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
+      const teams = Array.isArray(teamsResult?.data) ? teamsResult.data : [];
+      const teamIds = teams.map((team) => team.id).filter(Boolean);
+
+      let members = [];
+
+      if (teamIds.length > 0) {
+        const membersResult = await withClientTimeout(
+          supabase
+            .from("supervisor_team_members")
+            .select(
+              "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
+            )
+            .in("supervisor_team_id", teamIds)
+            .order("employee_name", { ascending: true })
+            .limit(10000),
+          "Loading Supervisor Team members"
+        );
+
+        if (membersResult?.error) {
+          throw new Error(membersResult.error.message || "Could not load Supervisor Team members.");
+        }
+
+        members = Array.isArray(membersResult?.data) ? membersResult.data : [];
+      }
+
+      const membersByTeam = new Map();
+
+      for (const member of members) {
+        if (member?.is_active === false) continue;
+
+        const existing = membersByTeam.get(member.supervisor_team_id) || [];
+        existing.push(member);
+        membersByTeam.set(member.supervisor_team_id, existing);
+      }
+
+      const mergedTeams = teams.map((team) => ({
+        ...team,
+        members: membersByTeam.get(team.id) || [],
+      }));
+
+      const optionsResult = await withClientTimeout(
+        supabase
+          .from("agent_mappings")
+          .select("id, intercom_agent_name, employee_name, employee_email, team_name, is_active")
+          .eq("is_active", true)
+          .order("employee_name", { ascending: true })
+          .limit(5000),
+        "Loading employee options"
+      );
+
+      if (optionsResult?.error) {
+        throw new Error(optionsResult.error.message || "Could not load employee options.");
+      }
+
+      setSupervisorTeams(sortSupervisorTeams(mergedTeams));
+      setSupervisorEmployeeOptions(buildEmployeeOptionsFromRows(optionsResult?.data || []));
     } finally {
       setSupervisorLoading(false);
     }
@@ -648,7 +755,7 @@ export default function AdminPage() {
       await Promise.all([
         loadPromptData(activeSession),
         loadMappingsData(activeSession),
-        loadSupervisorTeamsData(activeSession),
+        loadSupervisorTeamsData(),
         loadProfilesData(),
       ]);
     } catch (error) {
@@ -924,7 +1031,7 @@ export default function AdminPage() {
       setMappingForm(createEmptyMappingForm());
       await Promise.all([
         loadMappingsData(usableSession),
-        loadSupervisorTeamsData(usableSession),
+        loadSupervisorTeamsData(),
         loadProfilesData(),
       ]);
     } catch (error) {
@@ -983,7 +1090,7 @@ export default function AdminPage() {
       }
 
       setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
-      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData(usableSession)]);
+      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData()]);
     } catch (error) {
       setMappingRows(previousRows);
       setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
@@ -1041,7 +1148,7 @@ export default function AdminPage() {
       }
 
       setPageSuccess(`${savedCount} mapping(s) added.`);
-      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData(usableSession)]);
+      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData()]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
     } finally {
@@ -1201,6 +1308,15 @@ export default function AdminPage() {
     });
   }
 
+  function handleUseSupervisorCandidate(option) {
+    setSupervisorForm((prev) => ({
+      ...prev,
+      supervisor_name: option.employee_name || prev.supervisor_name,
+      supervisor_email: option.employee_email || prev.supervisor_email,
+      notes: prev.notes,
+    }));
+  }
+
   function handleEditSupervisorTeam(team) {
     setSupervisorForm({
       id: team?.id || "",
@@ -1249,37 +1365,151 @@ export default function AdminPage() {
     setSupervisorSaveLoading(true);
 
     try {
-      const usableSession = await getFreshSession();
+      const now = new Date().toISOString();
 
-      const response = await fetch("/api/admin/supervisor-teams", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-        body: JSON.stringify({
-          team: {
-            id: supervisorForm.id,
-            supervisor_name: supervisorName,
-            supervisor_email: supervisorEmail || null,
-            notes: supervisorForm.notes || null,
-            is_active: supervisorForm.is_active !== false,
-          },
-          members: supervisorForm.members,
-        }),
-      });
+      const existingByForm = supervisorForm.id
+        ? supervisorTeams.find((team) => team.id === supervisorForm.id)
+        : null;
 
-      const data = await readApiJson(response);
+      const existingByEmail = supervisorEmail
+        ? supervisorTeams.find(
+            (team) => normalizeEmail(team?.supervisor_email) === supervisorEmail
+          )
+        : null;
 
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not save Supervisor Team.");
+      const existingByName = supervisorTeams.find(
+        (team) => normalizeName(team?.supervisor_name).toLowerCase() === supervisorName.toLowerCase()
+      );
+
+      const existingTeam = existingByForm || existingByEmail || existingByName;
+      let savedTeam;
+
+      if (existingTeam?.id) {
+        const updateResult = await withClientTimeout(
+          supabase
+            .from("supervisor_teams")
+            .update({
+              supervisor_name: supervisorName,
+              supervisor_email: supervisorEmail || null,
+              notes: supervisorForm.notes || null,
+              is_active: supervisorForm.is_active !== false,
+              updated_at: now,
+            })
+            .eq("id", existingTeam.id)
+            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+            .single(),
+          "Updating Supervisor Team"
+        );
+
+        if (updateResult?.error) {
+          throw new Error(updateResult.error.message || "Could not update Supervisor Team.");
+        }
+
+        savedTeam = updateResult.data;
+      } else {
+        const insertResult = await withClientTimeout(
+          supabase
+            .from("supervisor_teams")
+            .insert({
+              supervisor_name: supervisorName,
+              supervisor_email: supervisorEmail || null,
+              notes: supervisorForm.notes || null,
+              is_active: supervisorForm.is_active !== false,
+              created_at: now,
+              updated_at: now,
+            })
+            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+            .single(),
+          "Creating Supervisor Team"
+        );
+
+        if (insertResult?.error) {
+          throw new Error(insertResult.error.message || "Could not create Supervisor Team.");
+        }
+
+        savedTeam = insertResult.data;
       }
 
-      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
-      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
+      const teamId = savedTeam?.id;
+
+      if (!teamId) {
+        throw new Error("Supervisor Team saved without an ID. Please check the supervisor_teams table.");
+      }
+
+      const deleteResult = await withClientTimeout(
+        supabase
+          .from("supervisor_team_members")
+          .delete()
+          .eq("supervisor_team_id", teamId),
+        "Clearing old Supervisor Team members"
+      );
+
+      if (deleteResult?.error) {
+        throw new Error(deleteResult.error.message || "Could not refresh Supervisor Team members.");
+      }
+
+      let savedMembers = [];
+
+      if (supervisorForm.members.length > 0) {
+        const rowsToInsert = supervisorForm.members.map((member) => ({
+          supervisor_team_id: teamId,
+          employee_name: normalizeName(member.employee_name),
+          employee_email: normalizeEmail(member.employee_email) || null,
+          intercom_agent_name: normalizeName(member.intercom_agent_name) || null,
+          team_name: normalizeName(member.team_name) || null,
+          is_active: member.is_active !== false,
+          created_at: now,
+          updated_at: now,
+        }));
+
+        const insertMembersResult = await withClientTimeout(
+          supabase
+            .from("supervisor_team_members")
+            .insert(rowsToInsert)
+            .select(
+              "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
+            ),
+          "Saving Supervisor Team members"
+        );
+
+        if (insertMembersResult?.error) {
+          throw new Error(
+            insertMembersResult.error.message || "Could not save Supervisor Team members."
+          );
+        }
+
+        savedMembers = Array.isArray(insertMembersResult?.data)
+          ? insertMembersResult.data
+          : rowsToInsert;
+      }
+
+      const nextTeam = {
+        ...savedTeam,
+        members: savedMembers.filter((member) => member?.is_active !== false),
+      };
+
+      setSupervisorTeams((prev) => {
+        const withoutCurrent = prev.filter((team) => team.id !== teamId);
+        return sortSupervisorTeams([...withoutCurrent, nextTeam]);
+      });
+
       setSupervisorForm(createEmptySupervisorForm());
       setSupervisorMemberSearch("");
-      setPageSuccess(data.message || "Supervisor Team saved successfully.");
+      setPageSuccess(
+        `${savedTeam.supervisor_name} saved successfully with ${formatNumber(
+          savedMembers.length
+        )} member(s).`
+      );
+
+      try {
+        await loadSupervisorTeamsData();
+      } catch (reloadError) {
+        setPageSuccess(
+          `${savedTeam.supervisor_name} saved successfully. Reload warning: ${
+            reloadError instanceof Error ? reloadError.message : "Could not refresh the directory."
+          }`
+        );
+      }
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save Supervisor Team.");
     } finally {
@@ -1299,30 +1529,46 @@ export default function AdminPage() {
     setSupervisorToggleLoadingId(team?.id || "");
 
     try {
-      const usableSession = await getFreshSession();
       const nextActive = team?.is_active === false;
 
-      const response = await fetch("/api/admin/supervisor-teams", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-        body: JSON.stringify({
-          id: team.id,
-          is_active: nextActive,
-        }),
-      });
+      const updateResult = await withClientTimeout(
+        supabase
+          .from("supervisor_teams")
+          .update({
+            is_active: nextActive,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", team.id)
+          .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+          .single(),
+        "Updating Supervisor Team status"
+      );
 
-      const data = await readApiJson(response);
-
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not update Supervisor Team.");
+      if (updateResult?.error) {
+        throw new Error(updateResult.error.message || "Could not update Supervisor Team.");
       }
 
-      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
-      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
-      setPageSuccess(data.message || (nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated."));
+      setSupervisorTeams((prev) =>
+        sortSupervisorTeams(
+          prev.map((item) =>
+            item.id === team.id
+              ? {
+                  ...item,
+                  ...updateResult.data,
+                  members: item.members || [],
+                }
+              : item
+          )
+        )
+      );
+
+      setPageSuccess(nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated.");
+
+      try {
+        await loadSupervisorTeamsData();
+      } catch (_reloadError) {
+        // Local state already updated successfully.
+      }
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not update Supervisor Team.");
     } finally {
@@ -1487,6 +1733,21 @@ export default function AdminPage() {
         .includes(term);
     });
   }, [supervisorEmployeeOptions, supervisorMemberSearch]);
+
+  const filteredSupervisorCandidateOptions = useMemo(() => {
+    const term = supervisorForm.supervisor_name.trim().toLowerCase();
+
+    if (term.length < 2) return [];
+
+    return supervisorEmployeeOptions
+      .filter((item) =>
+        [item.employee_name, item.employee_email, item.intercom_agent_name, item.team_name]
+          .map((value) => String(value || "").toLowerCase())
+          .join(" ")
+          .includes(term)
+      )
+      .slice(0, 8);
+  }, [supervisorEmployeeOptions, supervisorForm.supervisor_name]);
 
   const lockedRoleName = getLockedNameForEmail(roleForm.email, mappingRows);
 
@@ -1713,7 +1974,7 @@ export default function AdminPage() {
 
               <div className="form-grid single">
                 <div className="form-grid two">
-                  <label>
+                  <label className="supervisor-name-field">
                     <span>Supervisor name</span>
                     <input
                       value={supervisorForm.supervisor_name}
@@ -1723,8 +1984,33 @@ export default function AdminPage() {
                           supervisor_name: event.target.value,
                         }))
                       }
-                      placeholder="Example: Abir Hasan Pial"
+                      placeholder="Search existing employee or type a new supervisor"
                     />
+
+                    {supervisorForm.supervisor_name.trim().length >= 2 ? (
+                      <div className="supervisor-suggestion-list">
+                        {filteredSupervisorCandidateOptions.length ? (
+                          filteredSupervisorCandidateOptions.map((option) => (
+                            <button
+                              type="button"
+                              key={getMemberKey(option)}
+                              className="supervisor-suggestion"
+                              onClick={() => handleUseSupervisorCandidate(option)}
+                            >
+                              <strong>{option.employee_name}</strong>
+                              <span>
+                                {option.employee_email || "No email"} • {option.team_name || "No team"}
+                              </span>
+                              <em>{option.intercom_agent_name || "No Intercom agent"}</em>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="manual-supervisor-hint">
+                            No existing employee matched. You can still save this as a new supervisor.
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </label>
 
                   <label>
@@ -3067,6 +3353,75 @@ const adminStyles = `
     font-size: 12px;
     font-weight: 850;
     letter-spacing: 0.1em;
+  }
+
+  .supervisor-name-field {
+    position: relative;
+  }
+
+  .supervisor-suggestion-list {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    display: grid;
+    gap: 8px;
+    max-height: 360px;
+    overflow: auto;
+    padding: 10px;
+    border-radius: 18px;
+    border: 1px solid rgba(96,165,250,0.22);
+    background: rgba(5,8,18,0.98);
+    box-shadow: 0 22px 50px rgba(0,0,0,0.55);
+  }
+
+  .supervisor-suggestion {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 12px;
+    color: #e5ebff;
+    background: rgba(255,255,255,0.035);
+    cursor: pointer;
+  }
+
+  .supervisor-suggestion:hover {
+    border-color: rgba(16,185,129,0.35);
+    background: rgba(16,185,129,0.09);
+  }
+
+  .supervisor-suggestion strong,
+  .supervisor-suggestion span,
+  .supervisor-suggestion em {
+    display: block;
+  }
+
+  .supervisor-suggestion strong {
+    color: #ffffff;
+  }
+
+  .supervisor-suggestion span {
+    color: #a9b4d0;
+    font-size: 12px;
+  }
+
+  .supervisor-suggestion em {
+    color: #8ea0d6;
+    font-size: 12px;
+    font-style: normal;
+  }
+
+  .manual-supervisor-hint {
+    padding: 12px;
+    color: #a9b4d0;
+    border-radius: 14px;
+    border: 1px dashed rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    line-height: 1.5;
   }
 
   .check-row {
