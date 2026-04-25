@@ -40,6 +40,42 @@ function CalendarIcon() {
   );
 }
 
+function SparklesIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 2L14.8 9.2L22 12L14.8 14.8L12 22L9.2 14.8L2 12L9.2 9.2L12 2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 4V10H14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 20V14H10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 10C18.37 8.22 17.18 6.69 15.61 5.64C14.03 4.58 12.15 4.05 10.25 4.11C8.36 4.16 6.51 4.8 5 5.95C3.49 7.11 2.41 8.72 1.93 10.55" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M5 14C5.63 15.78 6.82 17.31 8.39 18.36C9.97 19.42 11.85 19.95 13.75 19.89C15.64 19.84 17.49 19.2 19 18.05C20.51 16.89 21.59 15.28 22.07 13.45" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="6" y="4" width="4" height="16" rx="1.4" fill="currentColor" />
+      <rect x="14" y="4" width="4" height="16" rx="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function buildFallbackProfile(user) {
   const email = user?.email?.toLowerCase() || "";
 
@@ -216,6 +252,25 @@ function getFindingsList(item) {
   return findings;
 }
 
+function getOperationTone(status) {
+  if (status === "completed" || status === "fetched") return "success";
+  if (status === "failed" || status === "cancelled") return "danger";
+  if (status === "paused") return "warning";
+  if (status === "fetching" || status === "auditing") return "notice";
+  return "neutral";
+}
+
+function getOperationLabel(status, fetchLoading, runLoading, duplicateOpen) {
+  if (fetchLoading) return "Fetching";
+  if (runLoading) return "Auditing";
+  if (duplicateOpen) return "Paused";
+  if (status === "completed") return "Completed";
+  if (status === "fetched") return "Fetched";
+  if (status === "failed") return "Attention";
+  if (status === "cancelled") return "Cancelled";
+  return "Ready";
+}
+
 function DuplicateWarningModal({
   open,
   duplicateSummary,
@@ -231,16 +286,38 @@ function DuplicateWarningModal({
     : [];
 
   const duplicateCount = Number(duplicateSummary?.duplicateCount || 0);
+  const willAutoOverwrite = duplicateCount < AUTO_DUPLICATE_OVERWRITE_LIMIT;
 
   return (
     <div className="modal-backdrop">
       <div className="duplicate-modal">
-        <div className="modal-badge warning">Duplicate audit warning</div>
-        <h2>Duplicates Found</h2>
-        <p>{formatNumber(duplicateCount)} selected conversation audit(s) already exist in Results.</p>
+        <div className="modal-shell-top">
+          <div className="modal-badge warning">Duplicate check required</div>
+          <div className="modal-count">{formatNumber(duplicateCount)}</div>
+        </div>
+
+        <h2>Existing result rows were found</h2>
+        <p className="modal-copy">
+          {formatNumber(duplicateCount)} conversation audit(s) in this run already exist in Results.
+          Choose what should happen before the audit continues.
+        </p>
+
+        <div className="modal-note-grid">
+          <div className="modal-note-card">
+            <span>Skip existing</span>
+            <strong>Preserves old rows</strong>
+            <small>New rows are created only for conversations that are not already stored.</small>
+          </div>
+
+          <div className="modal-note-card">
+            <span>Overwrite existing</span>
+            <strong>Refreshes stored rows</strong>
+            <small>Existing matching rows are replaced with the new audit result.</small>
+          </div>
+        </div>
 
         <div className="duplicate-sample-box">
-          <span>Sample Conversation IDs</span>
+          <span>Sample conversation IDs</span>
           {sampleIds.length ? (
             <div className="duplicate-list">
               {sampleIds.map((id) => (
@@ -252,8 +329,16 @@ function DuplicateWarningModal({
           )}
         </div>
 
+        <div className="modal-hint">
+          <SparklesIcon />
+          <span>
+            Auto-run uses <strong>{willAutoOverwrite ? "Overwrite Existing" : "Skip Existing"}</strong>{" "}
+            when duplicates appear automatically.
+          </span>
+        </div>
+
         <div className="modal-actions">
-          <button type="button" className="secondary-btn" onClick={onCancel} disabled={processing}>
+          <button type="button" className="ghost-btn" onClick={onCancel} disabled={processing}>
             Cancel
           </button>
           <button type="button" className="secondary-btn" onClick={onSkip} disabled={processing}>
@@ -283,37 +368,73 @@ function ProgressPanel({
   failedRows,
   onCancel,
 }) {
+  const normalizedPercent = Math.max(0, Math.min(100, percent));
+
   return (
-    <div className="progress-panel">
-      <div className="progress-head">
+    <div className="progress-panel enhanced">
+      <div className="progress-panel-head">
         <div>
-          <span>{type}</span>
-          <strong>{label}</strong>
-          <small>{detail}</small>
+          <span className="mini-label">{type}</span>
+          <h3>{label}</h3>
+          <p>{detail}</p>
         </div>
-        <div className="progress-percent">{Math.round(percent)}%</div>
+        <div className="progress-percent-chip">{Math.round(normalizedPercent)}%</div>
       </div>
 
-      <div className="progress-shell">
-        <div className="progress-bar" style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} />
+      <div className="progress-meter-shell">
+        <div className="progress-meter-fill" style={{ width: `${normalizedPercent}%` }} />
       </div>
 
-      <div className="progress-foot">
-        <span>
-          {total ? `${formatNumber(handled)} / ${formatNumber(total)} handled` : "Preparing"}
-        </span>
-        <span>
-          {totalBatches ? `Batch ${formatNumber(batchIndex)} of ${formatNumber(totalBatches)}` : ""}
-        </span>
-        <span>Saved: {formatNumber(savedRows || 0)}</span>
-        <span>Skipped: {formatNumber(skippedRows || 0)}</span>
-        <span>Failed: {formatNumber(failedRows || 0)}</span>
-        <span>Elapsed: {elapsed}</span>
+      <div className="progress-metrics-grid">
+        <div>
+          <span>Handled</span>
+          <strong>{total ? `${formatNumber(handled)} / ${formatNumber(total)}` : "Preparing"}</strong>
+        </div>
+        <div>
+          <span>Batch</span>
+          <strong>{totalBatches ? `${formatNumber(batchIndex)} / ${formatNumber(totalBatches)}` : "-"}</strong>
+        </div>
+        <div>
+          <span>Saved</span>
+          <strong>{formatNumber(savedRows || 0)}</strong>
+        </div>
+        <div>
+          <span>Skipped</span>
+          <strong>{formatNumber(skippedRows || 0)}</strong>
+        </div>
+        <div>
+          <span>Failed</span>
+          <strong>{formatNumber(failedRows || 0)}</strong>
+        </div>
+        <div>
+          <span>Elapsed</span>
+          <strong>{elapsed}</strong>
+        </div>
       </div>
 
-      <button type="button" className="danger-btn compact" onClick={onCancel}>
-        Cancel
-      </button>
+      <div className="progress-bottom-row">
+        <div className="progress-tip">
+          <RefreshIcon />
+          <small>Progress updates as each step or batch finishes.</small>
+        </div>
+
+        <button type="button" className="danger-btn compact" onClick={onCancel}>
+          <PauseIcon />
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowStep({ number, title, body, status }) {
+  return (
+    <div className={`workflow-step ${status}`}>
+      <div className="workflow-dot">{status === "done" ? <CheckIcon /> : number}</div>
+      <div>
+        <strong>{title}</strong>
+        <p>{body}</p>
+      </div>
     </div>
   );
 }
@@ -394,6 +515,10 @@ export default function RunPage() {
   const visibleResults = showAllResults ? results : results.slice(0, 8);
   const selectedPresetLabel =
     DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
+  const queuedConversationCount = useMemo(
+    () => getQueuedConversations(fetchedConversations).length,
+    [fetchedConversations, limiterEnabled, limitCount]
+  );
 
   function addLog(message, tone = "info") {
     const now = new Date();
@@ -404,7 +529,7 @@ export default function RunPage() {
     });
 
     setExecutionLog((prev) =>
-      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 50)
+      [{ time, message, tone, id: `${Date.now()}-${Math.random()}` }, ...prev].slice(0, 60)
     );
   }
 
@@ -428,7 +553,9 @@ export default function RunPage() {
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
 
       if (refreshError || !refreshData?.session?.access_token) {
-        throw new Error("Your login session expired during the audit. Please sign in again before continuing.");
+        throw new Error(
+          "Your login session expired during the audit. Please sign in again before continuing."
+        );
       }
 
       activeSession = refreshData.session;
@@ -675,9 +802,7 @@ export default function RunPage() {
     setRunLoading(false);
     setDuplicateDecisionLoading(false);
     setDuplicateWarningOpen(false);
-    setRunError(
-      "Audit cancelled. Already completed batches may still be saved in Results."
-    );
+    setRunError("Audit cancelled. Already completed batches may still be saved in Results.");
     setOperationStatus("cancelled");
     addLog("Audit cancelled. Check Results before rerunning the same batch.", "warning");
   }
@@ -909,7 +1034,10 @@ export default function RunPage() {
             setRunLoading(false);
             setOperationStatus("paused");
             setRunError("Audit paused. Duplicate decision required.");
-            addLog(`${formatNumber(duplicateCount)} duplicate conversation(s) need a decision.`, "warning");
+            addLog(
+              `${formatNumber(duplicateCount)} duplicate conversation(s) need a decision.`,
+              "warning"
+            );
             return;
           }
         }
@@ -927,7 +1055,9 @@ export default function RunPage() {
         skippedRows: 0,
         failedRows: 0,
         label: "Starting Batch Audit",
-        detail: `${formatNumber(batches.length)} batch(es) created. ${formatNumber(AUDIT_BATCH_SIZE)} conversation(s) per batch.`,
+        detail: `${formatNumber(batches.length)} batch(es) created. ${formatNumber(
+          AUDIT_BATCH_SIZE
+        )} conversation(s) per batch.`,
       });
 
       for (let index = 0; index < batches.length; index += 1) {
@@ -951,7 +1081,10 @@ export default function RunPage() {
           detail: `Auditing ${formatNumber(batch.length)} conversation(s) in this batch.`,
         });
 
-        addLog(`Batch ${batchNumber}/${batches.length} started with ${formatNumber(batch.length)} conversation(s).`, "info");
+        addLog(
+          `Batch ${batchNumber}/${batches.length} started with ${formatNumber(batch.length)} conversation(s).`,
+          "info"
+        );
 
         const batchData = await runSingleBatch({
           batch,
@@ -990,13 +1123,17 @@ export default function RunPage() {
           skippedRows: totalSkipped,
           failedRows: totalFailedRows,
           label: `Batch ${batchNumber} Saved`,
-          detail: `${formatNumber(handled)} of ${formatNumber(queuedConversations.length)} conversation(s) handled. ${formatNumber(allResults.length)} result row(s) returned.`,
+          detail: `${formatNumber(handled)} of ${formatNumber(
+            queuedConversations.length
+          )} conversation(s) handled. ${formatNumber(allResults.length)} result row(s) returned.`,
         });
 
         const skippedText = skippedThisBatch ? ` ${formatNumber(skippedThisBatch)} skipped.` : "";
 
         addLog(
-          `Batch ${batchNumber}/${batches.length} saved. Handled ${formatNumber(handled)}/${formatNumber(queuedConversations.length)}.${skippedText}`,
+          `Batch ${batchNumber}/${batches.length} saved. Handled ${formatNumber(handled)}/${formatNumber(
+            queuedConversations.length
+          )}.${skippedText}`,
           "success"
         );
       }
@@ -1027,7 +1164,9 @@ export default function RunPage() {
 
       setRunData(finalData);
       setRunSuccess(
-        `Audit completed in ${formatNumber(batches.length)} batch(es). ${formatNumber(allResults.length)} result row(s) returned. ${formatNumber(totalSkipped)} skipped.`
+        `Audit completed in ${formatNumber(batches.length)} batch(es). ${formatNumber(
+          allResults.length
+        )} result row(s) returned. ${formatNumber(totalSkipped)} skipped.`
       );
       setOperationStatus("completed");
       setAuditProgress({
@@ -1045,8 +1184,7 @@ export default function RunPage() {
 
       addLog("Batch audit completed successfully.", "success");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Audit run failed.";
+      const message = error instanceof Error ? error.message : "Audit run failed.";
 
       if (allResults.length || handled > 0) {
         const partialData = buildPartialRunData({
@@ -1090,7 +1228,9 @@ export default function RunPage() {
         label: message.toLowerCase().includes("cancelled") ? "Audit Cancelled" : "Audit Stopped",
         detail:
           allResults.length || handled
-            ? `Stopped after handling ${formatNumber(handled)} of ${formatNumber(queuedConversations.length)} conversation(s). Completed batch results may already be saved.`
+            ? `Stopped after handling ${formatNumber(handled)} of ${formatNumber(
+                queuedConversations.length
+              )} conversation(s). Completed batch results may already be saved.`
             : message,
       }));
     } finally {
@@ -1131,7 +1271,10 @@ export default function RunPage() {
     try {
       accessToken = await getFreshAccessToken();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Your login session is missing. Please sign in again.";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Your login session is missing. Please sign in again.";
       setFetchError(message);
       setAuthMessage(message);
       addLog(message, "danger");
@@ -1264,9 +1407,9 @@ export default function RunPage() {
     if (profile && !canRunTests) return "This account does not have test-run access.";
     if (fetchLoading) return FETCH_STEPS[fetchStepIndex] || "Fetching.";
     if (runLoading) return auditProgress.detail;
-    if (operationStatus === "cancelled") return "Current operation was cancelled.";
-    if (operationStatus === "paused") return "Audit is paused and needs your decision.";
-    if (operationStatus === "failed") return "The last operation failed.";
+    if (operationStatus === "cancelled") return "The current operation was cancelled.";
+    if (operationStatus === "paused") return "Audit is paused and needs your duplicate decision.";
+    if (operationStatus === "failed") return "The last operation needs your attention.";
     if (runData?.partial) {
       return `Partial run: ${formatNumber(runData.meta?.auditedCount || 0)} result row(s) returned before the run stopped.`;
     }
@@ -1278,10 +1421,10 @@ export default function RunPage() {
     }
     if (startDate && endDate) {
       return limiterEnabled
-        ? `Ready to fetch ${formatNumber(limitCount || 0)} conversation(s) from ${startDate} to ${endDate}.`
+        ? `Ready to fetch up to ${formatNumber(limitCount || 0)} conversation(s) from ${startDate} to ${endDate}.`
         : `Ready to fetch all eligible conversations from ${startDate} to ${endDate}.`;
     }
-    return "Choose a date range to start.";
+    return "Choose a date range to begin.";
   }, [
     authLoading,
     session,
@@ -1300,32 +1443,50 @@ export default function RunPage() {
     fetchStepIndex,
   ]);
 
+  const operationLabel = getOperationLabel(
+    operationStatus,
+    fetchLoading,
+    runLoading,
+    duplicateWarningOpen
+  );
+  const operationTone = getOperationTone(
+    fetchLoading ? "fetching" : runLoading ? "auditing" : duplicateWarningOpen ? "paused" : operationStatus
+  );
+
   const statCards = [
     {
-      label: "Fetch",
-      value: fetchData?.meta?.fetchedCount ? formatNumber(fetchData.meta.fetchedCount) : "Ready",
-      subtext: "Conversation queue",
+      label: "Fetched queue",
+      value: fetchData?.meta?.fetchedCount ? formatNumber(fetchData.meta.fetchedCount) : "0",
+      subtext: "Conversations returned from Intercom",
       tone: fetchData?.meta?.fetchedCount ? "success" : "neutral",
     },
     {
-      label: "Audit",
-      value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "Pending",
-      subtext: runData?.partial ? "Partial result rows" : "Processed result rows",
-      tone: runData?.partial ? "warning" : runData?.meta?.auditedCount ? "success" : "neutral",
+      label: "Audit queue",
+      value: queuedConversationCount ? formatNumber(queuedConversationCount) : "0",
+      subtext: limiterEnabled ? "Conversations ready after limiter" : "Conversations ready to audit",
+      tone: queuedConversationCount ? "notice" : "neutral",
+    },
+    {
+      label: "Completed rows",
+      value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "0",
+      subtext: runData?.partial ? "Partial saved rows" : "Rows returned from latest run",
+      tone: runData?.meta?.auditedCount ? (runData?.partial ? "warning" : "success") : "neutral",
     },
     {
       label: "Auto-run",
       value: autoRunAfterFetch ? "On" : "Off",
-      subtext: autoRunAfterFetch ? "Starts after fetch" : "Manual start",
+      subtext: autoRunAfterFetch ? "Starts after fetch finishes" : "Manual audit start",
       tone: autoRunAfterFetch ? "success" : "neutral",
     },
-    {
-      label: "Batch Size",
-      value: String(AUDIT_BATCH_SIZE),
-      subtext: "Conversations per request",
-      tone: "notice",
-    },
   ];
+
+  const workflowStatus = {
+    setup: startDate && endDate ? "done" : "active",
+    fetch: fetchData?.meta?.fetchedCount > 0 ? "done" : fetchLoading ? "active" : "idle",
+    review:
+      duplicateWarningOpen || queuedConversationCount > 0 || runLoading || runData ? "active" : "idle",
+    run: runData?.meta?.auditedCount > 0 ? "done" : runLoading ? "active" : "idle",
+  };
 
   return (
     <main className="run-page">
@@ -1340,27 +1501,104 @@ export default function RunPage() {
         onOverwrite={handleDuplicateOverwrite}
       />
 
-      <nav className="topbar">
-        <div>
-          <p className="eyebrow">NEXT Ventures</p>
-          <strong>Review Approach & Client Sentiment Tracking</strong>
-        </div>
+      <section className="hero-shell">
+        <div className="hero-grid">
+          <div className="hero-copy-card surface-card">
+            <div className="hero-badge-row">
+              <span className="hero-badge">Run audit</span>
+              <span className={`state-pill ${operationTone}`}>{operationLabel}</span>
+            </div>
 
-        <span className={`live-pill ${isBusy ? "busy" : "ready"}`}>
-          {fetchLoading ? "Fetching" : runLoading ? "Batch Auditing" : duplicateWarningOpen ? "Paused" : "Run Audit"}
-        </span>
-      </nav>
+            <h1>Audit command center</h1>
+            <p className="hero-copy">
+              Fetch low-CSAT conversations, review the queue, run GPT audits in batches, and store
+              results with clear live progress at every step.
+            </p>
 
-      <section className="hero">
-        <div>
-          <div className="hero-badge">Run Audit</div>
-          <h1>Audit Control</h1>
-          <p>Fetch low-CSAT conversations, run GPT audits in batches, and save results.</p>
-        </div>
+            <div className="hero-summary-card">
+              <div>
+                <span className="mini-label">Current state</span>
+                <strong>{summaryText}</strong>
+              </div>
+            </div>
 
-        <div className="hero-panel">
-          <span>Current State</span>
-          <strong>{summaryText}</strong>
+            <div className="hero-quick-grid">
+              <div className="hero-quick-card">
+                <span className="mini-label">Signed in</span>
+                <strong>{authLoading ? "Checking" : session?.user?.email || "Not signed in"}</strong>
+                <small>
+                  {authLoading
+                    ? "Please wait"
+                    : profile?.role
+                    ? `Role: ${profile.role}`
+                    : "Role unavailable"}
+                </small>
+              </div>
+              <div className="hero-quick-card">
+                <span className="mini-label">Date range</span>
+                <strong>{startDate && endDate ? `${startDate} to ${endDate}` : "Not selected"}</strong>
+                <small>{selectedPresetLabel}</small>
+              </div>
+              <div className="hero-quick-card">
+                <span className="mini-label">Limiter</span>
+                <strong>{limiterEnabled ? `On · ${limitCount || 0}` : "Off"}</strong>
+                <small>{limiterEnabled ? "Maximum rows in fetch" : "Full eligible queue"}</small>
+              </div>
+            </div>
+          </div>
+
+          <div className="hero-side-column">
+            <div className="surface-card workflow-card">
+              <div className="section-head compact alt">
+                <div>
+                  <span className="mini-label">Workflow</span>
+                  <h2>How this run will flow</h2>
+                </div>
+              </div>
+
+              <div className="workflow-stack">
+                <WorkflowStep
+                  number="1"
+                  title="Set the range"
+                  body="Choose a date preset or custom dates for the Intercom search window."
+                  status={workflowStatus.setup}
+                />
+                <WorkflowStep
+                  number="2"
+                  title="Fetch conversations"
+                  body="The app gathers low-CSAT conversations and prepares the audit queue."
+                  status={workflowStatus.fetch}
+                />
+                <WorkflowStep
+                  number="3"
+                  title="Review duplicates"
+                  body="If duplicates appear, choose to skip or overwrite before continuing."
+                  status={workflowStatus.review}
+                />
+                <WorkflowStep
+                  number="4"
+                  title="Run batched audit"
+                  body="Audits are sent in batches and saved to Results as progress completes."
+                  status={workflowStatus.run}
+                />
+              </div>
+            </div>
+
+            <div className="surface-card insight-card">
+              <div className="insight-line">
+                <SparklesIcon />
+                <span>
+                  Auto-run is <strong>{autoRunAfterFetch ? "enabled" : "disabled"}</strong>.
+                </span>
+              </div>
+              <div className="insight-line">
+                <RefreshIcon />
+                <span>
+                  Batch size is fixed at <strong>{AUDIT_BATCH_SIZE}</strong> for safer, steadier runs.
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1374,19 +1612,22 @@ export default function RunPage() {
         ))}
       </section>
 
-      <section className="main-grid">
-        <div className="panel control-panel">
+      <section className="command-grid">
+        <div className="surface-card command-card">
           <div className="section-head">
             <div>
-              <p className="eyebrow">Controls</p>
-              <h2>Setup</h2>
+              <span className="mini-label">Command center</span>
+              <h2>Setup and controls</h2>
             </div>
             <button
               type="button"
               className={autoRunAfterFetch ? "toggle-chip on" : "toggle-chip"}
               onClick={() => {
                 setAutoRunAfterFetch((prev) => !prev);
-                addLog(`Auto-run ${!autoRunAfterFetch ? "enabled" : "disabled"}.`, !autoRunAfterFetch ? "success" : "neutral");
+                addLog(
+                  `Auto-run ${!autoRunAfterFetch ? "enabled" : "disabled"}.`,
+                  !autoRunAfterFetch ? "success" : "neutral"
+                );
               }}
             >
               <span />
@@ -1394,149 +1635,227 @@ export default function RunPage() {
             </button>
           </div>
 
-          <div className="auth-card">
-            <span>Login</span>
-            {authLoading ? (
-              <strong>Checking session...</strong>
-            ) : session?.user ? (
-              <>
-                <strong>{session.user.email}</strong>
-                <small>Role: {profile?.role || "viewer"} | Can run tests: {canRunTests ? "Yes" : "No"}</small>
-              </>
-            ) : (
-              <strong>Not signed in</strong>
-            )}
-            {authMessage ? <em>{authMessage}</em> : null}
-          </div>
-
-          <div ref={presetMenuRef} className="preset-box">
-            <label>Date Range Preset</label>
-            <button type="button" className="preset-button" onClick={() => setShowPresetMenu((prev) => !prev)}>
-              <span><CalendarIcon /> {selectedPresetLabel}</span>
-              <small>{startDate && endDate ? `${startDate} - ${endDate}` : "Select range"}</small>
-              <b>{showPresetMenu ? "▲" : "▼"}</b>
-            </button>
-
-            {showPresetMenu ? (
-              <div className="preset-menu">
-                {DATE_PRESET_OPTIONS.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={item.key === selectedDatePreset ? "active" : ""}
-                    onClick={() => applyDatePreset(item.key)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="form-grid two">
-            <label>
-              <span>Start Date</span>
-              <div className="date-control">
-                <input
-                  ref={startDateRef}
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => {
-                    setStartDate(event.target.value);
-                    setSelectedDatePreset("custom");
-                    resetRunStateForInputChange();
-                  }}
-                  onFocus={() => openPicker(startDateRef)}
-                />
-                <button type="button" className="icon-btn" onClick={() => openPicker(startDateRef)}>
-                  <CalendarIcon />
-                </button>
-              </div>
-            </label>
-
-            <label>
-              <span>End Date</span>
-              <div className="date-control">
-                <input
-                  ref={endDateRef}
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => {
-                    setEndDate(event.target.value);
-                    setSelectedDatePreset("custom");
-                    resetRunStateForInputChange();
-                  }}
-                  onFocus={() => openPicker(endDateRef)}
-                />
-                <button type="button" className="icon-btn" onClick={() => openPicker(endDateRef)}>
-                  <CalendarIcon />
-                </button>
-              </div>
-            </label>
-          </div>
-
-          <div className="limiter-card">
+          <div className="auth-shell-card">
             <div>
-              <span>Limiter</span>
-              <strong>{limiterEnabled ? "On" : "Off"}</strong>
+              <span className="mini-label">Session</span>
+              <strong>
+                {authLoading ? "Checking session" : session?.user?.email || "Not signed in"}
+              </strong>
+              <small>
+                {authLoading
+                  ? "Please wait"
+                  : canRunTests
+                  ? "This account can run audits"
+                  : "This account cannot run audits"}
+              </small>
+            </div>
+            <div className={`access-badge ${canRunTests ? "success" : "danger"}`}>
+              {canRunTests ? "Allowed" : "Locked"}
+            </div>
+          </div>
+
+          {authMessage ? <div className="message error subtle">{authMessage}</div> : null}
+
+          <div className="control-section-grid">
+            <div className="control-block">
+              <div className="block-head">
+                <span className="mini-label">Step 1</span>
+                <h3>Choose the audit range</h3>
+              </div>
+
+              <div ref={presetMenuRef} className="preset-box">
+                <label>Date range preset</label>
+                <button
+                  type="button"
+                  className="preset-button"
+                  onClick={() => setShowPresetMenu((prev) => !prev)}
+                >
+                  <span>
+                    <CalendarIcon /> {selectedPresetLabel}
+                  </span>
+                  <small>
+                    {startDate && endDate ? `${startDate} to ${endDate}` : "Select a range"}
+                  </small>
+                  <b>{showPresetMenu ? "▲" : "▼"}</b>
+                </button>
+
+                {showPresetMenu ? (
+                  <div className="preset-menu">
+                    {DATE_PRESET_OPTIONS.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={item.key === selectedDatePreset ? "active" : ""}
+                        onClick={() => applyDatePreset(item.key)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="form-grid two">
+                <label>
+                  <span>Start date</span>
+                  <div className="date-control">
+                    <input
+                      ref={startDateRef}
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => {
+                        setStartDate(event.target.value);
+                        setSelectedDatePreset("custom");
+                        resetRunStateForInputChange();
+                      }}
+                      onFocus={() => openPicker(startDateRef)}
+                    />
+                    <button type="button" className="icon-btn" onClick={() => openPicker(startDateRef)}>
+                      <CalendarIcon />
+                    </button>
+                  </div>
+                </label>
+
+                <label>
+                  <span>End date</span>
+                  <div className="date-control">
+                    <input
+                      ref={endDateRef}
+                      type="date"
+                      value={endDate}
+                      onChange={(event) => {
+                        setEndDate(event.target.value);
+                        setSelectedDatePreset("custom");
+                        resetRunStateForInputChange();
+                      }}
+                      onFocus={() => openPicker(endDateRef)}
+                    />
+                    <button type="button" className="icon-btn" onClick={() => openPicker(endDateRef)}>
+                      <CalendarIcon />
+                    </button>
+                  </div>
+                </label>
+              </div>
             </div>
 
-            <button
-              type="button"
-              className={limiterEnabled ? "switch on" : "switch"}
-              onClick={() => {
-                setLimiterEnabled((prev) => !prev);
-                resetRunStateForInputChange();
-              }}
-            >
-              <span />
-            </button>
-          </div>
+            <div className="control-block">
+              <div className="block-head">
+                <span className="mini-label">Step 2</span>
+                <h3>Set run behavior</h3>
+              </div>
 
-          {limiterEnabled ? (
-            <label>
-              <span>Conversation Limit</span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={limitCount}
-                onChange={(event) => {
-                  setLimitCount(event.target.value);
-                  resetRunStateForInputChange();
-                }}
-                placeholder="Enter number"
-              />
-            </label>
-          ) : null}
+              <div className="behavior-grid">
+                <div className="behavior-card">
+                  <div className="behavior-row">
+                    <div>
+                      <span className="mini-label">Limiter</span>
+                      <strong>{limiterEnabled ? "Enabled" : "Disabled"}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className={limiterEnabled ? "switch on" : "switch"}
+                      onClick={() => {
+                        setLimiterEnabled((prev) => !prev);
+                        resetRunStateForInputChange();
+                      }}
+                    >
+                      <span />
+                    </button>
+                  </div>
 
-          <div className="button-row">
-            {!fetchLoading ? (
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={handleFetchConversations}
-                disabled={!canRunTests || !session?.user || !startDate || !endDate || runLoading}
-              >
-                Fetch Conversations
-              </button>
-            ) : (
-              <button type="button" className="danger-btn" onClick={handleCancelFetch}>
-                Cancel Fetch
-              </button>
-            )}
+                  {limiterEnabled ? (
+                    <label>
+                      <span>Conversation limit</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={limitCount}
+                        onChange={(event) => {
+                          setLimitCount(event.target.value);
+                          resetRunStateForInputChange();
+                        }}
+                        placeholder="Enter number"
+                      />
+                    </label>
+                  ) : (
+                    <small className="behavior-copy">
+                      All eligible conversations in the selected range will be fetched.
+                    </small>
+                  )}
+                </div>
 
-            {fetchedConversations.length > 0 && !runLoading ? (
-              <button type="button" className="secondary-btn" onClick={handleRunAudit} disabled={fetchLoading}>
-                Run Audit
-              </button>
-            ) : null}
+                <div className="behavior-card">
+                  <div className="behavior-row">
+                    <div>
+                      <span className="mini-label">Auto-run</span>
+                      <strong>{autoRunAfterFetch ? "Enabled" : "Disabled"}</strong>
+                    </div>
+                    <div className={`pill ${autoRunAfterFetch ? "success" : "neutral"}`}>
+                      {autoRunAfterFetch ? "On" : "Off"}
+                    </div>
+                  </div>
 
-            {runLoading ? (
-              <button type="button" className="danger-btn" onClick={handleCancelAudit}>
-                Cancel Audit
-              </button>
-            ) : null}
+                  <small className="behavior-copy">
+                    If enabled, audit starts automatically after fetch. Duplicate checks still apply.
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            <div className="control-block action-block">
+              <div className="block-head">
+                <span className="mini-label">Step 3</span>
+                <h3>Run the workflow</h3>
+              </div>
+
+              <div className="action-summary-grid">
+                <div>
+                  <span className="mini-label">Fetched queue</span>
+                  <strong>{formatNumber(fetchedConversations.length)}</strong>
+                </div>
+                <div>
+                  <span className="mini-label">Audit queue</span>
+                  <strong>{formatNumber(queuedConversationCount)}</strong>
+                </div>
+                <div>
+                  <span className="mini-label">Duplicate mode</span>
+                  <strong>{duplicateWarningOpen ? "Waiting" : autoRunAfterFetch ? "Automatic" : "Manual"}</strong>
+                </div>
+              </div>
+
+              <div className="button-row large">
+                {!fetchLoading ? (
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={handleFetchConversations}
+                    disabled={!canRunTests || !session?.user || !startDate || !endDate || runLoading}
+                  >
+                    Fetch conversations
+                  </button>
+                ) : (
+                  <button type="button" className="danger-btn" onClick={handleCancelFetch}>
+                    Cancel fetch
+                  </button>
+                )}
+
+                {!runLoading ? (
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={handleRunAudit}
+                    disabled={fetchLoading || !fetchedConversations.length}
+                  >
+                    Run audit
+                  </button>
+                ) : (
+                  <button type="button" className="danger-btn" onClick={handleCancelAudit}>
+                    Cancel audit
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {(fetchError || fetchSuccess || runError || runSuccess) ? (
@@ -1547,53 +1866,111 @@ export default function RunPage() {
               {runSuccess ? <div className="message success">{runSuccess}</div> : null}
             </div>
           ) : null}
-
-          {fetchLoading ? (
-            <ProgressPanel
-              type="Fetch Progress"
-              label={FETCH_STEPS[fetchStepIndex] || "Fetching"}
-              detail="Fetching and hydrating eligible Intercom conversations."
-              percent={Math.min(96, ((fetchStepIndex + 1) / FETCH_STEPS.length) * 100)}
-              elapsed={formatElapsed(fetchStartedAt)}
-              handled={0}
-              total={0}
-              batchIndex={0}
-              totalBatches={0}
-              savedRows={0}
-              skippedRows={0}
-              failedRows={0}
-              onCancel={handleCancelFetch}
-            />
-          ) : null}
-
-          {runLoading ? (
-            <ProgressPanel
-              type="Audit Progress"
-              label={auditProgress.label}
-              detail={auditProgress.detail}
-              percent={auditProgress.percent}
-              elapsed={formatElapsed(runStartedAt)}
-              handled={auditProgress.handled}
-              total={auditProgress.total}
-              batchIndex={auditProgress.batchIndex}
-              totalBatches={auditProgress.totalBatches}
-              savedRows={auditProgress.savedRows}
-              skippedRows={auditProgress.skippedRows}
-              failedRows={auditProgress.failedRows}
-              onCancel={handleCancelAudit}
-            />
-          ) : null}
         </div>
 
-        <div className="side-stack">
-          <section className="panel log-panel">
-            <div className="section-head compact">
+        <div className="monitor-column">
+          <div className="surface-card monitor-card">
+            <div className="section-head compact alt">
               <div>
-                <p className="eyebrow">Execution Log</p>
-                <h2>Activity</h2>
+                <span className="mini-label">Live monitor</span>
+                <h2>Progress and system feedback</h2>
               </div>
-              <button type="button" className="secondary-btn small" onClick={() => setExecutionLog([])}>
-                Clear
+              <span className={`state-pill ${operationTone}`}>{operationLabel}</span>
+            </div>
+
+            {fetchLoading ? (
+              <ProgressPanel
+                type="Fetch progress"
+                label={FETCH_STEPS[fetchStepIndex] || "Fetching"}
+                detail="Fetching and hydrating eligible Intercom conversations."
+                percent={Math.min(96, ((fetchStepIndex + 1) / FETCH_STEPS.length) * 100)}
+                elapsed={formatElapsed(fetchStartedAt)}
+                handled={0}
+                total={0}
+                batchIndex={0}
+                totalBatches={0}
+                savedRows={0}
+                skippedRows={0}
+                failedRows={0}
+                onCancel={handleCancelFetch}
+              />
+            ) : null}
+
+            {runLoading ? (
+              <ProgressPanel
+                type="Audit progress"
+                label={auditProgress.label}
+                detail={auditProgress.detail}
+                percent={auditProgress.percent}
+                elapsed={formatElapsed(runStartedAt)}
+                handled={auditProgress.handled}
+                total={auditProgress.total}
+                batchIndex={auditProgress.batchIndex}
+                totalBatches={auditProgress.totalBatches}
+                savedRows={auditProgress.savedRows}
+                skippedRows={auditProgress.skippedRows}
+                failedRows={auditProgress.failedRows}
+                onCancel={handleCancelAudit}
+              />
+            ) : null}
+
+            {!fetchLoading && !runLoading ? (
+              <div className="resting-panel">
+                <div className="resting-icon-wrap">
+                  <SparklesIcon />
+                </div>
+                <div>
+                  <strong>{operationLabel}</strong>
+                  <p>{summaryText}</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="surface-card run-summary-card">
+            <div className="section-head compact alt">
+              <div>
+                <span className="mini-label">Run summary</span>
+                <h2>At a glance</h2>
+              </div>
+            </div>
+
+            <div className="mini-grid polished">
+              <div>
+                <span>Fetched</span>
+                <strong>{formatNumber(fetchData?.meta?.fetchedCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Queued</span>
+                <strong>{formatNumber(queuedConversationCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Handled</span>
+                <strong>{formatNumber(runData?.meta?.handledCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Saved</span>
+                <strong>{formatNumber(runData?.meta?.auditedCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Skipped</span>
+                <strong>{formatNumber(runData?.meta?.skippedCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Errors</span>
+                <strong>{formatNumber(errorCount || 0)}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="surface-card log-panel">
+            <div className="section-head compact alt">
+              <div>
+                <span className="mini-label">Execution log</span>
+                <h2>Recent activity</h2>
+              </div>
+              <button type="button" className="ghost-btn small" onClick={() => setExecutionLog([])}>
+                Clear log
               </button>
             </div>
 
@@ -1609,44 +1986,20 @@ export default function RunPage() {
             ) : (
               <div className="empty-box small">No activity yet.</div>
             )}
-          </section>
-
-          <section className="panel fetch-summary">
-            <p className="eyebrow">Current Run</p>
-            <h2>Summary</h2>
-            <p>{summaryText}</p>
-
-            {fetchData ? (
-              <div className="mini-grid">
-                <div>
-                  <span>Fetched</span>
-                  <strong>{formatNumber(fetchData?.meta?.fetchedCount || 0)}</strong>
-                </div>
-                <div>
-                  <span>Range</span>
-                  <strong>{fetchData?.meta?.startDate || "-"} to {fetchData?.meta?.endDate || "-"}</strong>
-                </div>
-                <div>
-                  <span>Limiter</span>
-                  <strong>{fetchData?.meta?.limiterEnabled ? `On (${fetchData?.meta?.limitCount})` : "Off"}</strong>
-                </div>
-                <div>
-                  <span>Batch Size</span>
-                  <strong>{AUDIT_BATCH_SIZE}</strong>
-                </div>
-              </div>
-            ) : null}
-          </section>
+          </div>
         </div>
       </section>
 
-      <section className="panel preview-panel">
+      <section className="surface-card preview-panel">
         <div className="section-head">
           <div>
-            <p className="eyebrow">Fetched Conversations</p>
-            <h2>Preview</h2>
+            <span className="mini-label">Fetched queue</span>
+            <h2>Conversation preview</h2>
           </div>
-          <span className="count-pill">{formatNumber(fetchedConversations.length)} found</span>
+          <div className="header-right-meta">
+            <span className="count-pill">{formatNumber(fetchedConversations.length)} found</span>
+            <span className="count-pill muted">{formatNumber(queuedConversationCount)} in audit queue</span>
+          </div>
         </div>
 
         {!fetchData ? (
@@ -1666,10 +2019,22 @@ export default function RunPage() {
                 </div>
 
                 <div className="conversation-details">
-                  <div><span>Agent</span><strong>{item?.agentName || "Unassigned"}</strong></div>
-                  <div><span>Client</span><strong>{item?.clientEmail || "-"}</strong></div>
-                  <div><span>CSAT</span><strong>{item?.csatScore || "-"}</strong></div>
-                  <div><span>Replied</span><strong>{formatClock(item?.repliedAt)}</strong></div>
+                  <div>
+                    <span>Agent</span>
+                    <strong>{item?.agentName || "Unassigned"}</strong>
+                  </div>
+                  <div>
+                    <span>Client</span>
+                    <strong>{item?.clientEmail || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>CSAT</span>
+                    <strong>{item?.csatScore || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>Replied</span>
+                    <strong>{formatClock(item?.repliedAt)}</strong>
+                  </div>
                 </div>
               </article>
             ))}
@@ -1677,11 +2042,11 @@ export default function RunPage() {
         )}
       </section>
 
-      <section className="panel output-panel">
+      <section className="surface-card output-panel">
         <div className="section-head">
           <div>
-            <p className="eyebrow">Audit Output</p>
-            <h2>Result Cards</h2>
+            <span className="mini-label">Audit output</span>
+            <h2>Result cards</h2>
           </div>
 
           <div className="result-metrics">
@@ -1697,12 +2062,27 @@ export default function RunPage() {
           <div className="empty-box">Audit results will appear here after Run Audit completes.</div>
         ) : (
           <>
-            <div className="run-meta-card">
-              <div><span>Requested By</span><strong>{runData?.meta?.requestedBy || "-"}</strong></div>
-              <div><span>Duplicate Handling</span><strong>{runData?.meta?.duplicateModeApplied || "none"}</strong></div>
-              <div><span>Storage</span><strong>{runData?.meta?.storageStatus || "-"}</strong></div>
-              <div><span>Mapped</span><strong>{formatNumber(runData?.meta?.mappedCount || 0)}</strong></div>
-              <div><span>Batches</span><strong>{formatNumber(runData?.meta?.totalBatches || 0)}</strong></div>
+            <div className="run-meta-card polished">
+              <div>
+                <span>Requested by</span>
+                <strong>{runData?.meta?.requestedBy || "-"}</strong>
+              </div>
+              <div>
+                <span>Duplicate handling</span>
+                <strong>{runData?.meta?.duplicateModeApplied || "none"}</strong>
+              </div>
+              <div>
+                <span>Storage</span>
+                <strong>{runData?.meta?.storageStatus || "-"}</strong>
+              </div>
+              <div>
+                <span>Mapped</span>
+                <strong>{formatNumber(runData?.meta?.mappedCount || 0)}</strong>
+              </div>
+              <div>
+                <span>Batches</span>
+                <strong>{formatNumber(runData?.meta?.totalBatches || 0)}</strong>
+              </div>
             </div>
 
             <div className="results-grid">
@@ -1711,7 +2091,10 @@ export default function RunPage() {
                 const findings = getFindingsList(item);
 
                 return (
-                  <article key={item?.conversationId || `result-${index}`} className={item?.error ? "result-card error" : "result-card"}>
+                  <article
+                    key={item?.conversationId || `result-${index}`}
+                    className={item?.error ? "result-card error" : "result-card"}
+                  >
                     <div className="conversation-head">
                       <div>
                         <span>Conversation</span>
@@ -1721,14 +2104,26 @@ export default function RunPage() {
                     </div>
 
                     <div className="conversation-details four">
-                      <div><span>Agent</span><strong>{item?.agentName || "Unassigned"}</strong></div>
-                      <div><span>Client</span><strong>{item?.clientEmail || "-"}</strong></div>
-                      <div><span>CSAT</span><strong>{item?.csatScore || "-"}</strong></div>
-                      <div><span>Replied</span><strong>{formatClock(item?.repliedAt)}</strong></div>
+                      <div>
+                        <span>Agent</span>
+                        <strong>{item?.agentName || "Unassigned"}</strong>
+                      </div>
+                      <div>
+                        <span>Client</span>
+                        <strong>{item?.clientEmail || "-"}</strong>
+                      </div>
+                      <div>
+                        <span>CSAT</span>
+                        <strong>{item?.csatScore || "-"}</strong>
+                      </div>
+                      <div>
+                        <span>Replied</span>
+                        <strong>{formatClock(item?.repliedAt)}</strong>
+                      </div>
                     </div>
 
                     <div className="verdict-box">
-                      <span>{item?.error ? "Error" : "AI Verdict"}</span>
+                      <span>{item?.error ? "Error" : "AI verdict"}</span>
                       <p>{getResultSummary(item)}</p>
                     </div>
 
@@ -1744,8 +2139,14 @@ export default function RunPage() {
 
             {results.length > 8 ? (
               <div className="show-more-row">
-                <button type="button" className="secondary-btn" onClick={() => setShowAllResults((prev) => !prev)}>
-                  {showAllResults ? "Show Less" : `Show More (${formatNumber(results.length - visibleResults.length)} more)`}
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setShowAllResults((prev) => !prev)}
+                >
+                  {showAllResults
+                    ? "Show less"
+                    : `Show more (${formatNumber(results.length - visibleResults.length)} more)`}
                 </button>
               </div>
             ) : null}
@@ -1754,13 +2155,22 @@ export default function RunPage() {
       </section>
 
       {fetchData ? (
-        <section className="panel diagnostics-panel">
+        <section className="surface-card diagnostics-panel">
           <details>
-            <summary>Fetch Diagnostics</summary>
+            <summary>Fetch diagnostics</summary>
             <div className="diagnostics-grid">
-              <div><span>Intercom Per Page</span><strong>{fetchData?.debug?.intercomPerPage ?? "-"}</strong></div>
-              <div><span>Max Pages / Day</span><strong>{fetchData?.debug?.maxFetchPagesPerDay ?? "-"}</strong></div>
-              <div><span>Daily Summaries</span><strong>{formatNumber(dailySummary.length)}</strong></div>
+              <div>
+                <span>Intercom per page</span>
+                <strong>{fetchData?.debug?.intercomPerPage ?? "-"}</strong>
+              </div>
+              <div>
+                <span>Max pages per day</span>
+                <strong>{fetchData?.debug?.maxFetchPagesPerDay ?? "-"}</strong>
+              </div>
+              <div>
+                <span>Daily summaries</span>
+                <strong>{formatNumber(dailySummary.length)}</strong>
+              </div>
             </div>
           </details>
         </section>
@@ -1772,7 +2182,7 @@ export default function RunPage() {
           className="jump-top"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         >
-          Jump to Top
+          Jump to top
         </button>
       ) : null}
     </main>
@@ -1782,79 +2192,118 @@ export default function RunPage() {
 const runStyles = `
   .run-page {
     min-height: 100vh;
-    padding: 32px 20px 64px;
+    padding: 22px 18px 72px;
     color: #f5f7ff;
     background:
-      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
-      radial-gradient(circle at top right, rgba(168,85,247,0.15), transparent 22%),
-      radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 24%),
-      linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
+      radial-gradient(circle at 10% 0%, rgba(59, 130, 246, 0.14), transparent 24%),
+      radial-gradient(circle at 88% 2%, rgba(139, 92, 246, 0.14), transparent 26%),
+      radial-gradient(circle at 50% 100%, rgba(6, 182, 212, 0.08), transparent 24%),
+      linear-gradient(180deg, #040714 0%, #050918 46%, #04060d 100%);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
-  .topbar,
-  .hero,
+  .hero-shell,
   .stats-grid,
-  .main-grid,
-  .panel {
-    max-width: 1400px;
+  .command-grid,
+  .surface-card,
+  .diagnostics-panel {
+    max-width: 1440px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  .topbar,
-  .hero,
-  .panel,
-  .stat-card {
-    border: 1px solid rgba(255,255,255,0.08);
-    background: linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96));
-    box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+  .surface-card,
+  .stat-card,
+  .hero-copy-card,
+  .workflow-card,
+  .insight-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      linear-gradient(180deg, rgba(14, 20, 40, 0.92), rgba(7, 10, 24, 0.96));
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
-  .topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 18px;
-    padding: 18px 20px;
-    margin-bottom: 24px;
-    border-radius: 22px;
-    background: rgba(9,13,29,0.72);
-    backdrop-filter: blur(14px);
-  }
-
-  .topbar strong {
-    display: block;
-    font-size: 22px;
-    letter-spacing: -0.03em;
-  }
-
+  .mini-label,
   .eyebrow,
   label span,
-  .auth-card span,
   .conversation-head span,
   .conversation-details span,
   .run-meta-card span,
   .mini-grid span,
   .verdict-box span,
-  .diagnostics-grid span {
+  .diagnostics-grid span,
+  .progress-metrics-grid span,
+  .workflow-step p,
+  .modal-note-card span,
+  .duplicate-sample-box span {
     margin: 0 0 8px;
     color: #8ea0d6;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 900;
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
 
-  .live-pill,
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .hero-copy-card,
+  .workflow-card,
+  .insight-card,
+  .command-card,
+  .monitor-card,
+  .run-summary-card,
+  .log-panel,
+  .preview-panel,
+  .output-panel,
+  .diagnostics-panel {
+    border-radius: 30px;
+  }
+
+  .hero-copy-card {
+    position: relative;
+    overflow: hidden;
+    padding: 30px;
+  }
+
+  .hero-copy-card::before {
+    content: "";
+    position: absolute;
+    inset: auto -80px -120px auto;
+    width: 360px;
+    height: 360px;
+    border-radius: 50%;
+    background: rgba(124, 58, 237, 0.18);
+    filter: blur(54px);
+    pointer-events: none;
+  }
+
+  .hero-badge-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
   .hero-badge,
+  .state-pill,
   .primary-btn,
   .secondary-btn,
   .danger-btn,
+  .ghost-btn,
   .pill,
   .count-pill,
   .toggle-chip,
-  .modal-badge {
+  .modal-badge,
+  .progress-percent-chip,
+  .access-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1864,111 +2313,245 @@ const runStyles = `
     white-space: nowrap;
   }
 
-  .live-pill {
-    min-height: 40px;
-    padding: 0 14px;
-    font-size: 13px;
+  .hero-badge {
+    min-height: 34px;
+    padding: 0 12px;
+    color: #e7ecff;
+    border: 1px solid rgba(129, 140, 248, 0.24);
+    background: rgba(99, 102, 241, 0.16);
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .state-pill {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
-  .live-pill.ready {
+  .state-pill.success,
+  .pill.success,
+  .access-badge.success {
     color: #bbf7d0;
-    border: 1px solid rgba(16,185,129,0.24);
-    background: rgba(16,185,129,0.1);
+    border: 1px solid rgba(16, 185, 129, 0.24);
+    background: rgba(16, 185, 129, 0.1);
   }
 
-  .live-pill.busy {
+  .state-pill.notice,
+  .pill.notice,
+  .count-pill,
+  .progress-percent-chip {
+    color: #dbeafe;
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    background: rgba(59, 130, 246, 0.12);
+  }
+
+  .state-pill.warning,
+  .pill.warning,
+  .modal-badge.warning {
     color: #fde68a;
-    border: 1px solid rgba(245,158,11,0.24);
-    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245, 158, 11, 0.24);
+    background: rgba(245, 158, 11, 0.1);
   }
 
-  .hero {
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 24px;
-    padding: 30px;
-    margin-bottom: 18px;
-    border-radius: 28px;
+  .state-pill.danger,
+  .pill.danger,
+  .access-badge.danger {
+    color: #fecaca;
+    border: 1px solid rgba(244, 63, 94, 0.24);
+    background: rgba(244, 63, 94, 0.1);
   }
 
-  .hero::after {
-    content: "";
-    position: absolute;
-    inset: auto -80px -120px auto;
-    width: 360px;
-    height: 360px;
-    border-radius: 50%;
-    background: rgba(124,58,237,0.18);
-    filter: blur(50px);
-    pointer-events: none;
-  }
-
-  .hero-badge {
-    padding: 8px 12px;
-    margin-bottom: 18px;
-    color: #dbe7ff;
-    border: 1px solid rgba(129,140,248,0.22);
-    background: rgba(99,102,241,0.14);
-    font-size: 12px;
-    font-weight: 900;
+  .state-pill.neutral,
+  .pill.neutral,
+  .count-pill.muted {
+    color: #c7d2fe;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   h1,
   h2,
+  h3,
   p {
+    margin-top: 0;
     position: relative;
+    z-index: 1;
   }
 
   h1 {
-    margin: 0 0 12px;
-    font-size: clamp(42px, 5vw, 72px);
-    line-height: 0.98;
+    margin-bottom: 12px;
+    font-size: clamp(42px, 5vw, 74px);
+    line-height: 0.96;
     letter-spacing: -0.07em;
   }
 
   h2 {
     margin: 0;
-    font-size: 30px;
+    font-size: 28px;
     letter-spacing: -0.04em;
   }
 
-  .hero p {
+  h3 {
     margin: 0;
+    font-size: 18px;
+    letter-spacing: -0.03em;
+  }
+
+  .hero-copy {
+    margin: 0 0 20px;
     color: #a9b4d0;
     font-size: 18px;
-    line-height: 1.6;
+    line-height: 1.65;
+    max-width: 760px;
   }
 
-  .hero-panel {
-    position: relative;
-    z-index: 1;
-    width: min(420px, 100%);
-    padding: 18px;
+  .hero-summary-card,
+  .hero-quick-card,
+  .auth-shell-card,
+  .control-block,
+  .behavior-card,
+  .resting-panel,
+  .run-meta-card,
+  .verdict-box,
+  .findings-box,
+  .empty-box,
+  .progress-panel,
+  .duplicate-sample-box,
+  .modal-note-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
     border-radius: 22px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.04);
   }
 
-  .hero-panel span {
+  .hero-summary-card {
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  .hero-summary-card strong {
     display: block;
-    margin-bottom: 8px;
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
-  .hero-panel strong {
     color: #f5f7ff;
     font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .hero-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .hero-quick-card {
+    padding: 16px;
+  }
+
+  .hero-quick-card strong,
+  .hero-quick-card small {
+    display: block;
+  }
+
+  .hero-quick-card strong {
+    font-size: 16px;
+    line-height: 1.45;
+    color: #f5f7ff;
+  }
+
+  .hero-quick-card small {
+    margin-top: 6px;
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .hero-side-column {
+    display: grid;
+    gap: 18px;
+    align-self: stretch;
+  }
+
+  .workflow-card,
+  .insight-card {
+    padding: 24px;
+  }
+
+  .workflow-stack {
+    display: grid;
+    gap: 12px;
+  }
+
+  .workflow-step {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .workflow-step.active {
+    border-color: rgba(59, 130, 246, 0.2);
+    background: rgba(59, 130, 246, 0.08);
+  }
+
+  .workflow-step.done {
+    border-color: rgba(16, 185, 129, 0.2);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .workflow-dot {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
+    box-shadow: 0 10px 22px rgba(91, 33, 182, 0.28);
+  }
+
+  .workflow-step strong {
+    display: block;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+
+  .workflow-step p {
+    margin: 0;
+    text-transform: none;
     line-height: 1.6;
+    letter-spacing: normal;
+    color: #a9b4d0;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .insight-card {
+    display: grid;
+    gap: 12px;
+  }
+
+  .insight-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #dce7ff;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .insight-line svg {
+    color: #8b5cf6;
+    flex: 0 0 auto;
   }
 
   .stats-grid {
@@ -1981,26 +2564,33 @@ const runStyles = `
   .stat-card {
     position: relative;
     overflow: hidden;
-    padding: 18px;
-    border-radius: 22px;
+    padding: 20px;
+    border-radius: 24px;
   }
 
   .stat-card::before {
     content: "";
     position: absolute;
-    left: -48px;
-    top: -48px;
-    width: 130px;
-    height: 130px;
+    left: -54px;
+    top: -54px;
+    width: 138px;
+    height: 138px;
     border-radius: 50%;
-    filter: blur(30px);
-    background: rgba(59,130,246,0.14);
+    filter: blur(34px);
+    background: rgba(59, 130, 246, 0.14);
   }
 
-  .stat-card.success::before { background: rgba(16,185,129,0.15); }
-  .stat-card.warning::before { background: rgba(245,158,11,0.15); }
-  .stat-card.danger::before { background: rgba(244,63,94,0.15); }
-  .stat-card.notice::before { background: rgba(34,211,238,0.14); }
+  .stat-card.success::before {
+    background: rgba(16, 185, 129, 0.16);
+  }
+
+  .stat-card.warning::before {
+    background: rgba(245, 158, 11, 0.16);
+  }
+
+  .stat-card.notice::before {
+    background: rgba(59, 130, 246, 0.16);
+  }
 
   .stat-card p {
     margin: 0 0 10px;
@@ -2014,8 +2604,8 @@ const runStyles = `
   .stat-card strong {
     display: block;
     color: #f5f7ff;
-    font-size: 29px;
-    letter-spacing: -0.04em;
+    font-size: 30px;
+    letter-spacing: -0.05em;
     margin-bottom: 6px;
   }
 
@@ -2023,525 +2613,646 @@ const runStyles = `
     color: #a9b4d0;
     font-size: 13px;
     font-weight: 800;
+    line-height: 1.6;
   }
 
-  .main-grid {
+  .command-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+    grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
     gap: 18px;
     margin-bottom: 18px;
   }
 
-  .side-stack {
+  .command-card,
+  .monitor-card,
+  .run-summary-card,
+  .log-panel,
+  .preview-panel,
+  .output-panel,
+  .diagnostics-panel {
+    padding: 24px;
+    margin-bottom: 18px;
+  }
+
+  .monitor-column {
     display: grid;
     gap: 18px;
     align-self: start;
   }
 
-  .panel {
-    padding: 24px;
-    margin-bottom: 18px;
-    border-radius: 26px;
-  }
-
   .section-head {
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
+    justify-content: space-between;
     gap: 14px;
     margin-bottom: 18px;
   }
 
-  .section-head.compact {
+  .section-head.compact.alt {
     align-items: center;
   }
 
-  .auth-card,
-  .preset-box,
-  .limiter-card,
-  .progress-panel,
-  .run-meta-card,
-  .verdict-box,
-  .findings-box,
-  .empty-box {
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
-    border-radius: 18px;
+  .toggle-chip,
+  .primary-btn,
+  .secondary-btn,
+  .danger-btn,
+  .ghost-btn {
+    gap: 8px;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 900;
+    transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
   }
 
-  .auth-card {
-    padding: 16px;
-    margin-bottom: 14px;
-  }
-
-  .auth-card strong,
-  .auth-card small,
-  .auth-card em {
-    display: block;
-  }
-
-  .auth-card strong {
-    color: #f5f7ff;
-    font-size: 15px;
-    line-height: 1.5;
-  }
-
-  .auth-card small {
-    margin-top: 6px;
-    color: #a9b4d0;
-    line-height: 1.5;
-  }
-
-  .auth-card em {
-    margin-top: 10px;
-    color: #fda4af;
-    font-style: normal;
-    line-height: 1.5;
+  .toggle-chip:hover,
+  .primary-btn:hover,
+  .secondary-btn:hover,
+  .danger-btn:hover,
+  .ghost-btn:hover,
+  .preset-button:hover,
+  .icon-btn:hover,
+  .switch:hover {
+    transform: translateY(-1px);
   }
 
   .toggle-chip {
-    gap: 9px;
-    min-height: 40px;
-    padding: 0 13px;
-    color: #dbe7ff;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.04);
-    font-size: 13px;
-    font-weight: 900;
-    cursor: pointer;
+    min-height: 42px;
+    padding: 0 14px 0 10px;
+    color: #dbeafe;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
   }
 
-  .toggle-chip span {
-    width: 10px;
-    height: 10px;
+  .toggle-chip span,
+  .switch span {
+    display: inline-block;
+    position: relative;
+    width: 18px;
+    height: 18px;
     border-radius: 999px;
-    background: #94a3b8;
+    background: rgba(255, 255, 255, 0.18);
+    transition: transform 0.18s ease, background 0.18s ease;
   }
 
   .toggle-chip.on {
     color: #bbf7d0;
-    border-color: rgba(16,185,129,0.24);
-    background: rgba(16,185,129,0.1);
+    border-color: rgba(16, 185, 129, 0.24);
+    background: rgba(16, 185, 129, 0.1);
   }
 
   .toggle-chip.on span {
-    background: #34d399;
-    box-shadow: 0 0 14px rgba(52,211,153,0.8);
+    background: #10b981;
+    box-shadow: 0 0 18px rgba(16, 185, 129, 0.4);
+  }
+
+  .auth-shell-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .auth-shell-card strong,
+  .auth-shell-card small {
+    display: block;
+  }
+
+  .auth-shell-card strong {
+    font-size: 16px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .auth-shell-card small {
+    margin-top: 4px;
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .control-section-grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .control-block {
+    padding: 18px;
+  }
+
+  .block-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
   }
 
   .preset-box {
     position: relative;
-    padding: 16px;
     margin-bottom: 14px;
   }
 
   .preset-box label {
     display: block;
+    margin-bottom: 10px;
+    color: #9fb2ee;
+    font-size: 13px;
+    font-weight: 800;
   }
 
   .preset-button {
     width: 100%;
-    min-height: 52px;
     display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    padding: 0 14px;
-    color: #e7ecff;
-    border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 16px;
-    background: rgba(5,8,18,0.9);
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #f5f7ff;
     cursor: pointer;
+    text-align: left;
+  }
+
+  .preset-button span,
+  .preset-button small,
+  .preset-button b {
+    display: block;
   }
 
   .preset-button span {
     display: inline-flex;
     align-items: center;
-    gap: 9px;
-    font-weight: 900;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
   }
 
-  .preset-button small,
+  .preset-button small {
+    color: #a9b4d0;
+    font-size: 12px;
+  }
+
   .preset-button b {
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 12px;
   }
 
   .preset-menu {
     position: absolute;
-    left: 16px;
-    right: 16px;
-    top: calc(100% - 4px);
-    z-index: 20;
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.08);
+    z-index: 40;
+    top: calc(100% + 10px);
+    left: 0;
+    width: min(100%, 320px);
+    display: grid;
+    gap: 8px;
+    padding: 10px;
     border-radius: 18px;
-    background: rgba(7,10,24,0.98);
-    box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(8, 12, 24, 0.98);
+    box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35);
   }
 
   .preset-menu button {
-    width: 100%;
-    min-height: 44px;
-    padding: 0 16px;
+    min-height: 40px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.03);
     color: #dbe7ff;
-    border: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    background: transparent;
-    text-align: left;
-    font-size: 14px;
+    font: inherit;
+    font-size: 13px;
     font-weight: 800;
+    text-align: left;
     cursor: pointer;
   }
 
   .preset-menu button.active,
   .preset-menu button:hover {
-    color: #f5f3ff;
-    background: rgba(139,92,246,0.16);
-  }
-
-  .form-grid {
-    display: grid;
-    gap: 14px;
-    margin-bottom: 14px;
+    border-color: rgba(59, 130, 246, 0.24);
+    background: rgba(59, 130, 246, 0.12);
   }
 
   .form-grid.two {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
   }
 
   label {
     display: block;
   }
 
-  input,
-  button,
-  select {
-    font: inherit;
+  label span {
+    display: block;
   }
 
   input {
     width: 100%;
-    min-height: 50px;
-    box-sizing: border-box;
-    color: #e7ecff;
-    border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 16px;
-    outline: none;
-    background: rgba(5,8,18,0.9);
+    min-height: 48px;
     padding: 0 14px;
-    color-scheme: dark;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.04);
+    color: #f5f7ff;
+    outline: none;
+    font: inherit;
+    font-size: 14px;
+  }
+
+  input:focus {
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0;
   }
 
   .date-control {
     display: grid;
-    grid-template-columns: 1fr 48px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 10px;
   }
 
   .icon-btn {
-    min-height: 50px;
-    color: #bfdbfe;
-    border: 1px solid rgba(255,255,255,0.09);
+    width: 46px;
+    height: 46px;
+    display: inline-grid;
+    place-items: center;
     border-radius: 16px;
-    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #dbeafe;
     cursor: pointer;
   }
 
-  .limiter-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  .behavior-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
+  }
+
+  .behavior-card {
     padding: 16px;
-    margin-bottom: 14px;
   }
 
-  .limiter-card span,
-  .limiter-card strong {
+  .behavior-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .behavior-row strong {
     display: block;
+    font-size: 16px;
+    line-height: 1.4;
   }
 
-  .limiter-card strong {
-    color: #f5f7ff;
-    font-size: 16px;
+  .behavior-copy {
+    display: block;
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.6;
   }
 
   .switch {
+    width: 58px;
+    min-width: 58px;
+    height: 34px;
     position: relative;
-    width: 72px;
-    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.05);
     cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease;
   }
 
   .switch span {
-    position: absolute;
-    top: 4px;
-    left: 4px;
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    background: #fff;
-    box-shadow: 0 6px 14px rgba(0,0,0,0.35);
-    transition: left 180ms ease;
+    width: 24px;
+    height: 24px;
+    margin-left: 4px;
+    background: #cbd5e1;
   }
 
   .switch.on {
-    border-color: rgba(96,165,250,0.45);
-    background: linear-gradient(135deg, rgba(37,99,235,0.9), rgba(168,85,247,0.85));
+    border-color: rgba(16, 185, 129, 0.24);
+    background: rgba(16, 185, 129, 0.14);
   }
 
   .switch.on span {
-    left: 36px;
+    transform: translateX(24px);
+    background: #10b981;
   }
 
-  .button-row,
-  .message-stack {
+  .action-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .action-summary-grid div {
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .action-summary-grid strong {
+    display: block;
+    font-size: 17px;
+    line-height: 1.45;
+    color: #ffffff;
+  }
+
+  .button-row {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 14px;
+  }
+
+  .button-row.large {
+    gap: 14px;
   }
 
   .primary-btn,
   .secondary-btn,
-  .danger-btn {
-    min-height: 44px;
-    padding: 0 16px;
-    border-radius: 14px;
-    font-size: 14px;
-    font-weight: 900;
-    cursor: pointer;
+  .danger-btn,
+  .ghost-btn {
+    min-height: 46px;
+    padding: 0 18px;
   }
 
   .primary-btn {
-    color: #fff;
-    border: 0;
-    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
-    box-shadow: 0 14px 30px rgba(91,33,182,0.35);
+    color: #ffffff;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
+    box-shadow: 0 18px 30px rgba(91, 33, 182, 0.28);
   }
 
   .secondary-btn {
-    color: #e5ebff;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.035);
-  }
-
-  .secondary-btn.small,
-  .danger-btn.compact {
-    min-height: 36px;
-    padding: 0 12px;
-    font-size: 12px;
+    color: #dbeafe;
+    border: 1px solid rgba(59, 130, 246, 0.24);
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .danger-btn {
-    color: #ffe4e6;
-    border: 1px solid rgba(251,113,133,0.2);
-    background: rgba(244,63,94,0.1);
+    color: #fee2e2;
+    border: 1px solid rgba(244, 63, 94, 0.24);
+    background: rgba(244, 63, 94, 0.12);
+  }
+
+  .danger-btn.compact {
+    min-height: 42px;
+    padding: 0 14px;
+  }
+
+  .ghost-btn {
+    color: #dbe7ff;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .ghost-btn.small {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 13px;
   }
 
   button:disabled {
-    opacity: 0.55;
+    opacity: 0.56;
     cursor: not-allowed;
+    transform: none !important;
+  }
+
+  .message-stack {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
   }
 
   .message {
-    width: 100%;
     padding: 14px 16px;
     border-radius: 16px;
     font-size: 14px;
+    font-weight: 700;
     line-height: 1.6;
-  }
-
-  .message.error {
-    color: #fecdd3;
-    border: 1px solid rgba(244,63,94,0.23);
-    background: rgba(244,63,94,0.08);
   }
 
   .message.success {
     color: #bbf7d0;
-    border: 1px solid rgba(16,185,129,0.23);
-    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16, 185, 129, 0.18);
+    background: rgba(16, 185, 129, 0.08);
   }
 
-  .progress-panel {
-    padding: 18px;
-    margin-top: 14px;
+  .message.error {
+    color: #fecaca;
+    border: 1px solid rgba(244, 63, 94, 0.18);
+    background: rgba(244, 63, 94, 0.08);
   }
 
-  .progress-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
+  .message.subtle {
     margin-bottom: 14px;
   }
 
-  .progress-head span,
-  .progress-head strong,
-  .progress-head small {
-    display: block;
-  }
-
-  .progress-head span {
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin-bottom: 8px;
-  }
-
-  .progress-head strong {
-    color: #f5f7ff;
-    font-size: 22px;
-    letter-spacing: -0.03em;
-  }
-
-  .progress-head small {
-    margin-top: 6px;
-    color: #a9b4d0;
-    line-height: 1.5;
-  }
-
-  .progress-percent {
-    min-width: 70px;
-    height: 44px;
-    display: inline-flex;
+  .resting-panel {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    color: #cffafe;
-    border: 1px solid rgba(34,211,238,0.22);
-    border-radius: 999px;
-    background: rgba(34,211,238,0.1);
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .resting-icon-wrap {
+    width: 52px;
+    height: 52px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(124, 58, 237, 0.2));
+    color: #ffffff;
+    flex: 0 0 auto;
+  }
+
+  .resting-panel strong {
+    display: block;
+    font-size: 18px;
+    margin-bottom: 6px;
+  }
+
+  .resting-panel p {
+    margin: 0;
+    color: #a9b4d0;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+
+  .progress-panel.enhanced {
+    padding: 18px;
+  }
+
+  .progress-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .progress-panel-head h3 {
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+
+  .progress-panel-head p {
+    margin: 0;
+    color: #a9b4d0;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  .progress-percent-chip {
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 14px;
     font-weight: 900;
   }
 
-  .progress-shell {
-    height: 11px;
-    overflow: hidden;
+  .progress-meter-shell {
+    height: 12px;
     border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.07);
-    margin-bottom: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+    margin-bottom: 16px;
   }
 
-  .progress-bar {
+  .progress-meter-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
-    box-shadow: 0 0 30px rgba(139,92,246,0.42);
-    transition: width 420ms ease;
+    background: linear-gradient(90deg, #2563eb, #7c3aed, #db2777);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.35);
   }
 
-  .progress-foot {
+  .progress-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .progress-metrics-grid div {
+    padding: 13px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .progress-metrics-grid strong {
+    display: block;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .progress-bottom-row {
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
-    flex-wrap: wrap;
+  }
+
+  .progress-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     color: #a9b4d0;
+  }
+
+  .progress-tip small {
     font-size: 13px;
-    font-weight: 800;
-    margin-bottom: 12px;
+    line-height: 1.6;
+  }
+
+  .progress-tip svg {
+    color: #8b5cf6;
+  }
+
+  .mini-grid.polished,
+  .run-meta-card.polished {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .mini-grid.polished div,
+  .run-meta-card.polished div {
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .mini-grid.polished strong,
+  .run-meta-card.polished strong {
+    display: block;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #ffffff;
   }
 
   .log-list {
     display: grid;
     gap: 10px;
-    max-height: 460px;
+    max-height: 430px;
     overflow: auto;
     padding-right: 4px;
   }
 
   .log-item {
     display: grid;
-    gap: 5px;
-    padding: 12px;
-    border-radius: 15px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .log-item span {
-    color: #8ea0d6;
-    font-size: 11px;
+    color: #9fb2ee;
+    font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
   .log-item strong {
-    color: #dbe7ff;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.7;
   }
 
   .log-item.success {
-    border-color: rgba(16,185,129,0.2);
-    background: rgba(16,185,129,0.08);
+    border-color: rgba(16, 185, 129, 0.16);
+    background: rgba(16, 185, 129, 0.07);
   }
 
   .log-item.warning,
   .log-item.notice {
-    border-color: rgba(245,158,11,0.2);
-    background: rgba(245,158,11,0.08);
+    border-color: rgba(59, 130, 246, 0.16);
+    background: rgba(59, 130, 246, 0.07);
   }
 
   .log-item.danger {
-    border-color: rgba(244,63,94,0.2);
-    background: rgba(244,63,94,0.08);
-  }
-
-  .fetch-summary p {
-    margin: 0 0 16px;
-    color: #a9b4d0;
-    line-height: 1.7;
-  }
-
-  .mini-grid,
-  .conversation-details,
-  .run-meta-card,
-  .diagnostics-grid {
-    display: grid;
-    gap: 10px;
-  }
-
-  .mini-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .mini-grid div,
-  .conversation-details div,
-  .run-meta-card div,
-  .diagnostics-grid div {
-    padding: 12px;
-    border-radius: 15px;
-    background: rgba(0,0,0,0.16);
-  }
-
-  .mini-grid strong,
-  .conversation-details strong,
-  .run-meta-card strong,
-  .diagnostics-grid strong {
-    display: block;
-    color: #f5f7ff;
-    font-size: 13px;
-    line-height: 1.45;
-    word-break: break-word;
-  }
-
-  .empty-box {
-    padding: 22px;
-    color: #a9b4d0;
-    border-style: dashed;
-    line-height: 1.7;
-  }
-
-  .empty-box.small {
-    padding: 16px;
+    border-color: rgba(244, 63, 94, 0.16);
+    background: rgba(244, 63, 94, 0.07);
   }
 
   .preview-panel,
@@ -2550,284 +3261,401 @@ const runStyles = `
     margin-bottom: 18px;
   }
 
-  .count-pill,
-  .pill {
-    padding: 7px 11px;
+  .header-right-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .count-pill {
+    min-height: 34px;
+    padding: 0 12px;
     font-size: 12px;
     font-weight: 900;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.05);
-    color: #dbe7ff;
-  }
-
-  .pill.success {
-    color: #bbf7d0;
-    border-color: rgba(16,185,129,0.22);
-    background: rgba(16,185,129,0.1);
-  }
-
-  .pill.warning {
-    color: #fde68a;
-    border-color: rgba(245,158,11,0.24);
-    background: rgba(245,158,11,0.1);
-  }
-
-  .pill.danger {
-    color: #fecdd3;
-    border-color: rgba(244,63,94,0.24);
-    background: rgba(244,63,94,0.1);
-  }
-
-  .pill.notice,
-  .pill.neutral {
-    color: #bfdbfe;
-    border-color: rgba(96,165,250,0.24);
-    background: rgba(59,130,246,0.1);
   }
 
   .conversation-grid,
   .results-grid {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
   }
 
   .conversation-card,
   .result-card {
-    padding: 16px;
-    border-radius: 20px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .result-card.error {
-    border-color: rgba(244,63,94,0.18);
-    background: rgba(244,63,94,0.08);
+    border-color: rgba(244, 63, 94, 0.16);
+    background: rgba(244, 63, 94, 0.06);
   }
 
   .conversation-head {
     display: flex;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
   }
 
   .conversation-head strong {
     display: block;
-    color: #f5f7ff;
-    font-size: 18px;
-    letter-spacing: -0.02em;
-    word-break: break-word;
+    font-size: 17px;
+    line-height: 1.4;
+    color: #ffffff;
   }
 
   .conversation-details {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .conversation-details.four {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    margin-bottom: 14px;
+  }
+
+  .conversation-details div {
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .conversation-details strong {
+    display: block;
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1.55;
+    word-break: break-word;
+  }
+
+  .verdict-box,
+  .findings-box {
+    padding: 14px;
+    margin-top: 14px;
+  }
+
+  .verdict-box p,
+  .findings-box {
+    margin: 0;
+    color: #dbe7ff;
+    font-size: 13px;
+    line-height: 1.75;
   }
 
   .result-metrics {
     display: flex;
-    gap: 10px;
     flex-wrap: wrap;
+    gap: 10px;
   }
 
   .result-metrics span {
-    color: #a9b4d0;
-    font-size: 13px;
+    min-height: 34px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    color: #dbe7ff;
+    font-size: 12px;
     font-weight: 900;
-  }
-
-  .run-meta-card {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    padding: 14px;
-    margin-bottom: 16px;
-  }
-
-  .verdict-box {
-    padding: 14px;
-    margin-bottom: 12px;
-  }
-
-  .verdict-box p {
-    margin: 0;
-    color: #dbe7ff;
-    line-height: 1.7;
-  }
-
-  .findings-box {
-    padding: 14px;
-    color: #dbe7ff;
-    line-height: 1.7;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .show-more-row {
     display: flex;
-    justify-content: flex-end;
-    margin-top: 14px;
+    justify-content: center;
+    margin-top: 18px;
   }
 
-  .diagnostics-panel summary {
+  .empty-box {
+    padding: 22px;
+    color: #a9b4d0;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .empty-box.small {
+    padding: 18px;
+  }
+
+  details summary {
     cursor: pointer;
-    color: #dbe7ff;
+    list-style: none;
+    font-size: 15px;
     font-weight: 900;
+    color: #ffffff;
+  }
+
+  details summary::-webkit-details-marker {
+    display: none;
   }
 
   .diagnostics-grid {
+    display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin-top: 14px;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .diagnostics-grid div {
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .diagnostics-grid strong {
+    display: block;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #ffffff;
+  }
+
+  .jump-top {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    min-height: 46px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    background: rgba(8, 13, 28, 0.92);
+    color: #dbeafe;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
+    z-index: 50;
   }
 
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 2000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: rgba(2,6,23,0.72);
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(2, 6, 23, 0.72);
     backdrop-filter: blur(12px);
   }
 
   .duplicate-modal {
     width: min(760px, 100%);
-    max-height: 88vh;
-    overflow: auto;
-    padding: 28px;
-    border-radius: 28px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: linear-gradient(180deg, rgba(15,22,43,0.98), rgba(7,10,24,0.98));
-    box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+    padding: 24px;
+    border-radius: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(15, 22, 43, 0.96), rgba(7, 10, 24, 0.98));
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
   }
 
-  .modal-badge {
-    padding: 8px 12px;
+  .modal-shell-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     margin-bottom: 16px;
-    font-size: 12px;
-    font-weight: 900;
   }
 
-  .modal-badge.warning {
+  .modal-count {
+    min-width: 72px;
+    height: 72px;
+    display: grid;
+    place-items: center;
+    border-radius: 24px;
     color: #fde68a;
-    border: 1px solid rgba(251,191,36,0.18);
-    background: rgba(245,158,11,0.12);
+    font-size: 26px;
+    font-weight: 900;
+    border: 1px solid rgba(245, 158, 11, 0.24);
+    background: rgba(245, 158, 11, 0.08);
   }
 
   .duplicate-modal h2 {
-    margin: 0 0 10px;
+    margin-bottom: 10px;
     font-size: 34px;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.05em;
   }
 
-  .duplicate-modal p {
-    margin: 0 0 18px;
+  .modal-copy {
+    margin: 0 0 16px;
     color: #a9b4d0;
-    line-height: 1.7;
+    line-height: 1.75;
+    font-size: 15px;
+  }
+
+  .modal-note-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .modal-note-card {
+    padding: 16px;
+  }
+
+  .modal-note-card strong,
+  .modal-note-card small {
+    display: block;
+  }
+
+  .modal-note-card strong {
+    margin-bottom: 6px;
+    font-size: 16px;
+    line-height: 1.45;
+    color: #ffffff;
+  }
+
+  .modal-note-card small {
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.65;
   }
 
   .duplicate-sample-box {
     padding: 16px;
-    margin-bottom: 18px;
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.03);
-  }
-
-  .duplicate-sample-box > span {
-    display: block;
-    margin-bottom: 10px;
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    margin-bottom: 14px;
   }
 
   .duplicate-list {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    max-height: 220px;
-    overflow: auto;
   }
 
   .duplicate-list strong {
-    padding: 10px 12px;
-    border-radius: 12px;
-    color: #e5ebff;
-    background: rgba(0,0,0,0.16);
-    font-size: 14px;
+    min-height: 32px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #dbe7ff;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .duplicate-sample-box small {
+    color: #a9b4d0;
+    font-size: 13px;
+  }
+
+  .modal-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: #dbe7ff;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .modal-hint svg {
+    color: #8b5cf6;
+    flex: 0 0 auto;
   }
 
   .modal-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
-  .jump-top {
-    position: fixed;
-    right: 24px;
-    bottom: 24px;
-    z-index: 1100;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 999px;
-    padding: 14px 16px;
-    color: #ffffff;
-    font-weight: 900;
-    font-size: 14px;
-    cursor: pointer;
-    background: linear-gradient(135deg, rgba(37,99,235,0.92), rgba(124,58,237,0.9), rgba(219,39,119,0.88));
-    box-shadow: 0 16px 36px rgba(0,0,0,0.35);
-  }
-
-  @media (max-width: 1100px) {
-    .main-grid {
+  @media (max-width: 1280px) {
+    .hero-grid,
+    .command-grid {
       grid-template-columns: 1fr;
     }
 
-    .stats-grid {
+    .hero-side-column,
+    .monitor-column {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 1080px) {
+    .stats-grid,
+    .hero-quick-grid,
+    .behavior-grid,
+    .conversation-grid,
+    .results-grid,
+    .mini-grid.polished,
+    .run-meta-card.polished,
+    .diagnostics-grid,
+    .action-summary-grid,
+    .progress-metrics-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .run-meta-card,
-    .conversation-details,
-    .conversation-details.four,
-    .diagnostics-grid {
+    .conversation-details.four {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
-  @media (max-width: 760px) {
-    .topbar,
-    .hero,
+  @media (max-width: 780px) {
+    .run-page {
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+
+    .stats-grid,
+    .hero-quick-grid,
+    .behavior-grid,
+    .conversation-grid,
+    .results-grid,
+    .mini-grid.polished,
+    .run-meta-card.polished,
+    .diagnostics-grid,
+    .action-summary-grid,
+    .progress-metrics-grid,
+    .modal-note-grid,
+    .form-grid.two {
+      grid-template-columns: 1fr;
+    }
+
     .section-head,
-    .conversation-head,
-    .progress-head {
+    .modal-shell-top,
+    .progress-bottom-row,
+    .auth-shell-card,
+    .behavior-row,
+    .conversation-head {
       flex-direction: column;
       align-items: stretch;
     }
 
-    .stats-grid,
-    .form-grid.two,
-    .mini-grid,
-    .run-meta-card,
-    .conversation-details,
-    .conversation-details.four,
-    .diagnostics-grid,
+    .header-right-meta,
+    .result-metrics,
+    .button-row,
     .modal-actions {
+      justify-content: stretch;
+    }
+
+    .primary-btn,
+    .secondary-btn,
+    .danger-btn,
+    .ghost-btn,
+    .toggle-chip {
+      width: 100%;
+    }
+
+    .log-item {
       grid-template-columns: 1fr;
     }
 
-    .preset-button {
-      grid-template-columns: 1fr auto;
+    .duplicate-modal {
+      padding: 18px;
     }
 
-    .preset-button small {
-      grid-column: 1 / -1;
+    .duplicate-modal h2 {
+      font-size: 28px;
     }
   }
 `;
