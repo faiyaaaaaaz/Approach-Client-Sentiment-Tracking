@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
-const CLIENT_TIMEOUT_MS = 15000;
+const TIMEOUT_MS = 10000;
 
 const ROLE_OPTIONS = [
   {
@@ -39,16 +39,12 @@ const ROLE_OPTIONS = [
   },
 ];
 
-function withClientTimeout(promise, label, timeoutMs = CLIENT_TIMEOUT_MS) {
+function withTimeout(promise, label, timeoutMs = TIMEOUT_MS) {
   let timeoutId;
 
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(
-        new Error(
-          `${label} took too long to respond. Please refresh once and try again. If it repeats, check Supabase table access for Supervisor Teams.`
-        )
-      );
+      reject(new Error(`${label} took too long. The page was not locked. Try again or refresh once.`));
     }, timeoutMs);
   });
 
@@ -57,8 +53,25 @@ function withClientTimeout(promise, label, timeoutMs = CLIENT_TIMEOUT_MS) {
   });
 }
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeEmail(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function normalizeKey(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
 
@@ -71,20 +84,51 @@ function formatDateTime(value) {
   });
 }
 
-function normalizeAgentKey(value) {
-  return String(value || "").trim().toLowerCase();
+function buildFallbackProfile(user) {
+  const email = normalizeEmail(user?.email);
+
+  if (email === MASTER_ADMIN_EMAIL) {
+    return {
+      id: user.id,
+      email,
+      full_name: user.user_metadata?.full_name || "Faiyaz Muhtasim Ahmed",
+      role: "master_admin",
+      can_run_tests: true,
+      is_active: true,
+    };
+  }
+
+  if (email.endsWith("@nextventures.io")) {
+    return {
+      id: user.id,
+      email,
+      full_name: user.user_metadata?.full_name || "",
+      role: "viewer",
+      can_run_tests: false,
+      is_active: true,
+    };
+  }
+
+  return null;
 }
 
-function normalizeEmail(value) {
-  return String(value || "").trim().toLowerCase();
+function canManageAdmin(profile) {
+  const role = normalizeKey(profile?.role);
+
+  return Boolean(
+    profile?.is_active === true &&
+      (role === "master_admin" || role === "admin" || role === "co_admin")
+  );
 }
 
-function normalizeName(value) {
-  return String(value || "").trim();
-}
+function canManageUsers(profile) {
+  const email = normalizeEmail(profile?.email);
+  const role = normalizeKey(profile?.role);
 
-function formatNumber(value) {
-  return new Intl.NumberFormat("en-US").format(Number(value || 0));
+  return Boolean(
+    profile?.is_active === true &&
+      (email === MASTER_ADMIN_EMAIL || role === "master_admin" || role === "admin")
+  );
 }
 
 function roleLabel(role) {
@@ -104,46 +148,8 @@ function roleDescription(role) {
   return found?.description || "Legacy or custom role.";
 }
 
-function getHistoryLabel(item) {
-  if (item?.prompt_type === "live_prompt") return "Live prompt update";
-  if (item?.prompt_type === "original_prompt") return "Original prompt record";
-  return item?.prompt_type || "Prompt change";
-}
-
-function buildFallbackProfile(user) {
-  const email = normalizeEmail(user?.email);
-
-  if (email === MASTER_ADMIN_EMAIL) {
-    return {
-      id: user.id,
-      email,
-      full_name: user.user_metadata?.full_name || "Faiyaz Muhtasim Ahmed",
-      role: "master_admin",
-      can_run_tests: true,
-      is_active: true,
-    };
-  }
-
-  return null;
-}
-
-function canManageAdmin(profile) {
-  const role = String(profile?.role || "").toLowerCase();
-
-  return Boolean(
-    profile?.is_active === true &&
-      (role === "master_admin" || role === "admin" || role === "co_admin")
-  );
-}
-
-function canManageUsers(profile) {
-  const email = normalizeEmail(profile?.email);
-  const role = String(profile?.role || "").toLowerCase();
-
-  return Boolean(
-    profile?.is_active === true &&
-      (email === MASTER_ADMIN_EMAIL || role === "master_admin" || role === "admin")
-  );
+function getMemberKey(member) {
+  return normalizeEmail(member?.employee_email) || normalizeKey(member?.employee_name);
 }
 
 function createEmptyMappingForm() {
@@ -180,6 +186,38 @@ function createEmptySupervisorForm() {
   };
 }
 
+function buildEmployeeOptionsFromMappings(rows) {
+  const byEmployee = new Map();
+
+  for (const row of rows || []) {
+    if (row?.is_active === false) continue;
+
+    const employeeName = normalizeText(row?.employee_name);
+    if (!employeeName) continue;
+
+    const key = normalizeEmail(row?.employee_email) || normalizeKey(employeeName);
+
+    if (!byEmployee.has(key)) {
+      byEmployee.set(key, {
+        employee_name: employeeName,
+        employee_email: row?.employee_email || null,
+        intercom_agent_name: row?.intercom_agent_name || null,
+        team_name: row?.team_name || null,
+      });
+    }
+  }
+
+  return Array.from(byEmployee.values()).sort((a, b) =>
+    a.employee_name.localeCompare(b.employee_name)
+  );
+}
+
+function sortSupervisorTeams(teams) {
+  return [...(teams || [])].sort((a, b) =>
+    normalizeText(a?.supervisor_name).localeCompare(normalizeText(b?.supervisor_name))
+  );
+}
+
 function getRowDate(row) {
   return row?.replied_at || row?.created_at || null;
 }
@@ -188,8 +226,8 @@ function buildStoredAgentStats(auditRows) {
   const stats = new Map();
 
   for (const row of auditRows || []) {
-    const agentName = String(row?.agent_name || "").trim();
-    const key = normalizeAgentKey(agentName);
+    const agentName = normalizeText(row?.agent_name);
+    const key = normalizeKey(agentName);
     if (!key) continue;
 
     const current = stats.get(key) || {
@@ -202,7 +240,7 @@ function buildStoredAgentStats(auditRows) {
 
     current.appearances += 1;
 
-    const matchStatus = String(row?.employee_match_status || "").toLowerCase();
+    const matchStatus = normalizeKey(row?.employee_match_status);
     if (matchStatus === "mapped") current.mapped_result_count += 1;
     if (matchStatus === "unmapped") current.unmapped_result_count += 1;
 
@@ -222,15 +260,16 @@ function buildStoredAgentStats(auditRows) {
 function buildSuggestions(existingMappings, auditRows) {
   const existingKeys = new Set(
     (existingMappings || [])
-      .map((item) => normalizeAgentKey(item?.intercom_agent_name))
+      .map((item) => normalizeKey(item?.intercom_agent_name))
       .filter(Boolean)
   );
 
   const byAgent = new Map();
 
   for (const row of auditRows || []) {
-    const rawAgent = String(row?.agent_name || "").trim();
-    const key = normalizeAgentKey(rawAgent);
+    const rawAgent = normalizeText(row?.agent_name);
+    const key = normalizeKey(rawAgent);
+
     if (!key || existingKeys.has(key)) continue;
 
     const current = byAgent.get(key) || {
@@ -241,23 +280,21 @@ function buildSuggestions(existingMappings, auditRows) {
       notes: "Detected from stored audit results.",
       result_count: 0,
       latest_seen_at: getRowDate(row),
-      mapped_result_count: 0,
-      unmapped_result_count: 0,
     };
 
     current.result_count += 1;
 
-    const matchStatus = String(row?.employee_match_status || "").toLowerCase();
-    if (matchStatus === "mapped") current.mapped_result_count += 1;
-    if (matchStatus === "unmapped") current.unmapped_result_count += 1;
+    if (!current.employee_name && row?.employee_name) {
+      current.employee_name = normalizeText(row.employee_name);
+    }
 
-    const employeeName = String(row?.employee_name || "").trim();
-    const employeeEmail = String(row?.employee_email || "").trim();
-    const teamName = String(row?.team_name || "").trim();
+    if (!current.employee_email && row?.employee_email) {
+      current.employee_email = normalizeText(row.employee_email);
+    }
 
-    if (!current.employee_name && employeeName) current.employee_name = employeeName;
-    if (!current.employee_email && employeeEmail) current.employee_email = employeeEmail;
-    if (!current.team_name && teamName) current.team_name = teamName;
+    if (!current.team_name && row?.team_name) {
+      current.team_name = normalizeText(row.team_name);
+    }
 
     const previousSeen = new Date(current.latest_seen_at || 0).getTime();
     const rowSeen = new Date(getRowDate(row) || 0).getTime();
@@ -274,35 +311,29 @@ function buildSuggestions(existingMappings, auditRows) {
       ...item,
       employee_name: item.employee_name || item.intercom_agent_name,
     }))
-    .sort((a, b) => {
-      const latestA = new Date(a.latest_seen_at || 0).getTime();
-      const latestB = new Date(b.latest_seen_at || 0).getTime();
-
-      if (latestA !== latestB) return latestB - latestA;
-      return a.intercom_agent_name.localeCompare(b.intercom_agent_name);
-    });
+    .sort((a, b) => b.result_count - a.result_count);
 }
 
 function buildUnmappedRows(existingMappings, auditRows) {
   const activeKeys = new Set(
     (existingMappings || [])
       .filter((item) => item?.is_active !== false)
-      .map((item) => normalizeAgentKey(item?.intercom_agent_name))
+      .map((item) => normalizeKey(item?.intercom_agent_name))
       .filter(Boolean)
   );
 
   const inactiveKeys = new Set(
     (existingMappings || [])
       .filter((item) => item?.is_active === false)
-      .map((item) => normalizeAgentKey(item?.intercom_agent_name))
+      .map((item) => normalizeKey(item?.intercom_agent_name))
       .filter(Boolean)
   );
 
   const grouped = new Map();
 
   for (const row of auditRows || []) {
-    const rawAgent = String(row?.agent_name || "").trim();
-    const key = normalizeAgentKey(rawAgent);
+    const rawAgent = normalizeText(row?.agent_name);
+    const key = normalizeKey(rawAgent);
     if (!key || activeKeys.has(key)) continue;
 
     const issueType = inactiveKeys.has(key) ? "inactive_mapping" : "missing_mapping";
@@ -313,9 +344,9 @@ function buildUnmappedRows(existingMappings, auditRows) {
       issue_label: issueType === "inactive_mapping" ? "Inactive mapping" : "No active mapping",
       appearances: 0,
       latest_seen_at: getRowDate(row),
-      sample_employee_name: String(row?.employee_name || "").trim(),
-      sample_employee_email: String(row?.employee_email || "").trim(),
-      sample_team_name: String(row?.team_name || "").trim(),
+      sample_employee_name: normalizeText(row?.employee_name),
+      sample_employee_email: normalizeText(row?.employee_email),
+      sample_team_name: normalizeText(row?.team_name),
     };
 
     current.appearances += 1;
@@ -325,9 +356,9 @@ function buildUnmappedRows(existingMappings, auditRows) {
 
     if (rowSeen > previousSeen) {
       current.latest_seen_at = getRowDate(row);
-      current.sample_employee_name = String(row?.employee_name || "").trim();
-      current.sample_employee_email = String(row?.employee_email || "").trim();
-      current.sample_team_name = String(row?.team_name || "").trim();
+      current.sample_employee_name = normalizeText(row?.employee_name);
+      current.sample_employee_email = normalizeText(row?.employee_email);
+      current.sample_team_name = normalizeText(row?.team_name);
     }
 
     grouped.set(key, current);
@@ -353,8 +384,8 @@ function getMappingQuality(row, stats) {
     };
   }
 
-  const missingEmail = !String(row?.employee_email || "").trim();
-  const missingTeam = !String(row?.team_name || "").trim();
+  const missingEmail = !normalizeText(row?.employee_email);
+  const missingTeam = !normalizeText(row?.team_name);
 
   if (missingEmail && missingTeam) {
     return {
@@ -417,41 +448,7 @@ function getLockedNameForEmail(email, mappings) {
     (item) => normalizeEmail(item?.employee_email) === normalized
   );
 
-  return String(match?.employee_name || "").trim();
-}
-
-function getMemberKey(member) {
-  return normalizeEmail(member?.employee_email) || normalizeName(member?.employee_name).toLowerCase();
-}
-
-function sortSupervisorTeams(teams) {
-  return [...(teams || [])].sort((a, b) =>
-    String(a?.supervisor_name || "").localeCompare(String(b?.supervisor_name || ""))
-  );
-}
-
-function buildEmployeeOptionsFromRows(rows) {
-  const byEmployee = new Map();
-
-  for (const row of rows || []) {
-    const employeeName = normalizeName(row?.employee_name);
-    if (!employeeName) continue;
-
-    const key = normalizeEmail(row?.employee_email) || employeeName.toLowerCase();
-
-    if (!byEmployee.has(key)) {
-      byEmployee.set(key, {
-        employee_name: employeeName,
-        employee_email: row?.employee_email || null,
-        intercom_agent_name: row?.intercom_agent_name || null,
-        team_name: row?.team_name || null,
-      });
-    }
-  }
-
-  return Array.from(byEmployee.values()).sort((a, b) =>
-    a.employee_name.localeCompare(b.employee_name)
-  );
+  return normalizeText(match?.employee_name);
 }
 
 async function readApiJson(response) {
@@ -473,10 +470,10 @@ export default function AdminPage() {
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [authLoading, setAuthLoading] = useState(true);
-
+  const [loading, setLoading] = useState(false);
   const [pageError, setPageError] = useState("");
   const [pageSuccess, setPageSuccess] = useState("");
 
@@ -517,14 +514,16 @@ export default function AdminPage() {
   const canManageUsersNow = canManageUsers(profile);
 
   async function getFreshSession() {
-    const { data, error } = await supabase.auth.getSession();
+    const result = await withTimeout(supabase.auth.getSession(), "Session check");
 
-    if (error || !data?.session?.access_token) {
+    const nextSession = result?.data?.session || null;
+    setSession(nextSession);
+
+    if (!nextSession?.access_token) {
       throw new Error("Your login session is missing or expired. Please sign in again.");
     }
 
-    setSession(data.session);
-    return data.session;
+    return nextSession;
   }
 
   async function loadProfile(user) {
@@ -534,8 +533,6 @@ export default function AdminPage() {
     if (!user) return { profile: null, message: "" };
 
     if (domain !== "nextventures.io") {
-      await supabase.auth.signOut();
-
       return {
         profile: null,
         message: "Access blocked. Use a nextventures.io Google account.",
@@ -545,26 +542,30 @@ export default function AdminPage() {
     const fallbackProfile = buildFallbackProfile(user);
 
     try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role, can_run_tests, is_active")
-        .or(`id.eq.${user.id},email.eq.${email}`)
-        .maybeSingle();
+      const { data, error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id, email, full_name, role, can_run_tests, is_active")
+          .or(`id.eq.${user.id},email.eq.${email}`)
+          .maybeSingle(),
+        "Profile check"
+      );
+
+      if (error) {
+        if (fallbackProfile) return { profile: fallbackProfile, message: "" };
+
+        return {
+          profile: null,
+          message: error.message || "Signed in, but profile loading failed.",
+        };
+      }
 
       if (data) {
-        if (email === MASTER_ADMIN_EMAIL && data.role !== "master_admin") {
-          await supabase
-            .from("profiles")
-            .update({
-              role: "master_admin",
-              can_run_tests: true,
-              is_active: true,
-            })
-            .eq("id", data.id);
-
+        if (email === MASTER_ADMIN_EMAIL) {
           return {
             profile: {
               ...data,
+              email,
               role: "master_admin",
               can_run_tests: true,
               is_active: true,
@@ -579,15 +580,22 @@ export default function AdminPage() {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
-        profile: null,
-        message: "Signed in, but no profile record is available.",
+        profile: {
+          id: user.id,
+          email,
+          full_name: user.user_metadata?.full_name || "",
+          role: "viewer",
+          can_run_tests: false,
+          is_active: true,
+        },
+        message: "Signed in, but this account has not been granted Admin access.",
       };
-    } catch (_error) {
+    } catch (error) {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
         profile: null,
-        message: "Signed in, but profile loading failed.",
+        message: error instanceof Error ? error.message : "Signed in, but profile loading failed.",
       };
     }
   }
@@ -600,12 +608,15 @@ export default function AdminPage() {
       return;
     }
 
-    const response = await fetch("/api/admin/prompt", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${activeSession.access_token}`,
-      },
-    });
+    const response = await withTimeout(
+      fetch("/api/admin/prompt", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${activeSession.access_token}`,
+        },
+      }),
+      "Loading prompt settings"
+    );
 
     const data = await readApiJson(response);
 
@@ -619,33 +630,44 @@ export default function AdminPage() {
     setLivePromptInput(data?.prompt?.livePrompt || "");
   }
 
-  async function loadMappingsData(activeSession = session) {
+  async function loadMappingsData() {
     setMappingLoading(true);
 
     try {
-      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
+      const [mappingsResponse, auditResponse] = await Promise.all([
+        withTimeout(
+          supabase
+            .from("agent_mappings")
+            .select("*")
+            .order("employee_name", { ascending: true })
+            .order("intercom_agent_name", { ascending: true }),
+          "Loading agent mappings"
+        ),
+        withTimeout(
+          supabase
+            .from("audit_results")
+            .select(
+              "id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at"
+            )
+            .order("created_at", { ascending: false })
+            .limit(5000),
+          "Loading stored audit samples"
+        ),
+      ]);
 
-      const response = await fetch("/api/admin/mappings", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-      });
-
-      const data = await readApiJson(response);
-
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not load mapping data.");
+      if (mappingsResponse.error) {
+        throw new Error(mappingsResponse.error.message || "Could not load agent mappings.");
       }
 
-      const nextMappings = Array.isArray(data.mappings) ? data.mappings : [];
-
-      setMappingRows(nextMappings);
-      setAuditRows(Array.isArray(data.auditRows) ? data.auditRows : []);
-
-      if (!supervisorEmployeeOptions.length) {
-        setSupervisorEmployeeOptions(buildEmployeeOptionsFromRows(nextMappings));
+      if (auditResponse.error) {
+        throw new Error(auditResponse.error.message || "Could not load audit rows.");
       }
+
+      const mappings = Array.isArray(mappingsResponse.data) ? mappingsResponse.data : [];
+
+      setMappingRows(mappings);
+      setAuditRows(Array.isArray(auditResponse.data) ? auditResponse.data : []);
+      setSupervisorEmployeeOptions(buildEmployeeOptionsFromMappings(mappings));
     } finally {
       setMappingLoading(false);
     }
@@ -655,7 +677,7 @@ export default function AdminPage() {
     setSupervisorLoading(true);
 
     try {
-      const teamsResult = await withClientTimeout(
+      const teamsResult = await withTimeout(
         supabase
           .from("supervisor_teams")
           .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
@@ -664,17 +686,16 @@ export default function AdminPage() {
         "Loading Supervisor Teams"
       );
 
-      if (teamsResult?.error) {
+      if (teamsResult.error) {
         throw new Error(teamsResult.error.message || "Could not load Supervisor Teams.");
       }
 
-      const teams = Array.isArray(teamsResult?.data) ? teamsResult.data : [];
+      const teams = Array.isArray(teamsResult.data) ? teamsResult.data : [];
       const teamIds = teams.map((team) => team.id).filter(Boolean);
-
       let members = [];
 
-      if (teamIds.length > 0) {
-        const membersResult = await withClientTimeout(
+      if (teamIds.length) {
+        const membersResult = await withTimeout(
           supabase
             .from("supervisor_team_members")
             .select(
@@ -686,11 +707,11 @@ export default function AdminPage() {
           "Loading Supervisor Team members"
         );
 
-        if (membersResult?.error) {
+        if (membersResult.error) {
           throw new Error(membersResult.error.message || "Could not load Supervisor Team members.");
         }
 
-        members = Array.isArray(membersResult?.data) ? membersResult.data : [];
+        members = Array.isArray(membersResult.data) ? membersResult.data : [];
       }
 
       const membersByTeam = new Map();
@@ -698,32 +719,19 @@ export default function AdminPage() {
       for (const member of members) {
         if (member?.is_active === false) continue;
 
-        const existing = membersByTeam.get(member.supervisor_team_id) || [];
-        existing.push(member);
-        membersByTeam.set(member.supervisor_team_id, existing);
+        const current = membersByTeam.get(member.supervisor_team_id) || [];
+        current.push(member);
+        membersByTeam.set(member.supervisor_team_id, current);
       }
 
-      const mergedTeams = teams.map((team) => ({
-        ...team,
-        members: membersByTeam.get(team.id) || [],
-      }));
-
-      const optionsResult = await withClientTimeout(
-        supabase
-          .from("agent_mappings")
-          .select("id, intercom_agent_name, employee_name, employee_email, team_name, is_active")
-          .eq("is_active", true)
-          .order("employee_name", { ascending: true })
-          .limit(5000),
-        "Loading employee options"
+      setSupervisorTeams(
+        sortSupervisorTeams(
+          teams.map((team) => ({
+            ...team,
+            members: membersByTeam.get(team.id) || [],
+          }))
+        )
       );
-
-      if (optionsResult?.error) {
-        throw new Error(optionsResult.error.message || "Could not load employee options.");
-      }
-
-      setSupervisorTeams(sortSupervisorTeams(mergedTeams));
-      setSupervisorEmployeeOptions(buildEmployeeOptionsFromRows(optionsResult?.data || []));
     } finally {
       setSupervisorLoading(false);
     }
@@ -733,10 +741,13 @@ export default function AdminPage() {
     setProfileLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role, can_run_tests, is_active")
-        .order("email", { ascending: true });
+      const { data, error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id, email, full_name, role, can_run_tests, is_active")
+          .order("email", { ascending: true }),
+        "Loading user profiles"
+      );
 
       if (error) throw new Error(error.message || "Could not load user profiles.");
 
@@ -746,107 +757,108 @@ export default function AdminPage() {
     }
   }
 
-  async function loadAll(activeSession) {
-    setLoading(true);
+  async function loadAll(activeSession, options = {}) {
+    const silent = options.silent === true;
+
+    if (!silent) {
+      setLoading(true);
+      setPageError("");
+      setPageSuccess("");
+    }
+
+    const jobs = [
+      loadPromptData(activeSession),
+      loadMappingsData(),
+      loadSupervisorTeamsData(),
+      loadProfilesData(),
+    ];
+
+    const results = await Promise.allSettled(jobs);
+    const rejected = results.find((item) => item.status === "rejected");
+
+    if (rejected) {
+      setPageError(
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : "Some Admin data could not load."
+      );
+    } else if (!silent) {
+      setPageSuccess("Admin loaded successfully.");
+    }
+
+    if (!silent) setLoading(false);
+  }
+
+  async function bootAdmin() {
+    setAuthChecked(false);
+    setAuthMessage("");
     setPageError("");
-    setPageSuccess("");
 
     try {
-      await Promise.all([
-        loadPromptData(activeSession),
-        loadMappingsData(activeSession),
-        loadSupervisorTeamsData(),
-        loadProfilesData(),
-      ]);
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not load Admin data.");
-    } finally {
+      const result = await withTimeout(supabase.auth.getSession(), "Session check");
+      const currentSession = result?.data?.session || null;
+
+      setSession(currentSession);
+
+      if (!currentSession?.user) {
+        setProfile(null);
+        setAuthChecked(true);
+        setLoading(false);
+        return;
+      }
+
+      const profileResult = await loadProfile(currentSession.user);
+      setProfile(profileResult.profile);
+      setAuthMessage(profileResult.message || "");
+      setAuthChecked(true);
+
+      if (profileResult.profile && canManageAdmin(profileResult.profile)) {
+        await loadAll(currentSession, { silent: true });
+      }
+
       setLoading(false);
+    } catch (error) {
+      setSession(null);
+      setProfile(null);
+      setAuthChecked(true);
+      setLoading(false);
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : "Could not complete Admin session check."
+      );
     }
   }
 
   useEffect(() => {
     let active = true;
 
-    async function init() {
-      try {
-        const {
-          data: { session: currentSession },
-        } = await supabase.auth.getSession();
-
-        if (!active) return;
-
-        setSession(currentSession ?? null);
-
-        if (!currentSession?.user) {
-          setProfile(null);
-          setAuthLoading(false);
-          setLoading(false);
-          return;
-        }
-
-        const profileResult = await loadProfile(currentSession.user);
-
-        if (!active) return;
-
-        setProfile(profileResult.profile);
-        setPageError(profileResult.message || "");
-        setAuthLoading(false);
-
-        if (profileResult.profile && canManageAdmin(profileResult.profile)) {
-          await loadAll(currentSession);
-        } else {
-          setLoading(false);
-        }
-      } catch (_error) {
-        if (!active) return;
-
-        setPageError("Could not complete Admin session check.");
-        setAuthLoading(false);
-        setLoading(false);
-      }
-    }
-
-    init();
+    bootAdmin();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!active) return;
 
-      setSession(newSession ?? null);
-      setPageError("");
-      setPageSuccess("");
+      setSession(nextSession || null);
 
-      if (!newSession?.user) {
+      if (!nextSession?.user) {
         setProfile(null);
-        setPromptData(null);
-        setHistoryRows([]);
-        setLivePromptInput("");
-        setDbReady(false);
-        setMappingRows([]);
-        setAuditRows([]);
-        setProfileRows([]);
-        setSupervisorTeams([]);
-        setSupervisorEmployeeOptions([]);
-        setAuthLoading(false);
-        setLoading(false);
+        setAuthChecked(true);
+        setAuthMessage("");
         return;
       }
 
-      const profileResult = await loadProfile(newSession.user);
+      loadProfile(nextSession.user).then((result) => {
+        if (!active) return;
 
-      if (!active) return;
+        setProfile(result.profile);
+        setAuthMessage(result.message || "");
 
-      setProfile(profileResult.profile);
-      setPageError(profileResult.message || "");
-      setAuthLoading(false);
-
-      if (profileResult.profile && canManageAdmin(profileResult.profile)) {
-        await loadAll(newSession);
-      } else {
-        setLoading(false);
-      }
+        if (result.profile && canManageAdmin(result.profile)) {
+          loadAll(nextSession, { silent: true });
+        }
+      });
     });
 
     return () => {
@@ -856,22 +868,35 @@ export default function AdminPage() {
   }, []);
 
   async function handleReload() {
-    if (!session) return;
-    await loadAll(session);
+    setPageError("");
+    setPageSuccess("");
+
+    try {
+      const freshSession = await getFreshSession();
+      await loadAll(freshSession);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not reload Admin.");
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setPageError("");
+    setPageSuccess("");
+
+    const redirectTo =
+      typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+
+    if (error) setPageError(error.message || "Google sign-in failed.");
   }
 
   async function handleSavePrompt() {
     setPageError("");
     setPageSuccess("");
-
-    let usableSession;
-
-    try {
-      usableSession = await getFreshSession();
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Please sign in first.");
-      return;
-    }
 
     if (!isAdmin) {
       setPageError("Only Master Admins and Co-Admins can save prompt settings.");
@@ -886,17 +911,22 @@ export default function AdminPage() {
     setSaveLoading(true);
 
     try {
-      const response = await fetch("/api/admin/prompt", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-        body: JSON.stringify({
-          livePrompt: livePromptInput,
-          changeNote,
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/prompt", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            livePrompt: livePromptInput,
+            changeNote,
+          }),
         }),
-      });
+        "Saving live prompt"
+      );
 
       const data = await readApiJson(response);
 
@@ -976,11 +1006,11 @@ export default function AdminPage() {
       return;
     }
 
-    const intercomAgentName = String(mappingForm.intercom_agent_name || "").trim();
-    const employeeName = String(mappingForm.employee_name || "").trim() || intercomAgentName;
+    const intercomAgentName = normalizeText(mappingForm.intercom_agent_name);
+    const employeeName = normalizeText(mappingForm.employee_name) || intercomAgentName;
     const employeeEmail = normalizeEmail(mappingForm.employee_email);
-    const teamName = String(mappingForm.team_name || "").trim();
-    const notes = String(mappingForm.notes || "").trim();
+    const teamName = normalizeText(mappingForm.team_name);
+    const notes = normalizeText(mappingForm.notes);
 
     if (!intercomAgentName) {
       setPageError("Intercom agent name is required.");
@@ -1000,40 +1030,48 @@ export default function AdminPage() {
     setMappingSaveLoading(true);
 
     try {
-      const usableSession = await getFreshSession();
+      const existingMatch = mappingRows.find(
+        (item) => normalizeKey(item?.intercom_agent_name) === normalizeKey(intercomAgentName)
+      );
 
-      const response = await fetch("/api/admin/mappings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-        body: JSON.stringify({
-          mapping: {
-            id: mappingForm.id,
-            intercom_agent_name: intercomAgentName,
-            employee_name: employeeName,
-            employee_email: employeeEmail || null,
-            team_name: teamName || null,
-            notes: notes || null,
-            is_active: mappingForm.is_active !== false,
-          },
-        }),
-      });
+      const payload = {
+        intercom_agent_name: intercomAgentName,
+        employee_name: employeeName,
+        employee_email: employeeEmail || null,
+        team_name: teamName || null,
+        notes: notes || null,
+        is_active: mappingForm.is_active !== false,
+        updated_at: new Date().toISOString(),
+      };
 
-      const data = await readApiJson(response);
+      if (mappingForm.id || existingMatch?.id) {
+        const targetId = mappingForm.id || existingMatch.id;
 
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not save mapping.");
+        const { error } = await withTimeout(
+          supabase.from("agent_mappings").update(payload).eq("id", targetId),
+          "Updating agent mapping"
+        );
+
+        if (error) throw new Error(error.message || "Could not update the mapping.");
+
+        setPageSuccess("Agent mapping updated successfully.");
+      } else {
+        const { error } = await withTimeout(
+          supabase.from("agent_mappings").insert({
+            ...payload,
+            created_at: new Date().toISOString(),
+          }),
+          "Creating agent mapping"
+        );
+
+        if (error) throw new Error(error.message || "Could not create the mapping.");
+
+        setPageSuccess("Agent mapping created successfully.");
       }
 
-      setPageSuccess(data.message || "Mapping saved successfully.");
       setMappingForm(createEmptyMappingForm());
-      await Promise.all([
-        loadMappingsData(usableSession),
-        loadSupervisorTeamsData(),
-        loadProfilesData(),
-      ]);
+      await loadMappingsData();
+      await loadSupervisorTeamsData();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
@@ -1044,55 +1082,28 @@ export default function AdminPage() {
   async function handleToggleMappingActive(row) {
     setPageError("");
     setPageSuccess("");
-
-    if (!isAdmin) {
-      setPageError("Only Master Admins and Co-Admins can update mappings.");
-      return;
-    }
-
     setMappingToggleLoadingId(row?.id || "");
 
-    const previousRows = mappingRows;
-    const nextActive = row?.is_active === false;
-
-    setMappingRows((currentRows) =>
-      currentRows.map((item) =>
-        item.id === row.id
-          ? {
-              ...item,
-              is_active: nextActive,
-              updated_at: new Date().toISOString(),
-            }
-          : item
-      )
-    );
-
     try {
-      const usableSession = await getFreshSession();
+      const nextActive = row?.is_active === false;
 
-      const response = await fetch("/api/admin/mappings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${usableSession.access_token}`,
-        },
-        body: JSON.stringify({
-          id: row.id,
-          action: "set_active",
-          is_active: nextActive,
-        }),
-      });
+      const { error } = await withTimeout(
+        supabase
+          .from("agent_mappings")
+          .update({
+            is_active: nextActive,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", row.id),
+        "Updating mapping status"
+      );
 
-      const data = await readApiJson(response);
+      if (error) throw new Error(error.message || "Could not update mapping status.");
 
-      if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not update mapping status.");
-      }
-
-      setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
-      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData()]);
+      setPageSuccess(nextActive ? "Mapping activated." : "Mapping deactivated.");
+      await loadMappingsData();
+      await loadSupervisorTeamsData();
     } catch (error) {
-      setMappingRows(previousRows);
       setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
     } finally {
       setMappingToggleLoadingId("");
@@ -1116,162 +1127,31 @@ export default function AdminPage() {
     setSeedLoading(true);
 
     try {
-      const usableSession = await getFreshSession();
-      let savedCount = 0;
+      const rows = mappingSuggestions.map((item) => ({
+        intercom_agent_name: item.intercom_agent_name,
+        employee_name: item.employee_name || item.intercom_agent_name,
+        employee_email: item.employee_email || null,
+        team_name: item.team_name || null,
+        notes: item.notes || "Detected from stored audit results.",
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
 
-      for (const item of mappingSuggestions) {
-        const response = await fetch("/api/admin/mappings", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${usableSession.access_token}`,
-          },
-          body: JSON.stringify({
-            mapping: {
-              intercom_agent_name: item.intercom_agent_name,
-              employee_name: item.employee_name || item.intercom_agent_name,
-              employee_email: item.employee_email || null,
-              team_name: item.team_name || null,
-              notes: item.notes || "Detected from stored audit results.",
-              is_active: true,
-            },
-          }),
-        });
+      const { error } = await withTimeout(
+        supabase.from("agent_mappings").insert(rows),
+        "Prefilling detected agents"
+      );
 
-        const data = await readApiJson(response);
+      if (error) throw new Error(error.message || "Could not prefill mappings.");
 
-        if (!response.ok || !data?.ok) {
-          throw new Error(data?.error || "Could not prefill mappings.");
-        }
-
-        savedCount += 1;
-      }
-
-      setPageSuccess(`${savedCount} mapping(s) added.`);
-      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData()]);
+      setPageSuccess(`${rows.length} mapping(s) added.`);
+      await loadMappingsData();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
     } finally {
       setSeedLoading(false);
     }
-  }
-
-  function handleEditRole(row) {
-    const email = normalizeEmail(row?.email);
-    const lockedName = getLockedNameForEmail(email, mappingRows);
-
-    setRoleForm({
-      id: row?.id || "",
-      email,
-      full_name: lockedName || row?.full_name || "",
-      role: row?.role || "viewer",
-      can_run_tests: Boolean(row?.can_run_tests),
-      is_active: row?.is_active !== false,
-    });
-
-    setPageError("");
-    setPageSuccess(`Editing access for ${email}.`);
-
-    setTimeout(() => {
-      roleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  }
-
-  function handleRoleChange(nextRole) {
-    const roleConfig = ROLE_OPTIONS.find((item) => item.value === nextRole);
-
-    setRoleForm((prev) => ({
-      ...prev,
-      role: nextRole,
-      can_run_tests:
-        nextRole === "master_admin"
-          ? true
-          : roleConfig?.defaultCanRunTests ?? prev.can_run_tests,
-    }));
-  }
-
-  async function handleSaveRole() {
-    setPageError("");
-    setPageSuccess("");
-
-    if (!canManageUsersNow) {
-      setPageError("Only Master Admins can manage user roles.");
-      return;
-    }
-
-    const email = normalizeEmail(roleForm.email);
-    const domain = email.split("@")[1] || "";
-
-    if (!email || domain !== "nextventures.io") {
-      setPageError("Use a valid nextventures.io email address.");
-      return;
-    }
-
-    const existing = profileRows.find((row) => normalizeEmail(row?.email) === email);
-    const lockedName = getLockedNameForEmail(email, mappingRows);
-
-    if (!existing && !roleForm.id) {
-      setPageError(
-        "This user does not have a profile row yet. In the next backend pass, we will add true pre-login role grants by email. For now, ask the user to sign in once, then assign their role here."
-      );
-      return;
-    }
-
-    const nextRole = email === MASTER_ADMIN_EMAIL ? "master_admin" : roleForm.role;
-    const nextCanRunTests =
-      email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.can_run_tests);
-    const nextIsActive = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.is_active);
-    const nextName = lockedName || String(roleForm.full_name || "").trim() || null;
-
-    if (email === MASTER_ADMIN_EMAIL && nextRole !== "master_admin") {
-      setPageError("The creator account must remain Master Admin.");
-      return;
-    }
-
-    if (nextRole === "master_admin" && email !== MASTER_ADMIN_EMAIL) {
-      const confirmed = window.confirm(
-        `You are about to grant Master Admin access to ${email}. This gives full control over the platform. Continue?`
-      );
-
-      if (!confirmed) return;
-    }
-
-    setRoleSaveLoading(true);
-
-    try {
-      const payload = {
-        email,
-        full_name: nextName,
-        role: nextRole,
-        can_run_tests: nextCanRunTests,
-        is_active: nextIsActive,
-      };
-
-      const targetId = roleForm.id || existing?.id;
-
-      const { error } = await supabase.from("profiles").update(payload).eq("id", targetId);
-
-      if (error) throw new Error(error.message || "Could not update user role.");
-
-      setPageSuccess("User role updated.");
-      setRoleForm(createEmptyRoleForm());
-      await loadProfilesData();
-
-      if (session?.user) {
-        const profileResult = await loadProfile(session.user);
-        setProfile(profileResult.profile);
-      }
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not update user role.");
-    } finally {
-      setRoleSaveLoading(false);
-    }
-  }
-
-  function handleClearRoleForm() {
-    setRoleForm(createEmptyRoleForm());
-    setPageError("");
-    setPageSuccess("");
   }
 
   function isSupervisorMemberSelected(option) {
@@ -1313,7 +1193,6 @@ export default function AdminPage() {
       ...prev,
       supervisor_name: option.employee_name || prev.supervisor_name,
       supervisor_email: option.employee_email || prev.supervisor_email,
-      notes: prev.notes,
     }));
   }
 
@@ -1349,7 +1228,7 @@ export default function AdminPage() {
       return;
     }
 
-    const supervisorName = normalizeName(supervisorForm.supervisor_name);
+    const supervisorName = normalizeText(supervisorForm.supervisor_name);
     const supervisorEmail = normalizeEmail(supervisorForm.supervisor_email);
 
     if (!supervisorName) {
@@ -1372,26 +1251,24 @@ export default function AdminPage() {
         : null;
 
       const existingByEmail = supervisorEmail
-        ? supervisorTeams.find(
-            (team) => normalizeEmail(team?.supervisor_email) === supervisorEmail
-          )
+        ? supervisorTeams.find((team) => normalizeEmail(team?.supervisor_email) === supervisorEmail)
         : null;
 
       const existingByName = supervisorTeams.find(
-        (team) => normalizeName(team?.supervisor_name).toLowerCase() === supervisorName.toLowerCase()
+        (team) => normalizeKey(team?.supervisor_name) === normalizeKey(supervisorName)
       );
 
       const existingTeam = existingByForm || existingByEmail || existingByName;
       let savedTeam;
 
       if (existingTeam?.id) {
-        const updateResult = await withClientTimeout(
+        const { data, error } = await withTimeout(
           supabase
             .from("supervisor_teams")
             .update({
               supervisor_name: supervisorName,
               supervisor_email: supervisorEmail || null,
-              notes: supervisorForm.notes || null,
+              notes: normalizeText(supervisorForm.notes) || null,
               is_active: supervisorForm.is_active !== false,
               updated_at: now,
             })
@@ -1401,19 +1278,16 @@ export default function AdminPage() {
           "Updating Supervisor Team"
         );
 
-        if (updateResult?.error) {
-          throw new Error(updateResult.error.message || "Could not update Supervisor Team.");
-        }
-
-        savedTeam = updateResult.data;
+        if (error) throw new Error(error.message || "Could not update Supervisor Team.");
+        savedTeam = data;
       } else {
-        const insertResult = await withClientTimeout(
+        const { data, error } = await withTimeout(
           supabase
             .from("supervisor_teams")
             .insert({
               supervisor_name: supervisorName,
               supervisor_email: supervisorEmail || null,
-              notes: supervisorForm.notes || null,
+              notes: normalizeText(supervisorForm.notes) || null,
               is_active: supervisorForm.is_active !== false,
               created_at: now,
               updated_at: now,
@@ -1423,93 +1297,89 @@ export default function AdminPage() {
           "Creating Supervisor Team"
         );
 
-        if (insertResult?.error) {
-          throw new Error(insertResult.error.message || "Could not create Supervisor Team.");
+        if (error) throw new Error(error.message || "Could not create Supervisor Team.");
+        savedTeam = data;
+      }
+
+      if (!savedTeam?.id) {
+        throw new Error("Supervisor Team saved without an ID. Check the supervisor_teams table.");
+      }
+
+      const uniqueMembers = new Map();
+
+      for (const member of supervisorForm.members || []) {
+        const employeeName = normalizeText(member?.employee_name);
+        if (!employeeName) continue;
+
+        const memberKey = normalizeKey(employeeName);
+
+        if (!uniqueMembers.has(memberKey)) {
+          uniqueMembers.set(memberKey, {
+            supervisor_team_id: savedTeam.id,
+            employee_name: employeeName,
+            employee_email: normalizeEmail(member?.employee_email) || null,
+            intercom_agent_name: normalizeText(member?.intercom_agent_name) || null,
+            team_name: normalizeText(member?.team_name) || null,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+          });
         }
-
-        savedTeam = insertResult.data;
       }
 
-      const teamId = savedTeam?.id;
+      const desiredMembers = Array.from(uniqueMembers.values());
 
-      if (!teamId) {
-        throw new Error("Supervisor Team saved without an ID. Please check the supervisor_teams table.");
-      }
-
-      const deleteResult = await withClientTimeout(
-        supabase
-          .from("supervisor_team_members")
-          .delete()
-          .eq("supervisor_team_id", teamId),
-        "Clearing old Supervisor Team members"
-      );
-
-      if (deleteResult?.error) {
-        throw new Error(deleteResult.error.message || "Could not refresh Supervisor Team members.");
-      }
-
-      let savedMembers = [];
-
-      if (supervisorForm.members.length > 0) {
-        const rowsToInsert = supervisorForm.members.map((member) => ({
-          supervisor_team_id: teamId,
-          employee_name: normalizeName(member.employee_name),
-          employee_email: normalizeEmail(member.employee_email) || null,
-          intercom_agent_name: normalizeName(member.intercom_agent_name) || null,
-          team_name: normalizeName(member.team_name) || null,
-          is_active: member.is_active !== false,
-          created_at: now,
-          updated_at: now,
-        }));
-
-        const insertMembersResult = await withClientTimeout(
+      if (desiredMembers.length > 0) {
+        const { error: upsertError } = await withTimeout(
           supabase
             .from("supervisor_team_members")
-            .insert(rowsToInsert)
-            .select(
-              "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
-            ),
+            .upsert(desiredMembers, {
+              onConflict: "supervisor_team_id,employee_name",
+            }),
           "Saving Supervisor Team members"
         );
 
-        if (insertMembersResult?.error) {
-          throw new Error(
-            insertMembersResult.error.message || "Could not save Supervisor Team members."
-          );
+        if (upsertError) {
+          throw new Error(upsertError.message || "Could not save Supervisor Team members.");
         }
-
-        savedMembers = Array.isArray(insertMembersResult?.data)
-          ? insertMembersResult.data
-          : rowsToInsert;
       }
 
-      const nextTeam = {
-        ...savedTeam,
-        members: savedMembers.filter((member) => member?.is_active !== false),
-      };
+      const { data: currentMembers, error: currentMembersError } = await withTimeout(
+        supabase
+          .from("supervisor_team_members")
+          .select("id, employee_name")
+          .eq("supervisor_team_id", savedTeam.id),
+        "Checking current Supervisor Team members"
+      );
 
-      setSupervisorTeams((prev) => {
-        const withoutCurrent = prev.filter((team) => team.id !== teamId);
-        return sortSupervisorTeams([...withoutCurrent, nextTeam]);
-      });
+      if (currentMembersError) {
+        throw new Error(currentMembersError.message || "Could not verify saved members.");
+      }
+
+      const desiredNames = new Set(desiredMembers.map((member) => normalizeKey(member.employee_name)));
+      const obsoleteIds = (currentMembers || [])
+        .filter((member) => !desiredNames.has(normalizeKey(member.employee_name)))
+        .map((member) => member.id)
+        .filter(Boolean);
+
+      if (obsoleteIds.length > 0) {
+        const { error: deleteError } = await withTimeout(
+          supabase.from("supervisor_team_members").delete().in("id", obsoleteIds),
+          "Removing unselected Supervisor Team members"
+        );
+
+        if (deleteError) {
+          throw new Error(deleteError.message || "Could not remove unselected members.");
+        }
+      }
 
       setSupervisorForm(createEmptySupervisorForm());
       setSupervisorMemberSearch("");
       setPageSuccess(
-        `${savedTeam.supervisor_name} saved successfully with ${formatNumber(
-          savedMembers.length
-        )} member(s).`
+        `${savedTeam.supervisor_name} saved successfully with ${formatNumber(desiredMembers.length)} member(s).`
       );
 
-      try {
-        await loadSupervisorTeamsData();
-      } catch (reloadError) {
-        setPageSuccess(
-          `${savedTeam.supervisor_name} saved successfully. Reload warning: ${
-            reloadError instanceof Error ? reloadError.message : "Could not refresh the directory."
-          }`
-        );
-      }
+      await loadSupervisorTeamsData();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save Supervisor Team.");
     } finally {
@@ -1531,48 +1401,139 @@ export default function AdminPage() {
     try {
       const nextActive = team?.is_active === false;
 
-      const updateResult = await withClientTimeout(
+      const { error } = await withTimeout(
         supabase
           .from("supervisor_teams")
           .update({
             is_active: nextActive,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", team.id)
-          .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-          .single(),
+          .eq("id", team.id),
         "Updating Supervisor Team status"
       );
 
-      if (updateResult?.error) {
-        throw new Error(updateResult.error.message || "Could not update Supervisor Team.");
-      }
-
-      setSupervisorTeams((prev) =>
-        sortSupervisorTeams(
-          prev.map((item) =>
-            item.id === team.id
-              ? {
-                  ...item,
-                  ...updateResult.data,
-                  members: item.members || [],
-                }
-              : item
-          )
-        )
-      );
+      if (error) throw new Error(error.message || "Could not update Supervisor Team.");
 
       setPageSuccess(nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated.");
-
-      try {
-        await loadSupervisorTeamsData();
-      } catch (_reloadError) {
-        // Local state already updated successfully.
-      }
+      await loadSupervisorTeamsData();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not update Supervisor Team.");
     } finally {
       setSupervisorToggleLoadingId("");
+    }
+  }
+
+  function handleEditRole(row) {
+    const email = normalizeEmail(row?.email);
+    const lockedName = getLockedNameForEmail(email, mappingRows);
+
+    setRoleForm({
+      id: row?.id || "",
+      email,
+      full_name: lockedName || row?.full_name || "",
+      role: row?.role || "viewer",
+      can_run_tests: Boolean(row?.can_run_tests),
+      is_active: row?.is_active !== false,
+    });
+
+    setPageError("");
+    setPageSuccess(`Editing access for ${email}.`);
+
+    setTimeout(() => {
+      roleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  function handleRoleChange(nextRole) {
+    const roleConfig = ROLE_OPTIONS.find((item) => item.value === nextRole);
+
+    setRoleForm((prev) => ({
+      ...prev,
+      role: nextRole,
+      can_run_tests:
+        nextRole === "master_admin"
+          ? true
+          : roleConfig?.defaultCanRunTests ?? prev.can_run_tests,
+    }));
+  }
+
+  function handleClearRoleForm() {
+    setRoleForm(createEmptyRoleForm());
+    setPageError("");
+    setPageSuccess("");
+  }
+
+  async function handleSaveRole() {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!canManageUsersNow) {
+      setPageError("Only Master Admins can manage user roles.");
+      return;
+    }
+
+    const email = normalizeEmail(roleForm.email);
+    const domain = email.split("@")[1] || "";
+
+    if (!email || domain !== "nextventures.io") {
+      setPageError("Use a valid nextventures.io email address.");
+      return;
+    }
+
+    const existing = profileRows.find((row) => normalizeEmail(row?.email) === email);
+    const lockedName = getLockedNameForEmail(email, mappingRows);
+
+    if (!existing && !roleForm.id) {
+      setPageError("This user needs to sign in once before you can assign their role.");
+      return;
+    }
+
+    const nextRole = email === MASTER_ADMIN_EMAIL ? "master_admin" : roleForm.role;
+    const nextCanRunTests = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.can_run_tests);
+    const nextIsActive = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.is_active);
+    const nextName = lockedName || normalizeText(roleForm.full_name) || null;
+
+    if (nextRole === "master_admin" && email !== MASTER_ADMIN_EMAIL) {
+      const confirmed = window.confirm(
+        `You are about to grant Master Admin access to ${email}. This gives full control over the platform. Continue?`
+      );
+
+      if (!confirmed) return;
+    }
+
+    setRoleSaveLoading(true);
+
+    try {
+      const targetId = roleForm.id || existing?.id;
+
+      const { error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .update({
+            email,
+            full_name: nextName,
+            role: nextRole,
+            can_run_tests: nextCanRunTests,
+            is_active: nextIsActive,
+          })
+          .eq("id", targetId),
+        "Saving user role"
+      );
+
+      if (error) throw new Error(error.message || "Could not update user role.");
+
+      setPageSuccess("User role updated.");
+      setRoleForm(createEmptyRoleForm());
+      await loadProfilesData();
+
+      if (session?.user) {
+        const profileResult = await loadProfile(session.user);
+        setProfile(profileResult.profile);
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not update user role.");
+    } finally {
+      setRoleSaveLoading(false);
     }
   }
 
@@ -1591,7 +1552,7 @@ export default function AdminPage() {
   const mappingTableRows = useMemo(
     () =>
       mappingRows.map((row) => {
-        const key = normalizeAgentKey(row?.intercom_agent_name);
+        const key = normalizeKey(row?.intercom_agent_name);
 
         const stats = storedAgentStats.get(key) || {
           appearances: 0,
@@ -1629,8 +1590,14 @@ export default function AdminPage() {
       )
     : 100;
 
+  const activeSupervisorTeamsCount = supervisorTeams.filter((item) => item?.is_active !== false).length;
+  const totalSupervisorMembersCount = supervisorTeams.reduce(
+    (sum, team) => sum + (Array.isArray(team.members) ? team.members.length : 0),
+    0
+  );
+
   const filteredMappings = useMemo(() => {
-    const term = String(mappingSearch || "").trim().toLowerCase();
+    const term = normalizeKey(mappingSearch);
 
     return mappingTableRows.filter((row) => {
       if (mappingStatusFilter === "active" && row?.is_active === false) return false;
@@ -1659,14 +1626,14 @@ export default function AdminPage() {
         row?.quality?.label,
         row?.quality?.detail,
       ]
-        .map((value) => String(value || "").toLowerCase())
+        .map((value) => normalizeKey(value))
         .join(" ")
         .includes(term);
     });
   }, [mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
 
   const filteredProfileRows = useMemo(() => {
-    const term = roleSearch.trim().toLowerCase();
+    const term = normalizeKey(roleSearch);
 
     return profileRows.filter((row) => {
       if (!term) return true;
@@ -1678,14 +1645,14 @@ export default function AdminPage() {
         row?.can_run_tests ? "run audit" : "no run audit",
         row?.is_active ? "active" : "inactive",
       ]
-        .map((value) => String(value || "").toLowerCase())
+        .map((value) => normalizeKey(value))
         .join(" ")
         .includes(term);
     });
   }, [profileRows, roleSearch]);
 
   const filteredSupervisorTeams = useMemo(() => {
-    const term = supervisorSearch.trim().toLowerCase();
+    const term = normalizeKey(supervisorSearch);
 
     return supervisorTeams.filter((team) => {
       if (!term) return true;
@@ -1710,14 +1677,14 @@ export default function AdminPage() {
         team.is_active === false ? "inactive" : "active",
         memberText,
       ]
-        .map((value) => String(value || "").toLowerCase())
+        .map((value) => normalizeKey(value))
         .join(" ")
         .includes(term);
     });
   }, [supervisorTeams, supervisorSearch]);
 
   const filteredSupervisorEmployeeOptions = useMemo(() => {
-    const term = supervisorMemberSearch.trim().toLowerCase();
+    const term = normalizeKey(supervisorMemberSearch);
 
     return supervisorEmployeeOptions.filter((item) => {
       if (!term) return true;
@@ -1728,21 +1695,21 @@ export default function AdminPage() {
         item.intercom_agent_name,
         item.team_name,
       ]
-        .map((value) => String(value || "").toLowerCase())
+        .map((value) => normalizeKey(value))
         .join(" ")
         .includes(term);
     });
   }, [supervisorEmployeeOptions, supervisorMemberSearch]);
 
   const filteredSupervisorCandidateOptions = useMemo(() => {
-    const term = supervisorForm.supervisor_name.trim().toLowerCase();
+    const term = normalizeKey(supervisorForm.supervisor_name);
 
     if (term.length < 2) return [];
 
     return supervisorEmployeeOptions
       .filter((item) =>
         [item.employee_name, item.employee_email, item.intercom_agent_name, item.team_name]
-          .map((value) => String(value || "").toLowerCase())
+          .map((value) => normalizeKey(value))
           .join(" ")
           .includes(term)
       )
@@ -1750,12 +1717,6 @@ export default function AdminPage() {
   }, [supervisorEmployeeOptions, supervisorForm.supervisor_name]);
 
   const lockedRoleName = getLockedNameForEmail(roleForm.email, mappingRows);
-
-  const activeSupervisorTeamsCount = supervisorTeams.filter((item) => item?.is_active !== false).length;
-  const totalSupervisorMembersCount = supervisorTeams.reduce(
-    (sum, team) => sum + (Array.isArray(team.members) ? team.members.length : 0),
-    0
-  );
 
   const statusCards = [
     {
@@ -1796,18 +1757,6 @@ export default function AdminPage() {
     },
   ];
 
-  if (authLoading) {
-    return (
-      <main className="admin-page">
-        <style>{adminStyles}</style>
-        <section className="hero compact">
-          <p className="eyebrow">Next Ventures</p>
-          <h1>Loading Admin...</h1>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="admin-page">
       <style>{adminStyles}</style>
@@ -1816,12 +1765,14 @@ export default function AdminPage() {
         <div>
           <div className="hero-badge">Admin</div>
           <h1>Control center</h1>
-          <p>Manage prompts, agent mappings, Supervisor Teams, user roles, and future system settings from one polished workspace.</p>
+          <p>
+            Manage prompts, agent mappings, Supervisor Teams, user roles, and future system settings from one polished workspace.
+          </p>
         </div>
 
         <div className="hero-side-card">
           <span>Current access</span>
-          <strong>{roleLabel(profile?.role)}</strong>
+          <strong>{authChecked ? roleLabel(profile?.role) : "Checking..."}</strong>
           <small>{profile?.email || session?.user?.email || "Not signed in"}</small>
         </div>
 
@@ -1856,22 +1807,28 @@ export default function AdminPage() {
         ))}
       </section>
 
-      {(pageError || pageSuccess) && (
+      {(pageError || pageSuccess || authMessage) && (
         <section className="message-stack">
           {pageError ? <div className="message error">{pageError}</div> : null}
+          {authMessage ? <div className="message warning">{authMessage}</div> : null}
           {pageSuccess ? <div className="message success">{pageSuccess}</div> : null}
         </section>
       )}
 
       {!session?.user ? (
-        <section className="panel">
-          <h2>Sign in required</h2>
-          <p className="muted">Use the upper-right profile menu to sign in with a nextventures.io Google account.</p>
+        <section className="panel gate-panel">
+          <p className="eyebrow">Sign in required</p>
+          <h2>Admin is ready, but you are not signed in.</h2>
+          <p className="muted">Use your nextventures.io Google account to continue.</p>
+          <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
+            Sign in with Google
+          </button>
         </section>
       ) : !isAdmin ? (
-        <section className="panel">
-          <h2>Admin access required</h2>
-          <p className="muted">This profile does not have Admin access. Please contact the Master Admin.</p>
+        <section className="panel gate-panel">
+          <p className="eyebrow">Admin access required</p>
+          <h2>This section is restricted.</h2>
+          <p className="muted">Please contact the Master Admin if you need Admin access.</p>
         </section>
       ) : (
         <>
@@ -1961,7 +1918,7 @@ export default function AdminPage() {
                   <p className="eyebrow">Supervisor teams</p>
                   <h2>{supervisorForm.id ? "Edit supervisor team" : "Create supervisor team"}</h2>
                   <p className="muted">
-                    Add a supervisor, select multiple mapped employees, and use this later as a Dashboard filter.
+                    Add a supervisor, select mapped employees, and use this later as a Dashboard filter.
                   </p>
                 </div>
 
@@ -2098,12 +2055,12 @@ export default function AdminPage() {
                   ) : null}
 
                   <div className="member-option-list">
-                    {supervisorLoading ? (
+                    {supervisorLoading || mappingLoading ? (
                       <div className="empty-box">Loading employees...</div>
                     ) : filteredSupervisorEmployeeOptions.length === 0 ? (
                       <div className="empty-box">No employee options found. Add active agent mappings first.</div>
                     ) : (
-                      filteredSupervisorEmployeeOptions.slice(0, 160).map((option) => {
+                      filteredSupervisorEmployeeOptions.slice(0, 180).map((option) => {
                         const selected = isSupervisorMemberSelected(option);
 
                         return (
@@ -2190,12 +2147,12 @@ export default function AdminPage() {
                       {team.notes ? <p className="supervisor-note">{team.notes}</p> : null}
 
                       <div className="supervisor-member-preview">
-                        {(team.members || []).slice(0, 8).map((member) => (
+                        {(team.members || []).slice(0, 10).map((member) => (
                           <span key={getMemberKey(member)}>{member.employee_name}</span>
                         ))}
 
-                        {(team.members || []).length > 8 ? (
-                          <span>+{formatNumber((team.members || []).length - 8)} more</span>
+                        {(team.members || []).length > 10 ? (
+                          <span>+{formatNumber((team.members || []).length - 10)} more</span>
                         ) : null}
 
                         {(team.members || []).length === 0 ? <span>No members assigned</span> : null}
@@ -2242,9 +2199,7 @@ export default function AdminPage() {
                 <div>
                   <p className="eyebrow">Agent mapping</p>
                   <h2>{mappingForm.id ? "Edit mapping" : "Map agent"}</h2>
-                  <p className="muted">
-                    Map raw Intercom names to employee identity, team, and email for accurate reporting.
-                  </p>
+                  <p className="muted">Map raw Intercom names to employee identity, team, and email.</p>
                 </div>
 
                 {mappingForm.id ? <span className="status active">Editing</span> : <span className="status neutral">New</span>}
@@ -2504,7 +2459,7 @@ export default function AdminPage() {
                 <p className="eyebrow">Access control</p>
                 <h2>User roles</h2>
                 <p className="muted">
-                  Manage existing user profiles. New users currently need to sign in once before role assignment; the next backend pass will add true email pre-grants.
+                  Manage existing user profiles. New users need to sign in once before role assignment.
                 </p>
               </div>
 
@@ -2880,7 +2835,7 @@ export default function AdminPage() {
                 {historyRows.slice(0, 12).map((item, index) => (
                   <article className="history-card" key={item?.id || index}>
                     <div>
-                      <strong>{getHistoryLabel(item)}</strong>
+                      <strong>{item?.prompt_type || "Prompt change"}</strong>
                       <span>{formatDateTime(item?.created_at || item?.updated_at)}</span>
                     </div>
 
@@ -2963,11 +2918,6 @@ const adminStyles = `
   .hero > * {
     position: relative;
     z-index: 1;
-  }
-
-  .hero.compact {
-    max-width: 900px;
-    margin-top: 80px;
   }
 
   .hero-badge,
@@ -3217,6 +3167,12 @@ const adminStyles = `
     background: rgba(244,63,94,0.08);
   }
 
+  .message.warning {
+    color: #fde68a;
+    border: 1px solid rgba(245,158,11,0.23);
+    background: rgba(245,158,11,0.08);
+  }
+
   .message.success {
     color: #bbf7d0;
     border: 1px solid rgba(16,185,129,0.23);
@@ -3230,6 +3186,15 @@ const adminStyles = `
 
   .panel.wide {
     margin-bottom: 20px;
+  }
+
+  .gate-panel {
+    display: grid;
+    gap: 12px;
+  }
+
+  .gate-panel .primary-btn {
+    width: fit-content;
   }
 
   .section-head {
