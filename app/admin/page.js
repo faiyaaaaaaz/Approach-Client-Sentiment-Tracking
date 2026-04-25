@@ -1,7 +1,42 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
+
+const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+
+const ROLE_OPTIONS = [
+  {
+    value: "master_admin",
+    label: "Master Admin",
+    description: "Full control over audits, admin, prompts, mappings, users, and history.",
+    defaultCanRunTests: true,
+  },
+  {
+    value: "supervisor_admin",
+    label: "Supervisor Admin",
+    description: "Can view dashboard and results. Run Audit and Admin remain locked unless extra access is granted.",
+    defaultCanRunTests: false,
+  },
+  {
+    value: "co_admin",
+    label: "Co-Admin",
+    description: "Can access Admin operational controls such as mappings and prompt management.",
+    defaultCanRunTests: false,
+  },
+  {
+    value: "audit_runner",
+    label: "Audit Runner",
+    description: "Can access Run Audit and Results, but cannot manage Admin controls.",
+    defaultCanRunTests: true,
+  },
+  {
+    value: "viewer",
+    label: "Viewer",
+    description: "Can view dashboard only unless additional access is granted later.",
+    defaultCanRunTests: false,
+  },
+];
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -21,20 +56,41 @@ function normalizeAgentKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
 }
 
+function roleLabel(role) {
+  const found = ROLE_OPTIONS.find((item) => item.value === role);
+  if (found) return found.label;
+
+  return String(role || "viewer")
+    .replaceAll("_", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function roleDescription(role) {
+  const found = ROLE_OPTIONS.find((item) => item.value === role);
+  return found?.description || "Legacy or custom role.";
+}
+
 function getHistoryLabel(item) {
-  if (item?.prompt_type === "live_prompt") return "Live Prompt Update";
-  if (item?.prompt_type === "original_prompt") return "Original Prompt Record";
-  return item?.prompt_type || "Prompt Change";
+  if (item?.prompt_type === "live_prompt") return "Live prompt update";
+  if (item?.prompt_type === "original_prompt") return "Original prompt record";
+  return item?.prompt_type || "Prompt change";
 }
 
 function buildFallbackProfile(user) {
-  const email = String(user?.email || "").toLowerCase();
+  const email = normalizeEmail(user?.email);
 
-  if (email === "faiyaz@nextventures.io") {
+  if (email === MASTER_ADMIN_EMAIL) {
     return {
       id: user.id,
       email,
@@ -49,10 +105,30 @@ function buildFallbackProfile(user) {
 }
 
 function canManageAdmin(profile) {
+  const role = String(profile?.role || "").toLowerCase();
+
   return Boolean(
     profile?.is_active === true &&
-      (profile?.role === "master_admin" || profile?.role === "admin")
+      (role === "master_admin" || role === "admin" || role === "co_admin")
   );
+}
+
+function canManageUsers(profile) {
+  const email = normalizeEmail(profile?.email);
+  const role = String(profile?.role || "").toLowerCase();
+
+  return Boolean(
+    profile?.is_active === true &&
+      (email === MASTER_ADMIN_EMAIL || role === "master_admin" || role === "admin")
+  );
+}
+
+function canSavePrompt(profile) {
+  return canManageAdmin(profile);
+}
+
+function canSaveMappings(profile) {
+  return canManageAdmin(profile);
 }
 
 function createEmptyMappingForm() {
@@ -63,6 +139,17 @@ function createEmptyMappingForm() {
     employee_email: "",
     team_name: "",
     notes: "",
+    is_active: true,
+  };
+}
+
+function createEmptyRoleForm() {
+  return {
+    id: "",
+    email: "",
+    full_name: "",
+    role: "viewer",
+    can_run_tests: false,
     is_active: true,
   };
 }
@@ -295,7 +382,22 @@ function toneClass(tone) {
   return "tone neutral";
 }
 
+function getLockedNameForEmail(email, mappings) {
+  const normalized = normalizeEmail(email);
+
+  if (!normalized) return "";
+
+  const match = (mappings || []).find(
+    (item) => normalizeEmail(item?.employee_email) === normalized
+  );
+
+  return String(match?.employee_name || "").trim();
+}
+
 export default function AdminPage() {
+  const mappingFormRef = useRef(null);
+  const roleFormRef = useRef(null);
+
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
 
@@ -323,10 +425,17 @@ export default function AdminPage() {
   const [mappingToggleLoadingId, setMappingToggleLoadingId] = useState("");
   const [seedLoading, setSeedLoading] = useState(false);
 
+  const [profileRows, setProfileRows] = useState([]);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [roleForm, setRoleForm] = useState(createEmptyRoleForm());
+  const [roleSearch, setRoleSearch] = useState("");
+  const [roleSaveLoading, setRoleSaveLoading] = useState(false);
+
   const isAdmin = canManageAdmin(profile);
+  const canManageUsersNow = canManageUsers(profile);
 
   async function loadProfile(user) {
-    const email = user?.email?.toLowerCase() || "";
+    const email = normalizeEmail(user?.email);
     const domain = email.split("@")[1] || "";
 
     if (!user) return { profile: null, message: "" };
@@ -346,10 +455,34 @@ export default function AdminPage() {
       const { data } = await supabase
         .from("profiles")
         .select("id, email, full_name, role, can_run_tests, is_active")
-        .eq("id", user.id)
+        .or(`id.eq.${user.id},email.eq.${email}`)
         .maybeSingle();
 
-      if (data) return { profile: data, message: "" };
+      if (data) {
+        if (email === MASTER_ADMIN_EMAIL && data.role !== "master_admin") {
+          await supabase
+            .from("profiles")
+            .update({
+              role: "master_admin",
+              can_run_tests: true,
+              is_active: true,
+            })
+            .eq("id", data.id);
+
+          return {
+            profile: {
+              ...data,
+              role: "master_admin",
+              can_run_tests: true,
+              is_active: true,
+            },
+            message: "",
+          };
+        }
+
+        return { profile: data, message: "" };
+      }
+
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
       return {
@@ -427,13 +560,34 @@ export default function AdminPage() {
     }
   }
 
+  async function loadProfilesData() {
+    setProfileLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, email, full_name, role, can_run_tests, is_active")
+        .order("email", { ascending: true });
+
+      if (error) throw new Error(error.message || "Could not load user profiles.");
+
+      setProfileRows(Array.isArray(data) ? data : []);
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
   async function loadAll(activeSession) {
     setLoading(true);
     setPageError("");
     setPageSuccess("");
 
     try {
-      await Promise.all([loadPromptData(activeSession), loadMappingsData()]);
+      await Promise.all([
+        loadPromptData(activeSession),
+        loadMappingsData(),
+        loadProfilesData(),
+      ]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not load Admin data.");
     } finally {
@@ -502,6 +656,7 @@ export default function AdminPage() {
         setDbReady(false);
         setMappingRows([]);
         setAuditRows([]);
+        setProfileRows([]);
         setAuthLoading(false);
         setLoading(false);
         return;
@@ -542,8 +697,8 @@ export default function AdminPage() {
       return;
     }
 
-    if (!isAdmin) {
-      setPageError("Only Admin users can save prompt settings.");
+    if (!canSavePrompt(profile)) {
+      setPageError("Only Master Admins and Co-Admins can save prompt settings.");
       return;
     }
 
@@ -578,12 +733,18 @@ export default function AdminPage() {
       setDbReady(Boolean(data.dbReady));
       setLivePromptInput(data?.prompt?.livePrompt || livePromptInput);
       setChangeNote("");
-      setPageSuccess("Live prompt saved.");
+      setPageSuccess("Live prompt saved. New audits will use the updated live prompt.");
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save the live prompt.");
     } finally {
       setSaveLoading(false);
     }
+  }
+
+  function scrollToMappingForm() {
+    setTimeout(() => {
+      mappingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   function handleEditMapping(row) {
@@ -598,7 +759,8 @@ export default function AdminPage() {
     });
 
     setPageError("");
-    setPageSuccess("Mapping loaded.");
+    setPageSuccess(`Editing mapping for ${row?.intercom_agent_name || "selected agent"}.`);
+    scrollToMappingForm();
   }
 
   function handleUseSuggestion(item) {
@@ -613,7 +775,8 @@ export default function AdminPage() {
     });
 
     setPageError("");
-    setPageSuccess("Mapping form updated.");
+    setPageSuccess("Mapping form updated from detected agent.");
+    scrollToMappingForm();
   }
 
   function handleResetMappingForm() {
@@ -631,14 +794,14 @@ export default function AdminPage() {
       return;
     }
 
-    if (!isAdmin) {
-      setPageError("Only Admin users can save mappings.");
+    if (!canSaveMappings(profile)) {
+      setPageError("Only Master Admins and Co-Admins can save mappings.");
       return;
     }
 
     const intercomAgentName = String(mappingForm.intercom_agent_name || "").trim();
     const employeeName = String(mappingForm.employee_name || "").trim() || intercomAgentName;
-    const employeeEmail = String(mappingForm.employee_email || "").trim();
+    const employeeEmail = normalizeEmail(mappingForm.employee_email);
     const teamName = String(mappingForm.team_name || "").trim();
     const notes = String(mappingForm.notes || "").trim();
 
@@ -649,6 +812,11 @@ export default function AdminPage() {
 
     if (!employeeName) {
       setPageError("Employee name is required.");
+      return;
+    }
+
+    if (employeeEmail && !employeeEmail.endsWith("@nextventures.io")) {
+      setPageError("Employee email must use the nextventures.io domain.");
       return;
     }
 
@@ -680,7 +848,7 @@ export default function AdminPage() {
 
         if (error) throw new Error(error.message || "Could not update mapping.");
 
-        setPageSuccess("Mapping updated.");
+        setPageSuccess("Mapping updated successfully.");
       } else {
         const { error } = await supabase
           .from("agent_mappings")
@@ -691,11 +859,11 @@ export default function AdminPage() {
 
         if (error) throw new Error(error.message || "Could not create mapping.");
 
-        setPageSuccess("Mapping created.");
+        setPageSuccess("Mapping created successfully.");
       }
 
       setMappingForm(createEmptyMappingForm());
-      await loadMappingsData();
+      await Promise.all([loadMappingsData(), loadProfilesData()]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
@@ -707,8 +875,8 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!isAdmin) {
-      setPageError("Only Admin users can update mappings.");
+    if (!canSaveMappings(profile)) {
+      setPageError("Only Master Admins and Co-Admins can update mappings.");
       return;
     }
 
@@ -739,8 +907,8 @@ export default function AdminPage() {
     setPageError("");
     setPageSuccess("");
 
-    if (!isAdmin) {
-      setPageError("Only Admin users can prefill mappings.");
+    if (!canSaveMappings(profile)) {
+      setPageError("Only Master Admins and Co-Admins can prefill mappings.");
       return;
     }
 
@@ -778,36 +946,122 @@ export default function AdminPage() {
     }
   }
 
-  async function handleGoogleLogin() {
-    setPageError("");
-    setPageSuccess("");
+  function handleEditRole(row) {
+    const email = normalizeEmail(row?.email);
+    const lockedName = getLockedNameForEmail(email, mappingRows);
 
-    const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}/admin` : undefined;
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo },
+    setRoleForm({
+      id: row?.id || "",
+      email,
+      full_name: lockedName || row?.full_name || "",
+      role: row?.role || "viewer",
+      can_run_tests: Boolean(row?.can_run_tests),
+      is_active: row?.is_active !== false,
     });
 
-    if (error) setPageError(error.message || "Google sign-in failed.");
+    setPageError("");
+    setPageSuccess(`Editing access for ${email}.`);
+
+    setTimeout(() => {
+      roleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
+  function handleRoleChange(nextRole) {
+    const roleConfig = ROLE_OPTIONS.find((item) => item.value === nextRole);
 
-    setSession(null);
-    setProfile(null);
-    setPromptData(null);
-    setHistoryRows([]);
-    setLivePromptInput("");
-    setDbReady(false);
-    setMappingRows([]);
-    setAuditRows([]);
+    setRoleForm((prev) => ({
+      ...prev,
+      role: nextRole,
+      can_run_tests:
+        nextRole === "master_admin"
+          ? true
+          : roleConfig?.defaultCanRunTests ?? prev.can_run_tests,
+    }));
+  }
+
+  async function handleSaveRole() {
     setPageError("");
     setPageSuccess("");
-    setLoading(false);
-    setAuthLoading(false);
+
+    if (!canManageUsersNow) {
+      setPageError("Only Master Admins can manage user roles.");
+      return;
+    }
+
+    const email = normalizeEmail(roleForm.email);
+    const domain = email.split("@")[1] || "";
+
+    if (!email || domain !== "nextventures.io") {
+      setPageError("Use a valid nextventures.io email address.");
+      return;
+    }
+
+    const existing = profileRows.find((row) => normalizeEmail(row?.email) === email);
+    const lockedName = getLockedNameForEmail(email, mappingRows);
+
+    if (!existing && !roleForm.id) {
+      setPageError(
+        "This user does not have a profile row yet. In the next backend pass, we will add true pre-login role grants by email. For now, ask the user to sign in once, then assign their role here."
+      );
+      return;
+    }
+
+    const nextRole = email === MASTER_ADMIN_EMAIL ? "master_admin" : roleForm.role;
+    const nextCanRunTests =
+      email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.can_run_tests);
+    const nextIsActive = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.is_active);
+    const nextName = lockedName || String(roleForm.full_name || "").trim() || null;
+
+    if (email === MASTER_ADMIN_EMAIL && nextRole !== "master_admin") {
+      setPageError("The creator account must remain Master Admin.");
+      return;
+    }
+
+    if (nextRole === "master_admin" && email !== MASTER_ADMIN_EMAIL) {
+      const confirmed = window.confirm(
+        `You are about to grant Master Admin access to ${email}. This gives full control over the platform. Continue?`
+      );
+
+      if (!confirmed) return;
+    }
+
+    setRoleSaveLoading(true);
+
+    try {
+      const payload = {
+        email,
+        full_name: nextName,
+        role: nextRole,
+        can_run_tests: nextCanRunTests,
+        is_active: nextIsActive,
+      };
+
+      const targetId = roleForm.id || existing?.id;
+
+      const { error } = await supabase.from("profiles").update(payload).eq("id", targetId);
+
+      if (error) throw new Error(error.message || "Could not update user role.");
+
+      setPageSuccess("User role updated.");
+      setRoleForm(createEmptyRoleForm());
+      await loadProfilesData();
+
+      if (session?.user) {
+        const profileResult = await loadProfile(session.user);
+        setProfile(profileResult.profile);
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not update user role.");
+    } finally {
+      setRoleSaveLoading(false);
+    }
+  }
+
+  function handleClearRoleForm() {
+    setRoleForm(createEmptyRoleForm());
+    setPageError("");
+    setPageSuccess("");
   }
 
   const storedAgentStats = useMemo(() => buildStoredAgentStats(auditRows), [auditRows]);
@@ -899,10 +1153,31 @@ export default function AdminPage() {
     });
   }, [mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
 
+  const filteredProfileRows = useMemo(() => {
+    const term = roleSearch.trim().toLowerCase();
+
+    return profileRows.filter((row) => {
+      if (!term) return true;
+
+      return [
+        row?.email,
+        row?.full_name,
+        row?.role,
+        row?.can_run_tests ? "run audit" : "no run audit",
+        row?.is_active ? "active" : "inactive",
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(term);
+    });
+  }, [profileRows, roleSearch]);
+
+  const lockedRoleName = getLockedNameForEmail(roleForm.email, mappingRows);
+
   const statusCards = [
     {
       label: "Prompt",
-      value: dbReady ? "Ready" : "Not Ready",
+      value: dbReady ? "Ready" : "Not ready",
       note: dbReady ? "Live prompt connected." : "Prompt storage unavailable.",
       tone: dbReady ? "success" : "warning",
     },
@@ -923,20 +1198,20 @@ export default function AdminPage() {
       tone: inactiveMappingsCount ? "notice" : "success",
     },
     {
-      label: "Needs Work",
+      label: "Users",
+      value: formatNumber(profileRows.length),
+      note: `${formatNumber(
+        profileRows.filter((item) => item?.is_active !== false).length
+      )} active profile(s).`,
+      tone: "notice",
+    },
+    {
+      label: "Needs work",
       value: String(incompleteMappingsCount + unmappedRows.length),
       note: `${formatNumber(incompleteMappingsCount)} incomplete, ${formatNumber(
         unmappedRows.length
-      )} unmapped.`
-        .replace("1 incomplete", "1 incomplete")
-        .replace("1 unmapped", "1 unmapped"),
+      )} unmapped.`,
       tone: incompleteMappingsCount || unmappedRows.length ? "warning" : "success",
-    },
-    {
-      label: "Detected",
-      value: String(mappingSuggestions.length),
-      note: mappingSuggestions.length ? "New agents found." : "No drafts waiting.",
-      tone: mappingSuggestions.length ? "notice" : "success",
     },
   ];
 
@@ -945,7 +1220,7 @@ export default function AdminPage() {
       <main className="admin-page">
         <style>{adminStyles}</style>
         <section className="hero compact">
-          <p className="eyebrow">NEXT Ventures</p>
+          <p className="eyebrow">Next Ventures</p>
           <h1>Loading Admin...</h1>
         </section>
       </main>
@@ -956,40 +1231,27 @@ export default function AdminPage() {
     <main className="admin-page">
       <style>{adminStyles}</style>
 
-      <nav className="topbar">
+      <section className="hero">
         <div>
-          <p className="eyebrow">NEXT Ventures</p>
-          <strong>Review Approach & Client Sentiment Tracking</strong>
+          <div className="hero-badge">Admin</div>
+          <h1>Control center</h1>
+          <p>Manage prompts, agent mappings, user roles, and future system settings from one polished workspace.</p>
         </div>
 
-        <span className={isAdmin ? "access-pill active" : "access-pill"}>
-          {isAdmin ? "Admin" : "View Only"}
-        </span>
-      </nav>
-
-      <section className="hero">
-        <div className="hero-badge">Admin</div>
-        <h1>Control Center</h1>
-        <p>Manage prompts, mappings, and system settings.</p>
+        <div className="hero-side-card">
+          <span>Current access</span>
+          <strong>{roleLabel(profile?.role)}</strong>
+          <small>{profile?.email || session?.user?.email || "Not signed in"}</small>
+        </div>
 
         <div className="action-row">
-          {!session?.user ? (
-            <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
-              Sign in with Google
-            </button>
-          ) : (
-            <button type="button" className="secondary-btn" onClick={handleLogout}>
-              Sign out
-            </button>
-          )}
-
           <button
             type="button"
             className="secondary-btn"
             onClick={handleReload}
-            disabled={!session || loading || mappingLoading}
+            disabled={!session || loading || mappingLoading || profileLoading}
           >
-            {loading || mappingLoading ? "Loading..." : "Reload"}
+            {loading || mappingLoading || profileLoading ? "Loading..." : "Reload"}
           </button>
 
           <button
@@ -998,7 +1260,7 @@ export default function AdminPage() {
             onClick={handleSeedSuggestedMappings}
             disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
           >
-            {seedLoading ? "Prefilling..." : `Prefill Agents (${mappingSuggestions.length})`}
+            {seedLoading ? "Prefilling..." : `Prefill agents (${mappingSuggestions.length})`}
           </button>
         </div>
       </section>
@@ -1023,32 +1285,28 @@ export default function AdminPage() {
       {!session?.user ? (
         <section className="panel">
           <h2>Sign in required</h2>
-          <p className="muted">Use a nextventures.io Google account.</p>
+          <p className="muted">Use the upper-right profile menu to sign in with a nextventures.io Google account.</p>
         </section>
       ) : !isAdmin ? (
         <section className="panel">
           <h2>Admin access required</h2>
-          <p className="muted">This profile does not have Admin access.</p>
+          <p className="muted">This profile does not have Admin access. Please contact the Master Admin.</p>
         </section>
       ) : (
         <>
-          <section className="two-col">
-            <article className="panel">
-              <p className="eyebrow">Prompt Source</p>
-              <h2>Original Trusted Prompt</h2>
-              <p className="muted">Trusted baseline prompt.</p>
+          <section className="control-grid">
+            <article className="panel prompt-panel">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Live configuration</p>
+                  <h2>Live prompt</h2>
+                  <p className="muted">This is the prompt used by new audits. Update it here without changing code.</p>
+                </div>
 
-              <textarea
-                className="textarea tall"
-                value={promptData?.originalTrustedPrompt || ""}
-                readOnly
-              />
-            </article>
-
-            <article className="panel">
-              <p className="eyebrow">Live Configuration</p>
-              <h2>Live Prompt</h2>
-              <p className="muted">Prompt used by new audits.</p>
+                <span className={dbReady ? "status active" : "status inactive"}>
+                  {dbReady ? "Connected" : "Not ready"}
+                </span>
+              </div>
 
               <textarea
                 className="textarea live"
@@ -1071,21 +1329,67 @@ export default function AdminPage() {
                   onClick={handleSavePrompt}
                   disabled={saveLoading || !livePromptInput.trim()}
                 >
-                  {saveLoading ? "Saving..." : "Save Prompt"}
+                  {saveLoading ? "Saving..." : "Save prompt"}
                 </button>
+              </div>
+
+              <details className="trusted-prompt-drawer">
+                <summary>Original trusted prompt reference</summary>
+                <p>
+                  This is kept as a read-only baseline. It is not meant to take over the live prompt unless you copy it manually.
+                </p>
+                <textarea
+                  className="textarea trusted"
+                  value={promptData?.originalTrustedPrompt || ""}
+                  readOnly
+                />
+              </details>
+            </article>
+
+            <article className="panel api-panel">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Secure keys</p>
+                  <h2>API key vault</h2>
+                  <p className="muted">
+                    This section is prepared for the next backend pass. Raw keys must be saved through server routes, never directly from this browser page.
+                  </p>
+                </div>
+              </div>
+
+              <div className="api-card-grid">
+                <div className="api-card">
+                  <span>Intercom</span>
+                  <strong>Server-secured setup needed</strong>
+                  <p>Next step: add a backend route that stores masked key records and lets audit routes read the active key server-side.</p>
+                </div>
+
+                <div className="api-card">
+                  <span>OpenAI / GPT</span>
+                  <strong>Server-secured setup needed</strong>
+                  <p>Next step: move active GPT key lookup into a protected backend route instead of relying only on environment variables.</p>
+                </div>
               </div>
             </article>
           </section>
 
-          <section className="two-col mapping-area">
-            <article className="panel">
-              <p className="eyebrow">Agent Mapping</p>
-              <h2>Map Agent</h2>
-              <p className="muted">Map Intercom names to employees.</p>
+          <section className="control-grid mapping-area">
+            <article className="panel" ref={mappingFormRef}>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Agent mapping</p>
+                  <h2>{mappingForm.id ? "Edit mapping" : "Map agent"}</h2>
+                  <p className="muted">
+                    Map raw Intercom names to employee identity, team, and email for accurate reporting.
+                  </p>
+                </div>
+
+                {mappingForm.id ? <span className="status active">Editing</span> : <span className="status neutral">New</span>}
+              </div>
 
               <div className="form-grid single">
                 <label>
-                  <span>Intercom Agent Name</span>
+                  <span>Intercom agent name</span>
                   <input
                     value={mappingForm.intercom_agent_name}
                     onChange={(event) =>
@@ -1099,7 +1403,7 @@ export default function AdminPage() {
                 </label>
 
                 <label>
-                  <span>Employee Name</span>
+                  <span>Employee name</span>
                   <input
                     value={mappingForm.employee_name}
                     onChange={(event) =>
@@ -1114,7 +1418,7 @@ export default function AdminPage() {
 
                 <div className="form-grid two">
                   <label>
-                    <span>Employee Email</span>
+                    <span>Employee email</span>
                     <input
                       type="email"
                       value={mappingForm.employee_email}
@@ -1129,7 +1433,7 @@ export default function AdminPage() {
                   </label>
 
                   <label>
-                    <span>Team Name</span>
+                    <span>Team name</span>
                     <input
                       value={mappingForm.team_name}
                       onChange={(event) =>
@@ -1169,7 +1473,7 @@ export default function AdminPage() {
                       }))
                     }
                   />
-                  <span>Active</span>
+                  <span>Active mapping for future audits</span>
                 </label>
 
                 <div className="action-row">
@@ -1179,7 +1483,7 @@ export default function AdminPage() {
                     onClick={handleSaveMapping}
                     disabled={mappingSaveLoading}
                   >
-                    {mappingSaveLoading ? "Saving..." : mappingForm.id ? "Update Mapping" : "Save Mapping"}
+                    {mappingSaveLoading ? "Saving..." : mappingForm.id ? "Update mapping" : "Save mapping"}
                   </button>
 
                   <button type="button" className="secondary-btn" onClick={handleResetMappingForm}>
@@ -1190,9 +1494,13 @@ export default function AdminPage() {
             </article>
 
             <article className="panel">
-              <p className="eyebrow">Detected Agents</p>
-              <h2>Suggested Mappings</h2>
-              <p className="muted">Detected agents without saved mappings.</p>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Detected agents</p>
+                  <h2>Suggested mappings</h2>
+                  <p className="muted">Agents found in stored results without saved mappings.</p>
+                </div>
+              </div>
 
               {mappingSuggestions.length === 0 ? (
                 <div className="empty-box">No new agent suggestions.</div>
@@ -1202,7 +1510,7 @@ export default function AdminPage() {
                     <article className="mini-card" key={item.intercom_agent_name}>
                       <div className="mini-head">
                         <div>
-                          <p className="eyebrow">Intercom Agent</p>
+                          <p className="eyebrow">Intercom agent</p>
                           <h3>{item.intercom_agent_name}</h3>
                         </div>
 
@@ -1240,11 +1548,15 @@ export default function AdminPage() {
             </article>
           </section>
 
-          <section className="two-col">
+          <section className="control-grid">
             <article className="panel">
-              <p className="eyebrow">Mapping Risk</p>
-              <h2>Unmapped Agents</h2>
-              <p className="muted">Stored agents without active mapping coverage.</p>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Mapping risk</p>
+                  <h2>Unmapped agents</h2>
+                  <p className="muted">Stored agents without active mapping coverage.</p>
+                </div>
+              </div>
 
               {unmappedRows.length === 0 ? (
                 <div className="empty-box success-box">No unmapped stored agents.</div>
@@ -1292,8 +1604,12 @@ export default function AdminPage() {
             </article>
 
             <article className="panel">
-              <p className="eyebrow">Mapping Summary</p>
-              <h2>Current Status</h2>
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Mapping summary</p>
+                  <h2>Current status</h2>
+                </div>
+              </div>
 
               <div className="rule-list">
                 <div>
@@ -1312,19 +1628,200 @@ export default function AdminPage() {
                 </div>
 
                 <div>
-                  <b>Needs Work</b>
+                  <b>Needs work</b>
                   <span>{formatNumber(incompleteMappingsCount + unmappedRows.length)} item(s)</span>
                 </div>
               </div>
             </article>
           </section>
 
+          <section className="panel wide" ref={roleFormRef}>
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Access control</p>
+                <h2>User roles</h2>
+                <p className="muted">
+                  Manage existing user profiles. New users currently need to sign in once before role assignment; the next backend pass will add true email pre-grants.
+                </p>
+              </div>
+
+              <span className={canManageUsersNow ? "status active" : "status inactive"}>
+                {canManageUsersNow ? "Role manager" : "Read only"}
+              </span>
+            </div>
+
+            <div className="role-grid">
+              <div className="role-form-card">
+                <h3>{roleForm.id ? "Edit user access" : "Select a user to edit"}</h3>
+
+                <div className="form-grid single">
+                  <label>
+                    <span>Email</span>
+                    <input
+                      value={roleForm.email}
+                      onChange={(event) =>
+                        setRoleForm((prev) => ({
+                          ...prev,
+                          email: normalizeEmail(event.target.value),
+                        }))
+                      }
+                      placeholder="employee@nextventures.io"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Name</span>
+                    <input
+                      value={lockedRoleName || roleForm.full_name}
+                      disabled={Boolean(lockedRoleName)}
+                      onChange={(event) =>
+                        setRoleForm((prev) => ({
+                          ...prev,
+                          full_name: event.target.value,
+                        }))
+                      }
+                      placeholder="Optional name"
+                    />
+                    {lockedRoleName ? (
+                      <small className="lock-note">
+                        Name locked from Agent Mapping for audit trackability.
+                      </small>
+                    ) : null}
+                  </label>
+
+                  <label>
+                    <span>Role</span>
+                    <select
+                      value={roleForm.role}
+                      onChange={(event) => handleRoleChange(event.target.value)}
+                      disabled={normalizeEmail(roleForm.email) === MASTER_ADMIN_EMAIL}
+                    >
+                      {ROLE_OPTIONS.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="lock-note">{roleDescription(roleForm.role)}</small>
+                  </label>
+
+                  <div className="permission-grid">
+                    <label className="check-row permission-check">
+                      <input
+                        type="checkbox"
+                        checked={roleForm.can_run_tests}
+                        disabled={normalizeEmail(roleForm.email) === MASTER_ADMIN_EMAIL}
+                        onChange={(event) =>
+                          setRoleForm((prev) => ({
+                            ...prev,
+                            can_run_tests: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Can run audits</span>
+                    </label>
+
+                    <label className="check-row permission-check">
+                      <input
+                        type="checkbox"
+                        checked={roleForm.is_active}
+                        disabled={normalizeEmail(roleForm.email) === MASTER_ADMIN_EMAIL}
+                        onChange={(event) =>
+                          setRoleForm((prev) => ({
+                            ...prev,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Active user</span>
+                    </label>
+                  </div>
+
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={handleSaveRole}
+                      disabled={!canManageUsersNow || roleSaveLoading || !roleForm.id}
+                    >
+                      {roleSaveLoading ? "Saving..." : "Save role"}
+                    </button>
+
+                    <button type="button" className="secondary-btn" onClick={handleClearRoleForm}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="role-table-card">
+                <div className="filter-grid compact">
+                  <label>
+                    <span>Search users</span>
+                    <input
+                      value={roleSearch}
+                      onChange={(event) => setRoleSearch(event.target.value)}
+                      placeholder="Search by email, name, role, or status"
+                    />
+                  </label>
+                </div>
+
+                <div className="profile-list">
+                  {profileLoading ? (
+                    <div className="empty-box">Loading profiles...</div>
+                  ) : filteredProfileRows.length === 0 ? (
+                    <div className="empty-box">No matching profiles.</div>
+                  ) : (
+                    filteredProfileRows.map((row) => {
+                      const email = normalizeEmail(row?.email);
+                      const isCreator = email === MASTER_ADMIN_EMAIL;
+
+                      return (
+                        <article className="profile-card" key={row.id || row.email}>
+                          <div>
+                            <strong>{row.full_name || row.email}</strong>
+                            <small>{row.email}</small>
+                          </div>
+
+                          <div className="profile-card-meta">
+                            <span className={row.is_active === false ? "status inactive" : "status active"}>
+                              {row.is_active === false ? "Inactive" : "Active"}
+                            </span>
+                            <span className="tone notice">{roleLabel(isCreator ? "master_admin" : row.role)}</span>
+                            <span className={row.can_run_tests || isCreator ? "tone success" : "tone neutral"}>
+                              {row.can_run_tests || isCreator ? "Run audit" : "No audit"}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="secondary-btn small"
+                            onClick={() =>
+                              handleEditRole({
+                                ...row,
+                                role: isCreator ? "master_admin" : row.role,
+                                can_run_tests: isCreator ? true : row.can_run_tests,
+                                is_active: isCreator ? true : row.is_active,
+                              })
+                            }
+                          >
+                            Edit
+                          </button>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section className="panel wide">
             <div className="section-head">
               <div>
-                <p className="eyebrow">Mapping Table</p>
-                <h2>Agent Mappings</h2>
-                <p className="muted">Review and manage mapping records.</p>
+                <p className="eyebrow">Mapping table</p>
+                <h2>Agent mappings</h2>
+                <p className="muted">Edit, activate, deactivate, and review mapping quality.</p>
               </div>
 
               <div className="tiny-metrics">
@@ -1420,7 +1917,7 @@ export default function AdminPage() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Intercom Agent</th>
+                      <th>Intercom agent</th>
                       <th>Employee</th>
                       <th>Team</th>
                       <th>Quality</th>
@@ -1507,8 +2004,8 @@ export default function AdminPage() {
           <section className="panel wide">
             <div className="section-head">
               <div>
-                <p className="eyebrow">Prompt History</p>
-                <h2>Recent Changes</h2>
+                <p className="eyebrow">Prompt history</p>
+                <h2>Recent changes</h2>
                 <p className="muted">Recent saved prompt changes.</p>
               </div>
             </div>
@@ -1539,59 +2036,77 @@ export default function AdminPage() {
 const adminStyles = `
   .admin-page {
     min-height: 100vh;
-    padding: 32px 20px 64px;
+    padding: 28px 20px 64px;
     color: #f5f7ff;
     background:
       radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 24%),
-      radial-gradient(circle at top right, rgba(168,85,247,0.15), transparent 22%),
+      radial-gradient(circle at top right, rgba(168,85,247,0.17), transparent 22%),
+      radial-gradient(circle at 50% 12%, rgba(99,102,241,0.12), transparent 22%),
       radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 24%),
       linear-gradient(180deg, #040714 0%, #060b1d 46%, #04060d 100%);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
-  .topbar,
   .hero,
   .panel,
-  .stat-card {
-    max-width: 1380px;
+  .stat-card,
+  .status-grid,
+  .control-grid,
+  .message-stack {
+    max-width: 1480px;
     margin-left: auto;
     margin-right: auto;
   }
 
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 18px 20px;
-    margin-bottom: 28px;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 22px;
-    background: rgba(9,13,29,0.72);
-    backdrop-filter: blur(14px);
-    box-shadow: 0 10px 40px rgba(0,0,0,0.35);
-  }
-
-  .topbar strong {
-    display: block;
-    font-size: 22px;
-    letter-spacing: -0.03em;
-  }
-
   .eyebrow {
     margin: 0 0 8px;
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-weight: 850;
+    letter-spacing: 0.12em;
   }
 
   .eyebrow.amber {
     color: #fcd34d;
   }
 
-  .access-pill,
+  .hero {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 24px;
+    align-items: center;
+    padding: 34px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(15,22,43,0.92), rgba(7,10,24,0.97));
+    box-shadow: 0 24px 70px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: -120px -110px auto auto;
+    width: 420px;
+    height: 420px;
+    border-radius: 50%;
+    background: rgba(124,58,237,0.22);
+    filter: blur(55px);
+    pointer-events: none;
+  }
+
+  .hero > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero.compact {
+    max-width: 900px;
+    margin-top: 80px;
+  }
+
   .hero-badge,
   .team-pill,
   .chip,
@@ -1602,53 +2117,12 @@ const adminStyles = `
     width: fit-content;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 800;
-  }
-
-  .access-pill {
-    padding: 10px 14px;
-    color: #fde68a;
-    border: 1px solid rgba(245,158,11,0.24);
-    background: rgba(245,158,11,0.11);
-  }
-
-  .access-pill.active {
-    color: #bbf7d0;
-    border-color: rgba(16,185,129,0.25);
-    background: rgba(16,185,129,0.12);
-  }
-
-  .hero {
-    position: relative;
-    overflow: hidden;
-    padding: 30px;
-    margin-bottom: 24px;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 28px;
-    background: linear-gradient(180deg, rgba(15,22,43,0.92), rgba(7,10,24,0.97));
-    box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
-  }
-
-  .hero::after {
-    content: "";
-    position: absolute;
-    inset: auto -80px -120px auto;
-    width: 360px;
-    height: 360px;
-    border-radius: 50%;
-    background: rgba(124,58,237,0.18);
-    filter: blur(50px);
-    pointer-events: none;
-  }
-
-  .hero.compact {
-    max-width: 900px;
-    margin-top: 80px;
+    font-weight: 850;
   }
 
   .hero-badge {
     padding: 8px 12px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
     color: #dbe7ff;
     border: 1px solid rgba(129,140,248,0.22);
     background: rgba(99,102,241,0.14);
@@ -1663,16 +2137,16 @@ const adminStyles = `
 
   h1 {
     max-width: 1000px;
-    margin: 0 0 18px;
-    font-size: clamp(38px, 5vw, 64px);
-    line-height: 1.02;
-    letter-spacing: -0.06em;
+    margin: 0 0 16px;
+    font-size: clamp(42px, 5vw, 72px);
+    line-height: 0.98;
+    letter-spacing: -0.07em;
   }
 
   h2 {
     margin: 0 0 10px;
-    font-size: 28px;
-    line-height: 1.12;
+    font-size: 30px;
+    line-height: 1.1;
     letter-spacing: -0.04em;
   }
 
@@ -1689,9 +2163,41 @@ const adminStyles = `
   }
 
   .hero p {
-    max-width: 1000px;
+    max-width: 840px;
     margin: 0 0 20px;
     font-size: 18px;
+  }
+
+  .hero-side-card {
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .hero-side-card span,
+  .hero-side-card strong,
+  .hero-side-card small {
+    display: block;
+  }
+
+  .hero-side-card span {
+    margin-bottom: 8px;
+    color: #9fb2ee;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.12em;
+  }
+
+  .hero-side-card strong {
+    margin-bottom: 6px;
+    font-size: 26px;
+    letter-spacing: -0.04em;
+  }
+
+  .hero-side-card small {
+    color: #a9b4d0;
+    word-break: break-word;
   }
 
   .action-row,
@@ -1709,7 +2215,8 @@ const adminStyles = `
     font: inherit;
   }
 
-  button:disabled {
+  button:disabled,
+  input:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
@@ -1720,7 +2227,7 @@ const adminStyles = `
     border-radius: 15px;
     padding: 12px 18px;
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 850;
     cursor: pointer;
   }
 
@@ -1744,29 +2251,30 @@ const adminStyles = `
   }
 
   .status-grid,
-  .two-col,
+  .control-grid,
   .filter-grid {
-    max-width: 1380px;
-    margin-left: auto;
-    margin-right: auto;
     display: grid;
     gap: 18px;
   }
 
   .status-grid {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
 
-  .two-col {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    margin-bottom: 24px;
+  .control-grid {
+    grid-template-columns: minmax(0, 1.25fr) minmax(380px, 0.75fr);
+    margin-bottom: 20px;
   }
 
   .stat-card,
   .panel,
   .mini-card,
-  .history-card {
+  .history-card,
+  .api-card,
+  .role-form-card,
+  .role-table-card,
+  .profile-card {
     border: 1px solid rgba(255,255,255,0.08);
     background: linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96));
     box-shadow: 0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03);
@@ -1799,19 +2307,22 @@ const adminStyles = `
     background: rgba(245,158,11,0.14);
   }
 
+  .stat-card.notice::before {
+    background: rgba(59,130,246,0.13);
+  }
+
   .stat-card p {
     margin: 0 0 10px;
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 850;
+    letter-spacing: 0.1em;
   }
 
   .stat-card strong {
     display: block;
     margin-bottom: 8px;
-    font-size: 27px;
+    font-size: 28px;
     letter-spacing: -0.04em;
   }
 
@@ -1823,8 +2334,7 @@ const adminStyles = `
   }
 
   .message-stack {
-    max-width: 1380px;
-    margin: 0 auto 24px;
+    margin-bottom: 20px;
     display: grid;
     gap: 12px;
   }
@@ -1850,11 +2360,19 @@ const adminStyles = `
 
   .panel {
     padding: 24px;
-    border-radius: 24px;
+    border-radius: 26px;
   }
 
   .panel.wide {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
   }
 
   .textarea,
@@ -1882,18 +2400,75 @@ const adminStyles = `
     resize: vertical;
   }
 
-  .textarea.tall {
-    min-height: 420px;
-  }
-
   .textarea.live {
-    min-height: 320px;
+    min-height: 420px;
     margin-bottom: 14px;
   }
 
   .textarea.note {
     min-height: 88px;
     margin-bottom: 14px;
+  }
+
+  .textarea.trusted {
+    min-height: 260px;
+    margin-top: 12px;
+  }
+
+  .trusted-prompt-drawer {
+    margin-top: 18px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .trusted-prompt-drawer summary {
+    cursor: pointer;
+    color: #e5ebff;
+    font-weight: 850;
+  }
+
+  .trusted-prompt-drawer p {
+    color: #a9b4d0;
+    line-height: 1.7;
+  }
+
+  .api-card-grid {
+    display: grid;
+    gap: 14px;
+  }
+
+  .api-card {
+    padding: 18px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.035);
+  }
+
+  .api-card span,
+  .api-card strong,
+  .api-card p {
+    display: block;
+  }
+
+  .api-card span {
+    margin-bottom: 8px;
+    color: #9fb2ee;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+  }
+
+  .api-card strong {
+    margin-bottom: 8px;
+    color: #ffffff;
+    font-size: 18px;
+  }
+
+  .api-card p {
+    margin: 0;
+    color: #a9b4d0;
+    line-height: 1.7;
   }
 
   .form-grid {
@@ -1909,11 +2484,10 @@ const adminStyles = `
   .filter-grid label span {
     display: block;
     margin-bottom: 8px;
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 850;
+    letter-spacing: 0.1em;
   }
 
   .check-row {
@@ -1931,8 +2505,27 @@ const adminStyles = `
     margin: 0;
     color: #dbe7ff;
     letter-spacing: 0;
-    text-transform: none;
     font-size: 14px;
+  }
+
+  .permission-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .permission-check {
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.035);
+  }
+
+  .lock-note {
+    display: block;
+    margin-top: 8px;
+    color: #a9b4d0;
+    line-height: 1.5;
   }
 
   .empty-box {
@@ -1973,8 +2566,7 @@ const adminStyles = `
     background: rgba(245,158,11,0.08);
   }
 
-  .mini-head,
-  .section-head {
+  .mini-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -1996,10 +2588,9 @@ const adminStyles = `
 
   .mini-grid b {
     display: block;
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
   }
 
   .rule-list {
@@ -2023,6 +2614,54 @@ const adminStyles = `
     margin-top: 6px;
     color: #a9b4d0;
     line-height: 1.6;
+  }
+
+  .role-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
+    gap: 18px;
+  }
+
+  .role-form-card,
+  .role-table-card {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .profile-list {
+    display: grid;
+    gap: 12px;
+    max-height: 640px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .profile-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 14px;
+    align-items: center;
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.035);
+  }
+
+  .profile-card strong,
+  .profile-card small {
+    display: block;
+  }
+
+  .profile-card small {
+    margin-top: 5px;
+    color: #a9b4d0;
+    word-break: break-word;
+  }
+
+  .profile-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
   }
 
   .tiny-metrics {
@@ -2052,6 +2691,10 @@ const adminStyles = `
     margin-bottom: 16px;
   }
 
+  .filter-grid.compact {
+    grid-template-columns: 1fr;
+  }
+
   .clear-btn {
     min-height: 50px;
   }
@@ -2069,7 +2712,7 @@ const adminStyles = `
     border-radius: 999px;
     background: rgba(255,255,255,0.04);
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 850;
   }
 
   .chip.success {
@@ -2116,12 +2759,11 @@ const adminStyles = `
     position: sticky;
     top: 0;
     z-index: 2;
-    color: #8ea0d6;
+    color: #9fb2ee;
     background: rgba(10,18,34,0.98);
     font-size: 12px;
     font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    letter-spacing: 0.1em;
   }
 
   tr:nth-child(even) td {
@@ -2161,7 +2803,7 @@ const adminStyles = `
 
   .missing-text {
     color: #fcd34d;
-    font-weight: 800;
+    font-weight: 850;
   }
 
   .tone,
@@ -2184,7 +2826,8 @@ const adminStyles = `
     background: rgba(245,158,11,0.1);
   }
 
-  .tone.notice {
+  .tone.notice,
+  .status.neutral {
     color: #bfdbfe;
     border: 1px solid rgba(96,165,250,0.24);
     background: rgba(59,130,246,0.1);
@@ -2227,16 +2870,29 @@ const adminStyles = `
     line-height: 1.6;
   }
 
+  @media (max-width: 1180px) {
+    .hero,
+    .control-grid,
+    .role-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .hero-side-card {
+      max-width: 100%;
+    }
+  }
+
   @media (max-width: 980px) {
-    .two-col,
     .filter-grid,
-    .form-grid.two {
+    .form-grid.two,
+    .permission-grid {
       grid-template-columns: 1fr;
     }
 
     .section-head,
     .mini-head,
-    .topbar {
+    .profile-card {
+      grid-template-columns: 1fr;
       flex-direction: column;
       align-items: stretch;
     }
@@ -2244,6 +2900,25 @@ const adminStyles = `
     .tiny-metrics {
       min-width: 0;
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .admin-page {
+      padding: 20px 12px 56px;
+    }
+
+    .hero {
+      padding: 24px;
+    }
+
+    h1 {
+      font-size: 42px;
+    }
+
+    .tiny-metrics,
+    .mini-grid {
+      grid-template-columns: 1fr;
     }
   }
 `;
