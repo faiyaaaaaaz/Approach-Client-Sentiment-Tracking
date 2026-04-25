@@ -64,6 +64,14 @@ function normalizeText(value, fallback = "-") {
   return text || fallback;
 }
 
+function normalizeKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function toDate(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -310,7 +318,53 @@ function matchesMulti(selected, value) {
   return selected.includes(String(value || ""));
 }
 
-function filterRows(rows, filters) {
+function buildSupervisorLookup(supervisorTeams) {
+  const lookup = new Map();
+
+  for (const team of supervisorTeams || []) {
+    const memberNames = new Set();
+    const memberEmails = new Set();
+
+    for (const member of team?.members || []) {
+      const name = normalizeKey(member?.employee_name);
+      const email = normalizeEmail(member?.employee_email);
+
+      if (name) memberNames.add(name);
+      if (email) memberEmails.add(email);
+    }
+
+    lookup.set(team.id, {
+      ...team,
+      memberNames,
+      memberEmails,
+    });
+  }
+
+  return lookup;
+}
+
+function rowMatchesSupervisorTeams(row, selectedSupervisorTeamIds, supervisorLookup) {
+  if (!Array.isArray(selectedSupervisorTeamIds) || selectedSupervisorTeamIds.length === 0) {
+    return true;
+  }
+
+  const employeeName = normalizeKey(row?.employee_name);
+  const employeeEmail = normalizeEmail(row?.employee_email);
+
+  if (!employeeName && !employeeEmail) return false;
+
+  return selectedSupervisorTeamIds.some((teamId) => {
+    const team = supervisorLookup.get(teamId);
+    if (!team) return false;
+
+    if (employeeEmail && team.memberEmails.has(employeeEmail)) return true;
+    if (employeeName && team.memberNames.has(employeeName)) return true;
+
+    return false;
+  });
+}
+
+function filterRows(rows, filters, supervisorLookup = new Map()) {
   const { start, end } = buildDateRange(filters);
 
   return (rows || []).filter((row) => {
@@ -319,6 +373,8 @@ function filterRows(rows, filters) {
     if ((start || end) && !analyticsDate) return false;
     if (start && analyticsDate < start) return false;
     if (end && analyticsDate > end) return false;
+
+    if (!rowMatchesSupervisorTeams(row, filters.supervisorTeamIds, supervisorLookup)) return false;
 
     if (!matchesMulti(filters.teams, row?.team_name)) return false;
     if (!matchesMulti(filters.employees, row?.employee_name)) return false;
@@ -405,6 +461,7 @@ function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
     rangePreset,
     startDate: formatInputDate(range.start),
     endDate: formatInputDate(range.end),
+    supervisorTeamIds: [],
     teams: [],
     employees: [],
     reviewSentiments: [],
@@ -654,7 +711,7 @@ function MultiSelect({ label, options, selected, onChange, placeholder = "All" }
       (options || [])
         .filter(Boolean)
         .map((item) =>
-          typeof item === "string" ? { value: item, label: item } : item
+          typeof item === "string" ? { value: item, label: item, searchText: item } : item
         ),
     [options]
   );
@@ -664,7 +721,7 @@ function MultiSelect({ label, options, selected, onChange, placeholder = "All" }
     if (!search) return normalizedOptions;
 
     return normalizedOptions.filter((item) =>
-      String(item.label || "").toLowerCase().includes(search)
+      String(`${item.label || ""} ${item.searchText || ""}`).toLowerCase().includes(search)
     );
   }, [query, normalizedOptions]);
 
@@ -739,6 +796,10 @@ function MultiSelect({ label, options, selected, onChange, placeholder = "All" }
                 <strong>{item.label}</strong>
               </button>
             ))}
+
+            {!filteredOptions.length ? (
+              <div className="multi-empty">No matching options.</div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -879,7 +940,7 @@ function DateRangePicker({ filters, setFilters }) {
 function DashboardFilterBar({
   filters,
   setFilters,
-  teams,
+  supervisorTeams,
   employees,
   reviewOptions,
   clientOptions,
@@ -891,17 +952,35 @@ function DashboardFilterBar({
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
+  const supervisorOptions = useMemo(
+    () =>
+      (supervisorTeams || []).map((team) => ({
+        value: team.id,
+        label: team.supervisor_name,
+        searchText: [
+          team.supervisor_name,
+          team.supervisor_email,
+          ...(team.members || []).map((member) =>
+            [member.employee_name, member.employee_email, member.intercom_agent_name, member.team_name]
+              .filter(Boolean)
+              .join(" ")
+          ),
+        ].join(" "),
+      })),
+    [supervisorTeams]
+  );
+
   return (
     <div className="filter-panel">
       <div className="filter-row first">
         <DateRangePicker filters={filters} setFilters={setFilters} />
 
         <MultiSelect
-          label="Team"
-          options={teams}
-          selected={filters.teams}
-          onChange={(value) => update("teams", value)}
-          placeholder="All teams"
+          label="Supervisor team"
+          options={supervisorOptions}
+          selected={filters.supervisorTeamIds}
+          onChange={(value) => update("supervisorTeamIds", value)}
+          placeholder="All supervisors"
         />
 
         <MultiSelect
@@ -1087,7 +1166,8 @@ function DetailModal({
   title,
   value,
   rows,
-  teams,
+  supervisorTeams,
+  supervisorLookup,
   employees,
   reviewOptions,
   clientOptions,
@@ -1105,7 +1185,7 @@ function DetailModal({
 
   const filteredRows = useMemo(() => {
     const search = query.trim().toLowerCase();
-    const dateFilteredRows = filterRows(rows, filters);
+    const dateFilteredRows = filterRows(rows, filters, supervisorLookup);
 
     if (!search) return dateFilteredRows;
 
@@ -1128,7 +1208,7 @@ function DetailModal({
 
       return haystack.includes(search);
     });
-  }, [rows, filters, query]);
+  }, [rows, filters, query, supervisorLookup]);
 
   if (!open) return null;
 
@@ -1158,7 +1238,7 @@ function DetailModal({
           <DashboardFilterBar
             filters={filters}
             setFilters={setFilters}
-            teams={teams}
+            supervisorTeams={supervisorTeams}
             employees={employees}
             reviewOptions={reviewOptions}
             clientOptions={clientOptions}
@@ -1237,13 +1317,18 @@ function WeeklyAgentTable({
   metric,
   setMetric,
   onOpenDetail,
-  teams,
+  supervisorTeams,
+  supervisorLookup,
   employees,
   reviewOptions,
   clientOptions,
   resolutionOptions,
 }) {
-  const weeklyRows = useMemo(() => filterRows(rows, filters), [rows, filters]);
+  const weeklyRows = useMemo(
+    () => filterRows(rows, filters, supervisorLookup),
+    [rows, filters, supervisorLookup]
+  );
+
   const { periods, tableRows } = useMemo(
     () => buildAgentWeeklyRows(weeklyRows, filters, metric),
     [weeklyRows, filters, metric]
@@ -1281,7 +1366,7 @@ function WeeklyAgentTable({
       <DashboardFilterBar
         filters={filters}
         setFilters={setFilters}
-        teams={teams}
+        supervisorTeams={supervisorTeams}
         employees={employees}
         reviewOptions={reviewOptions}
         clientOptions={clientOptions}
@@ -1375,6 +1460,7 @@ function downloadWeeklyCsv(tableRows, periods, metric, metricLabel) {
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState([]);
+  const [supervisorTeams, setSupervisorTeams] = useState([]);
   const [error, setError] = useState("");
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
@@ -1392,11 +1478,58 @@ export default function DashboardPage() {
   useEffect(() => {
     let active = true;
 
+    async function loadSupervisorTeams() {
+      const { data: teamsData, error: teamsError } = await supabase
+        .from("supervisor_teams")
+        .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+        .eq("is_active", true)
+        .order("supervisor_name", { ascending: true });
+
+      if (teamsError) {
+        throw new Error(teamsError.message || "Could not load Supervisor Teams.");
+      }
+
+      const teams = Array.isArray(teamsData) ? teamsData : [];
+      const teamIds = teams.map((team) => team.id).filter(Boolean);
+
+      if (!teamIds.length) {
+        return [];
+      }
+
+      const { data: membersData, error: membersError } = await supabase
+        .from("supervisor_team_members")
+        .select(
+          "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
+        )
+        .in("supervisor_team_id", teamIds)
+        .eq("is_active", true)
+        .order("employee_name", { ascending: true });
+
+      if (membersError) {
+        throw new Error(membersError.message || "Could not load Supervisor Team members.");
+      }
+
+      const members = Array.isArray(membersData) ? membersData : [];
+      const membersByTeam = new Map();
+
+      for (const member of members) {
+        const current = membersByTeam.get(member.supervisor_team_id) || [];
+        current.push(member);
+        membersByTeam.set(member.supervisor_team_id, current);
+      }
+
+      return teams.map((team) => ({
+        ...team,
+        members: membersByTeam.get(team.id) || [],
+      }));
+    }
+
     async function loadRows() {
       setLoading(true);
       setError("");
 
       try {
+        const [loadedSupervisorTeams] = await Promise.all([loadSupervisorTeams()]);
         const allRows = [];
         let from = 0;
 
@@ -1440,11 +1573,14 @@ export default function DashboardPage() {
         }
 
         if (!active) return;
+
+        setSupervisorTeams(loadedSupervisorTeams);
         setRawRows(allRows);
       } catch (loadError) {
         if (!active) return;
         setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
         setRawRows([]);
+        setSupervisorTeams([]);
       } finally {
         if (active) setLoading(false);
       }
@@ -1469,7 +1605,11 @@ export default function DashboardPage() {
 
   const dedupedRows = useMemo(() => dedupeLatestByConversation(rawRows), [rawRows]);
 
-  const teams = useMemo(() => uniqueValues(dedupedRows, "team_name"), [dedupedRows]);
+  const supervisorLookup = useMemo(
+    () => buildSupervisorLookup(supervisorTeams),
+    [supervisorTeams]
+  );
+
   const employees = useMemo(() => uniqueValues(dedupedRows, "employee_name"), [dedupedRows]);
 
   const reviewOptions = REVIEW_SENTIMENT_ORDER;
@@ -1477,13 +1617,13 @@ export default function DashboardPage() {
   const resolutionOptions = RESOLUTION_ORDER;
 
   const filteredRows = useMemo(
-    () => filterRows(dedupedRows, globalFilters),
-    [dedupedRows, globalFilters]
+    () => filterRows(dedupedRows, globalFilters, supervisorLookup),
+    [dedupedRows, globalFilters, supervisorLookup]
   );
 
   const leaderboardFilteredRows = useMemo(
-    () => filterRows(dedupedRows, leaderboardFilters),
-    [dedupedRows, leaderboardFilters]
+    () => filterRows(dedupedRows, leaderboardFilters, supervisorLookup),
+    [dedupedRows, leaderboardFilters, supervisorLookup]
   );
 
   const reviewEntries = useMemo(
@@ -1548,7 +1688,8 @@ export default function DashboardPage() {
         title={detailState.title}
         value={detailState.value}
         rows={detailState.rows}
-        teams={teams}
+        supervisorTeams={supervisorTeams}
+        supervisorLookup={supervisorLookup}
         employees={employees}
         reviewOptions={reviewOptions}
         clientOptions={clientOptions}
@@ -1580,7 +1721,7 @@ export default function DashboardPage() {
         <DashboardFilterBar
           filters={globalFilters}
           setFilters={setGlobalFilters}
-          teams={teams}
+          supervisorTeams={supervisorTeams}
           employees={employees}
           reviewOptions={reviewOptions}
           clientOptions={clientOptions}
@@ -1661,7 +1802,7 @@ export default function DashboardPage() {
         {loading ? (
           <section className="panel">
             <h2>Loading dashboard...</h2>
-            <p className="muted">Reading stored audit results from Supabase.</p>
+            <p className="muted">Reading stored audit results and Supervisor Teams from Supabase.</p>
           </section>
         ) : error ? (
           <section className="panel">
@@ -1728,7 +1869,7 @@ export default function DashboardPage() {
                 <div>
                   <p>Performance command</p>
                   <h2>Agent leaderboard</h2>
-                  <span>Use the filters below to rank agents for the selected period.</span>
+                  <span>Use date, supervisor, employee, and outcome filters to rank agents for the selected period.</span>
                 </div>
 
                 <button type="button" className="secondary-btn" onClick={() => downloadCsv(leaderboardFilteredRows, "leaderboard-filtered-results.csv")}>
@@ -1739,7 +1880,7 @@ export default function DashboardPage() {
               <DashboardFilterBar
                 filters={leaderboardFilters}
                 setFilters={setLeaderboardFilters}
-                teams={teams}
+                supervisorTeams={supervisorTeams}
                 employees={employees}
                 reviewOptions={reviewOptions}
                 clientOptions={clientOptions}
@@ -1851,7 +1992,8 @@ export default function DashboardPage() {
               setFilters={setWeeklyFilters}
               metric={weeklyMetric}
               setMetric={setWeeklyMetric}
-              teams={teams}
+              supervisorTeams={supervisorTeams}
+              supervisorLookup={supervisorLookup}
               employees={employees}
               reviewOptions={reviewOptions}
               clientOptions={clientOptions}
@@ -2077,7 +2219,7 @@ const dashboardStyles = `
   }
 
   .filter-row.first {
-    grid-template-columns: minmax(300px, 1.5fr) minmax(210px, 1fr) minmax(240px, 1fr) auto;
+    grid-template-columns: minmax(300px, 1.5fr) minmax(230px, 1fr) minmax(240px, 1fr) auto;
     margin-bottom: 12px;
   }
 
@@ -2186,7 +2328,7 @@ const dashboardStyles = `
   }
 
   .multi-menu {
-    width: min(340px, 88vw);
+    width: min(360px, 88vw);
     padding: 10px;
   }
 
@@ -2237,6 +2379,15 @@ const dashboardStyles = `
 
   .multi-option.active span {
     color: #34d399;
+  }
+
+  .multi-empty {
+    padding: 12px;
+    color: #a9b4d0;
+    border: 1px dashed rgba(255,255,255,0.12);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.025);
+    font-size: 13px;
   }
 
   .date-preset-list {
