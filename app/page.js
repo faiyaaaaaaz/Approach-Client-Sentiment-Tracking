@@ -2343,7 +2343,27 @@ const dashboardStyles = `
     padding: 18px;
     border-radius: 28px;
     margin-bottom: 18px;
-    z-index: 25;
+    z-index: 5000;
+    isolation: isolate;
+  }
+
+  .leaderboard-panel,
+  .weekly-panel,
+  .modal-filter-block {
+    overflow: visible;
+  }
+
+  .leaderboard-panel .filter-panel,
+  .weekly-panel .filter-panel,
+  .modal-filter-block .filter-panel {
+    z-index: 8000;
+  }
+
+  .leaderboard-cards,
+  .weekly-table-wrap,
+  .table-wrap {
+    position: relative;
+    z-index: 1;
   }
 
   .filter-row {
@@ -2456,12 +2476,27 @@ const dashboardStyles = `
     position: absolute;
     top: calc(100% + 10px);
     left: 0;
-    z-index: 400;
+    z-index: 99999;
     overflow: hidden;
     border-radius: 22px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(16, 22, 36, 0.99);
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(147, 197, 253, 0.26);
+    background: #0b1122;
+    box-shadow:
+      0 28px 90px rgba(0, 0, 0, 0.78),
+      0 0 0 1px rgba(255, 255, 255, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    backdrop-filter: none;
+  }
+
+  .date-picker-popover::before,
+  .multi-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.14), transparent 35%),
+      linear-gradient(180deg, #101827 0%, #0b1122 100%);
   }
 
   .date-picker-popover {
@@ -2493,9 +2528,9 @@ const dashboardStyles = `
     grid-template-columns: 64px minmax(0, 1fr);
     gap: 8px;
     align-items: center;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: 12px;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.015);
     color: #e5ebff;
     padding: 0 10px;
     text-align: left;
@@ -2517,7 +2552,8 @@ const dashboardStyles = `
   .multi-option.active,
   .multi-option:hover,
   .multi-option.all:hover {
-    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(96, 165, 250, 0.22);
+    background: rgba(59, 130, 246, 0.16);
   }
 
   .multi-option.active span {
@@ -2534,8 +2570,11 @@ const dashboardStyles = `
   }
 
   .date-preset-list {
+    position: relative;
+    z-index: 1;
     padding: 10px;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0b1122;
   }
 
   .date-preset-list button {
@@ -2566,7 +2605,10 @@ const dashboardStyles = `
   }
 
   .custom-range-panel {
+    position: relative;
+    z-index: 1;
     padding: 18px;
+    background: #101827;
   }
 
   .custom-range-panel strong {
@@ -2707,9 +2749,13 @@ const dashboardStyles = `
   .chart-card,
   .panel {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     border-radius: 28px;
     padding: 20px;
+  }
+
+  .chart-card {
+    overflow: hidden;
   }
 
   .chart-card::before,
@@ -3171,6 +3217,7 @@ const dashboardStyles = `
   .modal-filter-block .filter-panel {
     margin-bottom: 12px;
     box-shadow: none;
+    z-index: 9000;
   }
 
   .modal-search {
