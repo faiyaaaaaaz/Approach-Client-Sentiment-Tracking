@@ -39,6 +39,22 @@ const ROLE_OPTIONS = [
   },
 ];
 
+const API_KEY_TYPES = [
+  {
+    value: "intercom",
+    label: "Intercom",
+    description: "Used when fetching conversations before audits.",
+    placeholder: "Paste new Intercom API key",
+  },
+  {
+    value: "openai",
+    label: "OpenAI / GPT",
+    description: "Used when running AI audit analysis.",
+    placeholder: "Paste new OpenAI API key",
+  },
+];
+
+
 function withTimeout(promise, label, timeoutMs = TIMEOUT_MS) {
   let timeoutId;
 
@@ -129,6 +145,27 @@ function canManageUsers(profile) {
     profile?.is_active === true &&
       (email === MASTER_ADMIN_EMAIL || role === "master_admin" || role === "admin")
   );
+}
+
+function canManageApiKeys(profile) {
+  const email = normalizeEmail(profile?.email);
+  const role = normalizeKey(profile?.role);
+
+  return Boolean(
+    profile?.is_active === true && email === MASTER_ADMIN_EMAIL && role === "master_admin"
+  );
+}
+
+function createEmptyApiKeyForm() {
+  return {
+    key_label: "Primary key",
+    secret_value: "",
+    make_active: true,
+  };
+}
+
+function apiTypeLabel(keyType) {
+  return API_KEY_TYPES.find((item) => item.value === keyType)?.label || keyType;
 }
 
 function roleLabel(role) {
@@ -499,7 +536,17 @@ export default function AdminPage() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [roleForm, setRoleForm] = useState(createEmptyRoleForm());
   const [roleSearch, setRoleSearch] = useState("");
+  const [roleCandidateSearch, setRoleCandidateSearch] = useState("");
   const [roleSaveLoading, setRoleSaveLoading] = useState(false);
+
+  const [apiKeys, setApiKeys] = useState([]);
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [apiKeySaveLoading, setApiKeySaveLoading] = useState("");
+  const [apiKeyActionLoadingId, setApiKeyActionLoadingId] = useState("");
+  const [apiKeyForms, setApiKeyForms] = useState({
+    intercom: createEmptyApiKeyForm(),
+    openai: createEmptyApiKeyForm(),
+  });
 
   const [supervisorTeams, setSupervisorTeams] = useState([]);
   const [supervisorEmployeeOptions, setSupervisorEmployeeOptions] = useState([]);
@@ -512,6 +559,7 @@ export default function AdminPage() {
 
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
+  const canManageApiKeysNow = canManageApiKeys(profile);
 
   async function getFreshSession() {
     const result = await withTimeout(supabase.auth.getSession(), "Session check");
@@ -757,8 +805,42 @@ export default function AdminPage() {
     }
   }
 
+
+  async function loadApiKeysData(activeSession, allowed = canManageApiKeysNow) {
+    if (!allowed || !activeSession?.access_token) {
+      setApiKeys([]);
+      return;
+    }
+
+    setApiKeyLoading(true);
+
+    try {
+      const response = await withTimeout(
+        fetch("/api/admin/api-keys", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+        }),
+        "Loading API keys"
+      );
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load API keys.");
+      }
+
+      setApiKeys(Array.isArray(data.keys) ? data.keys : []);
+    } finally {
+      setApiKeyLoading(false);
+    }
+  }
+
   async function loadAll(activeSession, options = {}) {
     const silent = options.silent === true;
+    const effectiveProfile = options.profile || profile;
+    const allowApiKeys = canManageApiKeys(effectiveProfile);
 
     if (!silent) {
       setLoading(true);
@@ -772,6 +854,12 @@ export default function AdminPage() {
       loadSupervisorTeamsData(),
       loadProfilesData(),
     ];
+
+    if (allowApiKeys) {
+      jobs.push(loadApiKeysData(activeSession, true));
+    } else {
+      setApiKeys([]);
+    }
 
     const results = await Promise.allSettled(jobs);
     const rejected = results.find((item) => item.status === "rejected");
@@ -813,7 +901,7 @@ export default function AdminPage() {
       setAuthChecked(true);
 
       if (profileResult.profile && canManageAdmin(profileResult.profile)) {
-        await loadAll(currentSession, { silent: true });
+        await loadAll(currentSession, { silent: true, profile: profileResult.profile });
       }
 
       setLoading(false);
@@ -856,7 +944,7 @@ export default function AdminPage() {
         setAuthMessage(result.message || "");
 
         if (result.profile && canManageAdmin(result.profile)) {
-          loadAll(nextSession, { silent: true });
+          loadAll(nextSession, { silent: true, profile: result.profile });
         }
       });
     });
@@ -873,7 +961,7 @@ export default function AdminPage() {
 
     try {
       const freshSession = await getFreshSession();
-      await loadAll(freshSession);
+      await loadAll(freshSession, { profile });
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not reload Admin.");
     }
@@ -944,6 +1032,161 @@ export default function AdminPage() {
       setPageError(error instanceof Error ? error.message : "Could not save the live prompt.");
     } finally {
       setSaveLoading(false);
+    }
+  }
+
+  function updateApiKeyForm(keyType, updates) {
+    setApiKeyForms((prev) => ({
+      ...prev,
+      [keyType]: {
+        ...(prev[keyType] || createEmptyApiKeyForm()),
+        ...updates,
+      },
+    }));
+  }
+
+  async function handleSaveApiKey(keyType) {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!canManageApiKeysNow) {
+      setPageError("Only the Creator Master Admin can manage API keys.");
+      return;
+    }
+
+    const form = apiKeyForms[keyType] || createEmptyApiKeyForm();
+    const secretValue = normalizeText(form.secret_value);
+    const keyLabel = normalizeText(form.key_label) || "Primary key";
+
+    if (!secretValue) {
+      setPageError(`${apiTypeLabel(keyType)} API key is required.`);
+      return;
+    }
+
+    setApiKeySaveLoading(keyType);
+
+    try {
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/api-keys", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            keyType,
+            keyLabel,
+            secretValue,
+            makeActive: form.make_active !== false,
+          }),
+        }),
+        `Saving ${apiTypeLabel(keyType)} API key`
+      );
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || `Could not save ${apiTypeLabel(keyType)} API key.`);
+      }
+
+      setApiKeys(Array.isArray(data.keys) ? data.keys : []);
+      updateApiKeyForm(keyType, createEmptyApiKeyForm());
+      setPageSuccess(data.message || `${apiTypeLabel(keyType)} API key saved.`);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : `Could not save ${apiTypeLabel(keyType)} API key.`);
+    } finally {
+      setApiKeySaveLoading("");
+    }
+  }
+
+  async function handleActivateApiKey(row) {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!canManageApiKeysNow) {
+      setPageError("Only the Creator Master Admin can manage API keys.");
+      return;
+    }
+
+    setApiKeyActionLoadingId(row?.id || "");
+
+    try {
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/api-keys", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            id: row.id,
+            isActive: true,
+          }),
+        }),
+        `Activating ${apiTypeLabel(row?.key_type)} API key`
+      );
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not activate API key.");
+      }
+
+      setApiKeys(Array.isArray(data.keys) ? data.keys : []);
+      setPageSuccess(data.message || "API key activated.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not activate API key.");
+    } finally {
+      setApiKeyActionLoadingId("");
+    }
+  }
+
+  async function handleDeactivateApiKey(row) {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!canManageApiKeysNow) {
+      setPageError("Only the Creator Master Admin can manage API keys.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Deactivate this ${apiTypeLabel(row?.key_type)} API key? The app may fail if there is no other active key of this type.`
+    );
+
+    if (!confirmed) return;
+
+    setApiKeyActionLoadingId(row?.id || "");
+
+    try {
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch(`/api/admin/api-keys?id=${encodeURIComponent(row.id)}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+        }),
+        `Deactivating ${apiTypeLabel(row?.key_type)} API key`
+      );
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not deactivate API key.");
+      }
+
+      setApiKeys(Array.isArray(data.keys) ? data.keys : []);
+      setPageSuccess(data.message || "API key deactivated.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not deactivate API key.");
+    } finally {
+      setApiKeyActionLoadingId("");
     }
   }
 
@@ -1423,6 +1666,30 @@ export default function AdminPage() {
     }
   }
 
+  function handleUseRoleCandidate(option) {
+    const email = normalizeEmail(option?.employee_email);
+    const existing = email
+      ? profileRows.find((row) => normalizeEmail(row?.email) === email)
+      : null;
+
+    setRoleCandidateSearch(option?.employee_name || "");
+    setRoleForm({
+      id: existing?.id || "",
+      email,
+      full_name: option?.employee_name || existing?.full_name || "",
+      role: existing?.role || "viewer",
+      can_run_tests: Boolean(existing?.can_run_tests),
+      is_active: existing ? existing.is_active !== false : true,
+    });
+
+    setPageError("");
+    setPageSuccess(
+      existing
+        ? `Selected ${option?.employee_name || email} from Agent Mapping.`
+        : "Employee selected. This user must sign in once before role assignment can be saved."
+    );
+  }
+
   function handleEditRole(row) {
     const email = normalizeEmail(row?.email);
     const lockedName = getLockedNameForEmail(email, mappingRows);
@@ -1436,6 +1703,7 @@ export default function AdminPage() {
       is_active: row?.is_active !== false,
     });
 
+    setRoleCandidateSearch(row?.full_name || row?.email || "");
     setPageError("");
     setPageSuccess(`Editing access for ${email}.`);
 
@@ -1459,6 +1727,7 @@ export default function AdminPage() {
 
   function handleClearRoleForm() {
     setRoleForm(createEmptyRoleForm());
+    setRoleCandidateSearch("");
     setPageError("");
     setPageSuccess("");
   }
@@ -1718,6 +1987,37 @@ export default function AdminPage() {
 
   const lockedRoleName = getLockedNameForEmail(roleForm.email, mappingRows);
 
+  const filteredRoleCandidateOptions = useMemo(() => {
+    const term = normalizeKey(roleCandidateSearch || roleForm.email || roleForm.full_name);
+
+    if (term.length < 2) return [];
+
+    return supervisorEmployeeOptions
+      .filter((item) =>
+        [item.employee_name, item.employee_email, item.intercom_agent_name, item.team_name]
+          .map((value) => normalizeKey(value))
+          .join(" ")
+          .includes(term)
+      )
+      .slice(0, 10);
+  }, [supervisorEmployeeOptions, roleCandidateSearch, roleForm.email, roleForm.full_name]);
+
+  const apiKeysByType = useMemo(() => {
+    const grouped = new Map();
+
+    for (const type of API_KEY_TYPES) {
+      grouped.set(type.value, []);
+    }
+
+    for (const row of apiKeys || []) {
+      const current = grouped.get(row.key_type) || [];
+      current.push(row);
+      grouped.set(row.key_type, current);
+    }
+
+    return grouped;
+  }, [apiKeys]);
+
   const statusCards = [
     {
       label: "Prompt",
@@ -1832,7 +2132,7 @@ export default function AdminPage() {
         </section>
       ) : (
         <>
-          <section className="control-grid">
+          <section className={canManageApiKeysNow ? "control-grid" : "control-grid single-column"}>
             <article className="panel prompt-panel">
               <div className="section-head">
                 <div>
@@ -1884,31 +2184,152 @@ export default function AdminPage() {
               </details>
             </article>
 
-            <article className="panel api-panel">
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow">Secure keys</p>
-                  <h2>API key vault</h2>
-                  <p className="muted">
-                    This section is prepared for the next backend pass. Raw keys must be saved through server routes, never directly from this browser page.
-                  </p>
-                </div>
-              </div>
+            {canManageApiKeysNow ? (
+              <article className="panel api-panel">
+                <div className="section-head">
+                  <div>
+                    <p className="eyebrow">Creator Master Admin only</p>
+                    <h2>API key vault</h2>
+                    <p className="muted">
+                      Save replacement keys securely. Full key values are never displayed after saving; only masked values are returned to this page.
+                    </p>
+                  </div>
 
-              <div className="api-card-grid">
-                <div className="api-card">
-                  <span>Intercom</span>
-                  <strong>Server-secured setup needed</strong>
-                  <p>Next step: add a backend route that stores masked key records and lets audit routes read the active key server-side.</p>
+                  <span className="status active">Protected</span>
                 </div>
 
-                <div className="api-card">
-                  <span>OpenAI / GPT</span>
-                  <strong>Server-secured setup needed</strong>
-                  <p>Next step: move active GPT key lookup into a protected backend route instead of relying only on environment variables.</p>
+                <div className="api-card-grid">
+                  {API_KEY_TYPES.map((type) => {
+                    const keys = apiKeysByType.get(type.value) || [];
+                    const activeKey = keys.find((item) => item.is_active);
+                    const form = apiKeyForms[type.value] || createEmptyApiKeyForm();
+
+                    return (
+                      <div className="api-card secure" key={type.value}>
+                        <div className="api-card-top">
+                          <div>
+                            <span>{type.label}</span>
+                            <strong>{activeKey ? activeKey.masked_value : "No active key saved"}</strong>
+                            <p>{type.description}</p>
+                          </div>
+
+                          <span className={activeKey ? "status active" : "status inactive"}>
+                            {activeKey ? "Active" : "Missing"}
+                          </span>
+                        </div>
+
+                        {activeKey ? (
+                          <div className="api-meta-grid">
+                            <div>
+                              <b>Label</b>
+                              <span>{activeKey.key_label || "Primary key"}</span>
+                            </div>
+                            <div>
+                              <b>Updated</b>
+                              <span>{formatDateTime(activeKey.updated_at)}</span>
+                            </div>
+                            <div>
+                              <b>Fingerprint</b>
+                              <span>{String(activeKey.fingerprint || "").slice(0, 12)}...</span>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="api-key-form">
+                          <label>
+                            <span>Key label</span>
+                            <input
+                              value={form.key_label}
+                              onChange={(event) =>
+                                updateApiKeyForm(type.value, { key_label: event.target.value })
+                              }
+                              placeholder="Primary key"
+                            />
+                          </label>
+
+                          <label>
+                            <span>New API key</span>
+                            <input
+                              type="password"
+                              value={form.secret_value}
+                              onChange={(event) =>
+                                updateApiKeyForm(type.value, { secret_value: event.target.value })
+                              }
+                              placeholder={type.placeholder}
+                              autoComplete="off"
+                            />
+                          </label>
+
+                          <label className="check-row api-active-check">
+                            <input
+                              type="checkbox"
+                              checked={form.make_active !== false}
+                              onChange={(event) =>
+                                updateApiKeyForm(type.value, { make_active: event.target.checked })
+                              }
+                            />
+                            <span>Make active immediately</span>
+                          </label>
+
+                          <button
+                            type="button"
+                            className="primary-btn"
+                            onClick={() => handleSaveApiKey(type.value)}
+                            disabled={apiKeySaveLoading === type.value || !normalizeText(form.secret_value)}
+                          >
+                            {apiKeySaveLoading === type.value ? "Saving..." : `Save ${type.label} key`}
+                          </button>
+                        </div>
+
+                        <div className="api-key-list">
+                          {apiKeyLoading ? (
+                            <div className="empty-box">Loading saved keys...</div>
+                          ) : keys.length === 0 ? (
+                            <div className="empty-box">No saved {type.label} keys yet.</div>
+                          ) : (
+                            keys.map((keyRow) => (
+                              <div className="key-record" key={keyRow.id}>
+                                <div>
+                                  <strong>{keyRow.key_label || "Primary key"}</strong>
+                                  <span>{keyRow.masked_value}</span>
+                                  <small>Updated {formatDateTime(keyRow.updated_at)}</small>
+                                </div>
+
+                                <div className="table-actions">
+                                  <span className={keyRow.is_active ? "status active" : "status inactive"}>
+                                    {keyRow.is_active ? "Active" : "Inactive"}
+                                  </span>
+
+                                  {!keyRow.is_active ? (
+                                    <button
+                                      type="button"
+                                      className="secondary-btn small"
+                                      disabled={apiKeyActionLoadingId === keyRow.id}
+                                      onClick={() => handleActivateApiKey(keyRow)}
+                                    >
+                                      {apiKeyActionLoadingId === keyRow.id ? "Saving..." : "Activate"}
+                                    </button>
+                                  ) : null}
+
+                                  <button
+                                    type="button"
+                                    className="secondary-btn small danger-soft"
+                                    disabled={apiKeyActionLoadingId === keyRow.id}
+                                    onClick={() => handleDeactivateApiKey(keyRow)}
+                                  >
+                                    {apiKeyActionLoadingId === keyRow.id ? "Saving..." : "Deactivate"}
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            </article>
+              </article>
+            ) : null}
           </section>
 
           <section className="control-grid supervisor-area" ref={supervisorFormRef}>
@@ -2473,6 +2894,38 @@ export default function AdminPage() {
                 <h3>{roleForm.id ? "Edit user access" : "Select a user to edit"}</h3>
 
                 <div className="form-grid single">
+                  <label className="role-candidate-field">
+                    <span>Search existing employee</span>
+                    <input
+                      value={roleCandidateSearch}
+                      onChange={(event) => setRoleCandidateSearch(event.target.value)}
+                      placeholder="Search mapped employee, email, Intercom name, or team"
+                    />
+
+                    {roleCandidateSearch.trim().length >= 2 ? (
+                      <div className="role-candidate-list">
+                        {filteredRoleCandidateOptions.length ? (
+                          filteredRoleCandidateOptions.map((option) => (
+                            <button
+                              type="button"
+                              key={getMemberKey(option)}
+                              className="role-candidate-option"
+                              onClick={() => handleUseRoleCandidate(option)}
+                            >
+                              <strong>{option.employee_name}</strong>
+                              <span>{option.employee_email || "No email saved"} • {option.team_name || "No team"}</span>
+                              <em>{option.intercom_agent_name || "No Intercom agent"}</em>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="manual-supervisor-hint">
+                            No mapped employee matched. You can still type a nextventures.io email manually below.
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </label>
+
                   <label>
                     <span>Email</span>
                     <input
@@ -3080,6 +3533,10 @@ const adminStyles = `
     margin-bottom: 20px;
   }
 
+  .control-grid.single-column {
+    grid-template-columns: 1fr;
+  }
+
   .stat-card,
   .panel,
   .mini-card,
@@ -3301,6 +3758,105 @@ const adminStyles = `
     line-height: 1.7;
   }
 
+  .api-card.secure {
+    display: grid;
+    gap: 16px;
+  }
+
+  .api-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .api-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .api-meta-grid div {
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(5,8,18,0.72);
+  }
+
+  .api-meta-grid b,
+  .api-meta-grid span {
+    display: block;
+  }
+
+  .api-meta-grid b {
+    margin-bottom: 5px;
+    color: #9fb2ee;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .api-meta-grid span {
+    color: #dbe7ff;
+    word-break: break-word;
+  }
+
+  .api-key-form {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.025);
+  }
+
+  .api-active-check {
+    width: fit-content;
+  }
+
+  .api-key-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .key-record {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 13px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(5,8,18,0.58);
+  }
+
+  .key-record strong,
+  .key-record span,
+  .key-record small {
+    display: block;
+  }
+
+  .key-record strong {
+    margin-bottom: 5px;
+    color: #ffffff;
+  }
+
+  .key-record span {
+    color: #dbe7ff;
+    word-break: break-word;
+  }
+
+  .key-record small {
+    margin-top: 5px;
+    color: #8ea0d6;
+  }
+
+  .danger-soft {
+    border-color: rgba(244,63,94,0.18);
+    color: #fecdd3;
+    background: rgba(244,63,94,0.08);
+  }
+
   .form-grid {
     display: grid;
     gap: 14px;
@@ -3320,11 +3876,13 @@ const adminStyles = `
     letter-spacing: 0.1em;
   }
 
-  .supervisor-name-field {
+  .supervisor-name-field,
+  .role-candidate-field {
     position: relative;
   }
 
-  .supervisor-suggestion-list {
+  .supervisor-suggestion-list,
+  .role-candidate-list {
     position: absolute;
     left: 0;
     right: 0;
@@ -3341,7 +3899,8 @@ const adminStyles = `
     box-shadow: 0 22px 50px rgba(0,0,0,0.55);
   }
 
-  .supervisor-suggestion {
+  .supervisor-suggestion,
+  .role-candidate-option {
     display: grid;
     gap: 3px;
     width: 100%;
@@ -3354,27 +3913,34 @@ const adminStyles = `
     cursor: pointer;
   }
 
-  .supervisor-suggestion:hover {
+  .supervisor-suggestion:hover,
+  .role-candidate-option:hover {
     border-color: rgba(16,185,129,0.35);
     background: rgba(16,185,129,0.09);
   }
 
   .supervisor-suggestion strong,
   .supervisor-suggestion span,
-  .supervisor-suggestion em {
+  .supervisor-suggestion em,
+  .role-candidate-option strong,
+  .role-candidate-option span,
+  .role-candidate-option em {
     display: block;
   }
 
-  .supervisor-suggestion strong {
+  .supervisor-suggestion strong,
+  .role-candidate-option strong {
     color: #ffffff;
   }
 
-  .supervisor-suggestion span {
+  .supervisor-suggestion span,
+  .role-candidate-option span {
     color: #a9b4d0;
     font-size: 12px;
   }
 
-  .supervisor-suggestion em {
+  .supervisor-suggestion em,
+  .role-candidate-option em {
     color: #8ea0d6;
     font-size: 12px;
     font-style: normal;
@@ -3954,7 +4520,9 @@ const adminStyles = `
   @media (max-width: 980px) {
     .filter-grid,
     .form-grid.two,
-    .permission-grid {
+    .permission-grid,
+    .api-meta-grid,
+    .key-record {
       grid-template-columns: 1fr;
     }
 
