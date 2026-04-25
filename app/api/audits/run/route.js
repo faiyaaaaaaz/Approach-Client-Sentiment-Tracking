@@ -7,6 +7,9 @@ export const maxDuration = 60;
 
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PROMPT_KEY = "audit_review_prompt";
+const CONVERSATION_CONCURRENCY = 3;
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 700;
 
 const FALLBACK_AUDIT_PROMPT = `You are auditing FundedNext support conversations.
 
@@ -232,6 +235,7 @@ function json(data, init = {}) {
     status: init.status || 200,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
       ...(init.headers || {}),
     },
   });
@@ -240,6 +244,14 @@ function json(data, init = {}) {
 function getEnv(name) {
   const value = process.env[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryStatus(status) {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
 function stripHtml(input) {
@@ -323,6 +335,47 @@ function chunkArray(items, size = 500) {
   return chunks;
 }
 
+function normalizeDuplicateMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+
+  if (mode === "skip_existing") return "skip_existing";
+  if (mode === "overwrite_existing") return "overwrite_existing";
+  if (mode === "cancel") return "cancel";
+
+  return "";
+}
+
+function normalizeBatchPayload(body) {
+  return {
+    batchMode: Boolean(body?.batchMode),
+    batchIndex: Number.isFinite(Number(body?.batchIndex)) ? Number(body.batchIndex) : 0,
+    totalBatches: Number.isFinite(Number(body?.totalBatches)) ? Number(body.totalBatches) : 0,
+    batchSize: Number.isFinite(Number(body?.batchSize)) ? Number(body.batchSize) : 0,
+    totalCount: Number.isFinite(Number(body?.totalCount)) ? Number(body.totalCount) : 0,
+    batchLabel: String(body?.batchLabel || "").trim(),
+  };
+}
+
+function normalizeTimestampForDb(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value > 1000000000000) return new Date(value).toISOString();
+    if (value > 1000000000) return new Date(value * 1000).toISOString();
+  }
+
+  const numeric = Number(String(value).trim());
+  if (Number.isFinite(numeric) && numeric > 0) {
+    if (numeric > 1000000000000) return new Date(numeric).toISOString();
+    if (numeric > 1000000000) return new Date(numeric * 1000).toISOString();
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+
+  return null;
+}
+
 function extractConversationMeta(conversation, fallbackConversation = {}) {
   const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
     ? conversation.conversation_parts.conversation_parts
@@ -375,10 +428,10 @@ function extractConversationMeta(conversation, fallbackConversation = {}) {
       fallbackConversation?.csatScore ??
       "",
     repliedAt:
+      fallbackConversation?.repliedAt ||
       conversation?.conversation_rating?.replied_at ||
       conversation?.updated_at ||
       conversation?.created_at ||
-      fallbackConversation?.repliedAt ||
       null,
   };
 }
@@ -423,58 +476,118 @@ function buildTranscript(conversation) {
     .join("\n\n");
 }
 
-function normalizeTimestampForDb(value) {
-  if (value === null || value === undefined || value === "") return null;
+async function fetchWithRetry(url, options, label) {
+  let lastText = "";
 
-  if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 1000000000000) return new Date(value).toISOString();
-    if (value > 1000000000) return new Date(value * 1000).toISOString();
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    const response = await fetch(url, options);
+
+    if (response.ok) return response;
+
+    lastText = await response.text();
+
+    if (!shouldRetryStatus(response.status) || attempt === MAX_RETRIES) {
+      throw new Error(`${label} failed: ${response.status} ${lastText}`);
+    }
+
+    await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
   }
 
-  const numeric = Number(String(value).trim());
-  if (Number.isFinite(numeric) && numeric > 0) {
-    if (numeric > 1000000000000) return new Date(numeric).toISOString();
-    if (numeric > 1000000000) return new Date(numeric * 1000).toISOString();
+  throw new Error(`${label} failed. ${lastText}`);
+}
+
+async function fetchFullConversation(intercomApiKey, conversationId) {
+  const response = await fetchWithRetry(
+    `https://api.intercom.io/conversations/${conversationId}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "Intercom-Version": "2.12",
+        Authorization: `Bearer ${intercomApiKey}`,
+      },
+      cache: "no-store",
+    },
+    `Intercom conversation fetch for ${conversationId}`
+  );
+
+  return response.json();
+}
+
+async function loadLiveAuditPrompt(adminClient) {
+  const { data, error } = await adminClient
+    .from("admin_prompt_configs")
+    .select("live_prompt")
+    .eq("prompt_key", PROMPT_KEY)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "42P01") return FALLBACK_AUDIT_PROMPT;
+    throw new Error(error.message || "Could not load live audit prompt.");
   }
 
-  const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
-
-  return null;
+  const livePrompt = String(data?.live_prompt || "").trim();
+  return livePrompt || FALLBACK_AUDIT_PROMPT;
 }
 
-function normalizeDuplicateMode(value) {
-  const mode = String(value || "").trim().toLowerCase();
+async function runOpenAIAudit({
+  openAiApiKey,
+  transcript,
+  conversationId,
+  auditPrompt,
+}) {
+  const response = await fetchWithRetry(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openAiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: `${auditPrompt}\n\nReturn valid JSON only.` },
+          {
+            role: "user",
+            content: `Return your answer as JSON.\n\nConversation ID: ${conversationId}\n\nTranscript:\n${transcript || "(no transcript found)"}`,
+          },
+        ],
+        temperature: 0.1,
+      }),
+      cache: "no-store",
+    },
+    `OpenAI audit for ${conversationId}`
+  );
 
-  if (mode === "skip_existing") return "skip_existing";
-  if (mode === "overwrite_existing") return "overwrite_existing";
-  if (mode === "cancel") return "cancel";
-  return "";
-}
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
 
-function normalizeBatchPayload(body) {
-  const batchMode = Boolean(body?.batchMode);
-  const batchIndex = Number(body?.batchIndex || 0);
-  const totalBatches = Number(body?.totalBatches || 0);
-  const batchSize = Number(body?.batchSize || 0);
-  const totalCount = Number(body?.totalCount || 0);
-  const batchLabel = String(body?.batchLabel || "").trim();
+  if (!content) {
+    throw new Error("OpenAI returned an empty response.");
+  }
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("OpenAI returned invalid JSON.");
+  }
 
   return {
-    batchMode,
-    batchIndex: Number.isFinite(batchIndex) ? batchIndex : 0,
-    totalBatches: Number.isFinite(totalBatches) ? totalBatches : 0,
-    batchSize: Number.isFinite(batchSize) ? batchSize : 0,
-    totalCount: Number.isFinite(totalCount) ? totalCount : 0,
-    batchLabel,
+    aiVerdict: String(parsed?.aiVerdict || "").trim(),
+    reviewSentiment: String(parsed?.reviewSentiment || "").trim(),
+    clientSentiment: String(parsed?.clientSentiment || "").trim(),
+    resolutionStatus: String(parsed?.resolutionStatus || "").trim(),
   };
 }
 
 async function fetchExistingStoredResults(adminClient, conversationIds) {
   const ids = Array.from(new Set((conversationIds || []).filter(Boolean)));
-  if (!ids.length) return [];
-
-  const allRows = [];
+  const rows = [];
 
   for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await adminClient
@@ -486,10 +599,10 @@ async function fetchExistingStoredResults(adminClient, conversationIds) {
       throw new Error(error.message || "Could not check existing stored results.");
     }
 
-    allRows.push(...(Array.isArray(data) ? data : []));
+    rows.push(...(Array.isArray(data) ? data : []));
   }
 
-  return allRows;
+  return rows;
 }
 
 async function removeStoredDuplicates(adminClient, conversationIds) {
@@ -499,7 +612,7 @@ async function removeStoredDuplicates(adminClient, conversationIds) {
     return { deletedResults: 0, deletedRuns: 0 };
   }
 
-  const existingRows = [];
+  const rows = [];
 
   for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await adminClient
@@ -511,18 +624,15 @@ async function removeStoredDuplicates(adminClient, conversationIds) {
       throw new Error(error.message || "Could not inspect stored duplicates.");
     }
 
-    existingRows.push(...(Array.isArray(data) ? data : []));
+    rows.push(...(Array.isArray(data) ? data : []));
   }
 
-  if (!existingRows.length) {
+  if (!rows.length) {
     return { deletedResults: 0, deletedRuns: 0 };
   }
 
-  const runIds = Array.from(
-    new Set(existingRows.map((item) => item.run_id).filter(Boolean))
-  );
-
-  const resultIds = existingRows.map((item) => item.id).filter(Boolean);
+  const runIds = Array.from(new Set(rows.map((item) => item.run_id).filter(Boolean)));
+  const resultIds = rows.map((item) => item.id).filter(Boolean);
 
   for (const chunk of chunkArray(resultIds, 500)) {
     const { error } = await adminClient.from("audit_results").delete().in("id", chunk);
@@ -573,44 +683,6 @@ async function removeStoredDuplicates(adminClient, conversationIds) {
   };
 }
 
-async function fetchFullConversation(intercomApiKey, conversationId) {
-  const response = await fetch(`https://api.intercom.io/conversations/${conversationId}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "Intercom-Version": "2.12",
-      Authorization: `Bearer ${intercomApiKey}`,
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(
-      `Intercom conversation fetch failed for ${conversationId}: ${response.status} ${text}`
-    );
-  }
-
-  return response.json();
-}
-
-async function loadLiveAuditPrompt(adminClient) {
-  const { data, error } = await adminClient
-    .from("admin_prompt_configs")
-    .select("live_prompt")
-    .eq("prompt_key", PROMPT_KEY)
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "42P01") return FALLBACK_AUDIT_PROMPT;
-    throw new Error(error.message || "Could not load live audit prompt.");
-  }
-
-  const livePrompt = String(data?.live_prompt || "").trim();
-  return livePrompt || FALLBACK_AUDIT_PROMPT;
-}
-
 async function loadAgentMappings(adminClient, agentNames) {
   const normalizedNames = Array.from(
     new Set(
@@ -621,8 +693,6 @@ async function loadAgentMappings(adminClient, agentNames) {
   );
 
   const mappingByName = new Map();
-
-  if (!normalizedNames.length) return mappingByName;
 
   for (const chunk of chunkArray(normalizedNames, 500)) {
     const { data, error } = await adminClient
@@ -666,59 +736,88 @@ function attachEmployeeMapping(result, mappingByName) {
   };
 }
 
-async function runOpenAIAudit({
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  const workers = Array.from({ length: workerCount }, () => runWorker());
+
+  await Promise.all(workers);
+
+  return results;
+}
+
+async function auditSingleConversation({
+  conversation,
+  intercomApiKey,
   openAiApiKey,
-  transcript,
-  conversationId,
   auditPrompt,
 }) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${openAiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: `${auditPrompt}\n\nReturn valid JSON only.` },
-        {
-          role: "user",
-          content: `Return your answer as JSON.\n\nConversation ID: ${conversationId}\n\nTranscript:\n${transcript || "(no transcript found)"}`,
-        },
-      ],
-      temperature: 0.1,
-    }),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenAI audit failed: ${response.status} ${text}`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("OpenAI returned an empty response.");
-  }
-
-  let parsed;
-
   try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("OpenAI returned invalid JSON.");
-  }
+    const fullConversation = await fetchFullConversation(
+      intercomApiKey,
+      conversation.conversationId
+    );
 
-  return {
-    aiVerdict: String(parsed?.aiVerdict || "").trim(),
-    reviewSentiment: String(parsed?.reviewSentiment || "").trim(),
-    clientSentiment: String(parsed?.clientSentiment || "").trim(),
-    resolutionStatus: String(parsed?.resolutionStatus || "").trim(),
-  };
+    const transcript = buildTranscript(fullConversation);
+    const meta = extractConversationMeta(fullConversation, conversation);
+
+    const audit = await runOpenAIAudit({
+      openAiApiKey,
+      transcript,
+      conversationId: meta.conversationId,
+      auditPrompt,
+    });
+
+    return {
+      conversationId: meta.conversationId,
+      repliedAt: meta.repliedAt,
+      csatScore: meta.csatScore,
+      clientEmail: meta.clientEmail,
+      agentName: meta.agentName,
+      aiVerdict: audit.aiVerdict,
+      reviewSentiment: audit.reviewSentiment,
+      clientSentiment: audit.clientSentiment,
+      resolutionStatus: audit.resolutionStatus,
+    };
+  } catch (error) {
+    return {
+      conversationId: conversation.conversationId,
+      repliedAt: conversation.repliedAt,
+      csatScore: conversation.csatScore,
+      clientEmail: conversation.clientEmail,
+      agentName: conversation.agentName,
+      error: error instanceof Error ? error.message : "Unknown processing error.",
+    };
+  }
+}
+
+async function auditConversations({
+  conversationsToAudit,
+  intercomApiKey,
+  openAiApiKey,
+  auditPrompt,
+}) {
+  return mapWithConcurrency(
+    conversationsToAudit,
+    CONVERSATION_CONCURRENCY,
+    async (conversation) =>
+      auditSingleConversation({
+        conversation,
+        intercomApiKey,
+        openAiApiKey,
+        auditPrompt,
+      })
+  );
 }
 
 function buildResultRows(runId, results) {
@@ -833,7 +932,12 @@ async function authenticateRequest(request) {
     !intercomApiKey ||
     !openAiApiKey
   ) {
-    throw new Error("Missing required environment variables.");
+    return {
+      response: json(
+        { ok: false, error: "Missing required environment variables." },
+        { status: 500 }
+      ),
+    };
   }
 
   const authHeader = request.headers.get("authorization") || "";
@@ -889,7 +993,7 @@ async function authenticateRequest(request) {
   if (!canRunAudits(profile)) {
     return {
       response: json(
-        { ok: false, error: "This account does not have permission to run audits." },
+        { ok: false, error: "This account does not have permission to run tests." },
         { status: 403 }
       ),
     };
@@ -905,13 +1009,8 @@ async function authenticateRequest(request) {
 }
 
 function applyLimiterIfNeeded(normalizedConversations, limiterEnabled, limitCount, batchInfo) {
-  if (batchInfo?.batchMode) {
-    return normalizedConversations;
-  }
-
-  if (!limiterEnabled) {
-    return normalizedConversations;
-  }
+  if (batchInfo?.batchMode) return normalizedConversations;
+  if (!limiterEnabled) return normalizedConversations;
 
   const parsedLimit = Number(limitCount);
 
@@ -922,84 +1021,38 @@ function applyLimiterIfNeeded(normalizedConversations, limiterEnabled, limitCoun
   return normalizedConversations.slice(0, parsedLimit);
 }
 
-async function auditConversations({
-  conversationsToAudit,
-  intercomApiKey,
-  openAiApiKey,
-  auditPrompt,
-}) {
-  const results = [];
-
-  for (const conversation of conversationsToAudit) {
-    try {
-      const fullConversation = await fetchFullConversation(
-        intercomApiKey,
-        conversation.conversationId
-      );
-
-      const transcript = buildTranscript(fullConversation);
-      const meta = extractConversationMeta(fullConversation, conversation);
-
-      const audit = await runOpenAIAudit({
-        openAiApiKey,
-        transcript,
-        conversationId: meta.conversationId,
-        auditPrompt,
-      });
-
-      results.push({
-        conversationId: meta.conversationId,
-        repliedAt: meta.repliedAt,
-        csatScore: meta.csatScore,
-        clientEmail: meta.clientEmail,
-        agentName: meta.agentName,
-        aiVerdict: audit.aiVerdict,
-        reviewSentiment: audit.reviewSentiment,
-        clientSentiment: audit.clientSentiment,
-        resolutionStatus: audit.resolutionStatus,
-      });
-    } catch (error) {
-      results.push({
-        conversationId: conversation.conversationId,
-        repliedAt: conversation.repliedAt,
-        csatScore: conversation.csatScore,
-        clientEmail: conversation.clientEmail,
-        agentName: conversation.agentName,
-        error: error instanceof Error ? error.message : "Unknown processing error.",
-      });
-    }
-  }
-
-  return results;
-}
-
 export async function POST(request) {
   try {
     const auth = await authenticateRequest(request);
 
-    if (auth.response) {
-      return auth.response;
-    }
+    if (auth.response) return auth.response;
 
     const { user, email, adminClient, intercomApiKey, openAiApiKey } = auth;
     const body = await request.json();
 
-    const conversations = Array.isArray(body?.conversations) ? body.conversations : [];
+    const rawConversations = Array.isArray(body?.conversations) ? body.conversations : [];
     const limiterEnabled = Boolean(body?.limiterEnabled);
     const limitCount = body?.limitCount ?? null;
-    const startDate = String(body?.startDate || "").trim();
-    const endDate = String(body?.endDate || "").trim();
+    const startDate = String(body?.startDate || "").trim() || null;
+    const endDate = String(body?.endDate || "").trim() || null;
     const duplicateMode = normalizeDuplicateMode(body?.duplicateMode);
     const checkOnly = Boolean(body?.checkOnly);
     const batchInfo = normalizeBatchPayload(body);
 
-    const normalizedConversations = conversations
+    if (!rawConversations.length) {
+      return json(
+        { ok: false, error: "No fetched conversations were provided for audit." },
+        { status: 400 }
+      );
+    }
+
+    const normalizedConversations = rawConversations
       .map(normalizeConversation)
       .filter((item) => item.conversationId);
 
     if (!normalizedConversations.length) {
       return json(
-        { ok: false, error: "No valid conversations were provided for audit." },
+        { ok: false, error: "No valid conversation IDs were found in the audit payload." },
         { status: 400 }
       );
     }
@@ -1011,18 +1064,31 @@ export async function POST(request) {
       batchInfo
     );
 
-    const conversationIds = conversationsToAuditInitial
-      .map((item) => item.conversationId)
-      .filter(Boolean);
+    const conversationIdsToCheck = Array.from(
+      new Set(
+        conversationsToAuditInitial
+          .map((item) => item.conversationId)
+          .filter(Boolean)
+      )
+    );
 
-    const existingRows = await fetchExistingStoredResults(adminClient, conversationIds);
+    const existingStoredRows = await fetchExistingStoredResults(
+      adminClient,
+      conversationIdsToCheck
+    );
+
     const duplicateConversationIds = Array.from(
-      new Set(existingRows.map((item) => item.conversation_id).filter(Boolean))
+      new Set(
+        existingStoredRows
+          .map((item) => String(item.conversation_id || "").trim())
+          .filter(Boolean)
+      )
     );
 
     const duplicateSummary = {
       duplicateCount: duplicateConversationIds.length,
       sampleConversationIds: duplicateConversationIds.slice(0, 25),
+      duplicateConversationIds,
       batchMode: batchInfo.batchMode,
       batchIndex: batchInfo.batchIndex || null,
       totalBatches: batchInfo.totalBatches || null,
@@ -1116,6 +1182,7 @@ export async function POST(request) {
         meta: {
           requestedBy: email,
           receivedCount: normalizedConversations.length,
+          batchReceivedCount: conversationsToAuditInitial.length,
           auditedCount: 0,
           limiterEnabled,
           limitCount,
@@ -1129,6 +1196,7 @@ export async function POST(request) {
           totalBatches: batchInfo.totalBatches || null,
           batchSize: batchInfo.batchSize || conversationsToAuditInitial.length,
           totalCount: batchInfo.totalCount || normalizedConversations.length,
+          concurrency: CONVERSATION_CONCURRENCY,
           ...duplicateActionMeta,
         },
         results: [],
@@ -1211,6 +1279,7 @@ export async function POST(request) {
         batchSize: batchInfo.batchSize || conversationsToAuditInitial.length,
         totalCount: batchInfo.totalCount || normalizedConversations.length,
         batchLabel: batchInfo.batchLabel || null,
+        concurrency: CONVERSATION_CONCURRENCY,
         ...duplicateActionMeta,
       },
       results: mappedResults,
