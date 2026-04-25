@@ -21,7 +21,7 @@ const ROLE_OPTIONS = [
   {
     value: "co_admin",
     label: "Co-Admin",
-    description: "Can access Admin operational controls such as mappings and prompt management.",
+    description: "Can access Admin operational controls such as mappings, prompt management, and Supervisor Teams.",
     defaultCanRunTests: false,
   },
   {
@@ -58,6 +58,10 @@ function normalizeAgentKey(value) {
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeName(value) {
+  return String(value || "").trim();
 }
 
 function formatNumber(value) {
@@ -143,6 +147,17 @@ function createEmptyRoleForm() {
     role: "viewer",
     can_run_tests: false,
     is_active: true,
+  };
+}
+
+function createEmptySupervisorForm() {
+  return {
+    id: "",
+    supervisor_name: "",
+    supervisor_email: "",
+    notes: "",
+    is_active: true,
+    members: [],
   };
 }
 
@@ -386,6 +401,10 @@ function getLockedNameForEmail(email, mappings) {
   return String(match?.employee_name || "").trim();
 }
 
+function getMemberKey(member) {
+  return normalizeEmail(member?.employee_email) || normalizeName(member?.employee_name).toLowerCase();
+}
+
 async function readApiJson(response) {
   const text = await response.text();
 
@@ -401,6 +420,7 @@ async function readApiJson(response) {
 export default function AdminPage() {
   const mappingFormRef = useRef(null);
   const roleFormRef = useRef(null);
+  const supervisorFormRef = useRef(null);
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -434,6 +454,15 @@ export default function AdminPage() {
   const [roleForm, setRoleForm] = useState(createEmptyRoleForm());
   const [roleSearch, setRoleSearch] = useState("");
   const [roleSaveLoading, setRoleSaveLoading] = useState(false);
+
+  const [supervisorTeams, setSupervisorTeams] = useState([]);
+  const [supervisorEmployeeOptions, setSupervisorEmployeeOptions] = useState([]);
+  const [supervisorLoading, setSupervisorLoading] = useState(false);
+  const [supervisorSaveLoading, setSupervisorSaveLoading] = useState(false);
+  const [supervisorToggleLoadingId, setSupervisorToggleLoadingId] = useState("");
+  const [supervisorForm, setSupervisorForm] = useState(createEmptySupervisorForm());
+  const [supervisorSearch, setSupervisorSearch] = useState("");
+  const [supervisorMemberSearch, setSupervisorMemberSearch] = useState("");
 
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
@@ -567,6 +596,32 @@ export default function AdminPage() {
     }
   }
 
+  async function loadSupervisorTeamsData(activeSession = session) {
+    setSupervisorLoading(true);
+
+    try {
+      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
+
+      const response = await fetch("/api/admin/supervisor-teams", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+      });
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load Supervisor Teams.");
+      }
+
+      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
+      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
+    } finally {
+      setSupervisorLoading(false);
+    }
+  }
+
   async function loadProfilesData() {
     setProfileLoading(true);
 
@@ -593,6 +648,7 @@ export default function AdminPage() {
       await Promise.all([
         loadPromptData(activeSession),
         loadMappingsData(activeSession),
+        loadSupervisorTeamsData(activeSession),
         loadProfilesData(),
       ]);
     } catch (error) {
@@ -664,6 +720,8 @@ export default function AdminPage() {
         setMappingRows([]);
         setAuditRows([]);
         setProfileRows([]);
+        setSupervisorTeams([]);
+        setSupervisorEmployeeOptions([]);
         setAuthLoading(false);
         setLoading(false);
         return;
@@ -755,6 +813,12 @@ export default function AdminPage() {
   function scrollToMappingForm() {
     setTimeout(() => {
       mappingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+
+  function scrollToSupervisorForm() {
+    setTimeout(() => {
+      supervisorFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
   }
 
@@ -858,7 +922,11 @@ export default function AdminPage() {
 
       setPageSuccess(data.message || "Mapping saved successfully.");
       setMappingForm(createEmptyMappingForm());
-      await Promise.all([loadMappingsData(usableSession), loadProfilesData()]);
+      await Promise.all([
+        loadMappingsData(usableSession),
+        loadSupervisorTeamsData(usableSession),
+        loadProfilesData(),
+      ]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
@@ -915,7 +983,7 @@ export default function AdminPage() {
       }
 
       setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
-      await loadMappingsData(usableSession);
+      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData(usableSession)]);
     } catch (error) {
       setMappingRows(previousRows);
       setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
@@ -973,7 +1041,7 @@ export default function AdminPage() {
       }
 
       setPageSuccess(`${savedCount} mapping(s) added.`);
-      await loadMappingsData(usableSession);
+      await Promise.all([loadMappingsData(usableSession), loadSupervisorTeamsData(usableSession)]);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
     } finally {
@@ -1099,6 +1167,169 @@ export default function AdminPage() {
     setPageSuccess("");
   }
 
+  function isSupervisorMemberSelected(option) {
+    const optionKey = getMemberKey(option);
+    return supervisorForm.members.some((member) => getMemberKey(member) === optionKey);
+  }
+
+  function handleToggleSupervisorMember(option) {
+    const optionKey = getMemberKey(option);
+
+    setSupervisorForm((prev) => {
+      const exists = prev.members.some((member) => getMemberKey(member) === optionKey);
+
+      if (exists) {
+        return {
+          ...prev,
+          members: prev.members.filter((member) => getMemberKey(member) !== optionKey),
+        };
+      }
+
+      return {
+        ...prev,
+        members: [
+          ...prev.members,
+          {
+            employee_name: option.employee_name,
+            employee_email: option.employee_email || null,
+            intercom_agent_name: option.intercom_agent_name || null,
+            team_name: option.team_name || null,
+            is_active: true,
+          },
+        ],
+      };
+    });
+  }
+
+  function handleEditSupervisorTeam(team) {
+    setSupervisorForm({
+      id: team?.id || "",
+      supervisor_name: team?.supervisor_name || "",
+      supervisor_email: team?.supervisor_email || "",
+      notes: team?.notes || "",
+      is_active: team?.is_active !== false,
+      members: Array.isArray(team?.members) ? team.members : [],
+    });
+
+    setSupervisorMemberSearch("");
+    setPageError("");
+    setPageSuccess(`Editing Supervisor Team for ${team?.supervisor_name || "selected supervisor"}.`);
+    scrollToSupervisorForm();
+  }
+
+  function handleClearSupervisorForm() {
+    setSupervisorForm(createEmptySupervisorForm());
+    setSupervisorMemberSearch("");
+    setPageError("");
+    setPageSuccess("");
+  }
+
+  async function handleSaveSupervisorTeam() {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!isAdmin) {
+      setPageError("Only Master Admins and Co-Admins can save Supervisor Teams.");
+      return;
+    }
+
+    const supervisorName = normalizeName(supervisorForm.supervisor_name);
+    const supervisorEmail = normalizeEmail(supervisorForm.supervisor_email);
+
+    if (!supervisorName) {
+      setPageError("Supervisor name is required.");
+      return;
+    }
+
+    if (supervisorEmail && !supervisorEmail.endsWith("@nextventures.io")) {
+      setPageError("Supervisor email must use the nextventures.io domain.");
+      return;
+    }
+
+    setSupervisorSaveLoading(true);
+
+    try {
+      const usableSession = await getFreshSession();
+
+      const response = await fetch("/api/admin/supervisor-teams", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+        body: JSON.stringify({
+          team: {
+            id: supervisorForm.id,
+            supervisor_name: supervisorName,
+            supervisor_email: supervisorEmail || null,
+            notes: supervisorForm.notes || null,
+            is_active: supervisorForm.is_active !== false,
+          },
+          members: supervisorForm.members,
+        }),
+      });
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not save Supervisor Team.");
+      }
+
+      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
+      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
+      setSupervisorForm(createEmptySupervisorForm());
+      setSupervisorMemberSearch("");
+      setPageSuccess(data.message || "Supervisor Team saved successfully.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not save Supervisor Team.");
+    } finally {
+      setSupervisorSaveLoading(false);
+    }
+  }
+
+  async function handleToggleSupervisorTeamActive(team) {
+    setPageError("");
+    setPageSuccess("");
+
+    if (!isAdmin) {
+      setPageError("Only Master Admins and Co-Admins can update Supervisor Teams.");
+      return;
+    }
+
+    setSupervisorToggleLoadingId(team?.id || "");
+
+    try {
+      const usableSession = await getFreshSession();
+      const nextActive = team?.is_active === false;
+
+      const response = await fetch("/api/admin/supervisor-teams", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${usableSession.access_token}`,
+        },
+        body: JSON.stringify({
+          id: team.id,
+          is_active: nextActive,
+        }),
+      });
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not update Supervisor Team.");
+      }
+
+      setSupervisorTeams(Array.isArray(data.teams) ? data.teams : []);
+      setSupervisorEmployeeOptions(Array.isArray(data.employeeOptions) ? data.employeeOptions : []);
+      setPageSuccess(data.message || (nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated."));
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not update Supervisor Team.");
+    } finally {
+      setSupervisorToggleLoadingId("");
+    }
+  }
+
   const storedAgentStats = useMemo(() => buildStoredAgentStats(auditRows), [auditRows]);
 
   const mappingSuggestions = useMemo(
@@ -1207,7 +1438,63 @@ export default function AdminPage() {
     });
   }, [profileRows, roleSearch]);
 
+  const filteredSupervisorTeams = useMemo(() => {
+    const term = supervisorSearch.trim().toLowerCase();
+
+    return supervisorTeams.filter((team) => {
+      if (!term) return true;
+
+      const memberText = (team.members || [])
+        .map((member) =>
+          [
+            member.employee_name,
+            member.employee_email,
+            member.intercom_agent_name,
+            member.team_name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        )
+        .join(" ");
+
+      return [
+        team.supervisor_name,
+        team.supervisor_email,
+        team.notes,
+        team.is_active === false ? "inactive" : "active",
+        memberText,
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(term);
+    });
+  }, [supervisorTeams, supervisorSearch]);
+
+  const filteredSupervisorEmployeeOptions = useMemo(() => {
+    const term = supervisorMemberSearch.trim().toLowerCase();
+
+    return supervisorEmployeeOptions.filter((item) => {
+      if (!term) return true;
+
+      return [
+        item.employee_name,
+        item.employee_email,
+        item.intercom_agent_name,
+        item.team_name,
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ")
+        .includes(term);
+    });
+  }, [supervisorEmployeeOptions, supervisorMemberSearch]);
+
   const lockedRoleName = getLockedNameForEmail(roleForm.email, mappingRows);
+
+  const activeSupervisorTeamsCount = supervisorTeams.filter((item) => item?.is_active !== false).length;
+  const totalSupervisorMembersCount = supervisorTeams.reduce(
+    (sum, team) => sum + (Array.isArray(team.members) ? team.members.length : 0),
+    0
+  );
 
   const statusCards = [
     {
@@ -1233,12 +1520,10 @@ export default function AdminPage() {
       tone: inactiveMappingsCount ? "notice" : "success",
     },
     {
-      label: "Users",
-      value: formatNumber(profileRows.length),
-      note: `${formatNumber(
-        profileRows.filter((item) => item?.is_active !== false).length
-      )} active profile(s).`,
-      tone: "notice",
+      label: "Supervisor teams",
+      value: formatNumber(activeSupervisorTeamsCount),
+      note: `${formatNumber(totalSupervisorMembersCount)} assigned member(s).`,
+      tone: activeSupervisorTeamsCount ? "success" : "notice",
     },
     {
       label: "Needs work",
@@ -1270,7 +1555,7 @@ export default function AdminPage() {
         <div>
           <div className="hero-badge">Admin</div>
           <h1>Control center</h1>
-          <p>Manage prompts, agent mappings, user roles, and future system settings from one polished workspace.</p>
+          <p>Manage prompts, agent mappings, Supervisor Teams, user roles, and future system settings from one polished workspace.</p>
         </div>
 
         <div className="hero-side-card">
@@ -1284,9 +1569,9 @@ export default function AdminPage() {
             type="button"
             className="secondary-btn"
             onClick={handleReload}
-            disabled={!session || loading || mappingLoading || profileLoading}
+            disabled={!session || loading || mappingLoading || supervisorLoading || profileLoading}
           >
-            {loading || mappingLoading || profileLoading ? "Loading..." : "Reload"}
+            {loading || mappingLoading || supervisorLoading || profileLoading ? "Loading..." : "Reload"}
           </button>
 
           <button
@@ -1405,6 +1690,263 @@ export default function AdminPage() {
                   <p>Next step: move active GPT key lookup into a protected backend route instead of relying only on environment variables.</p>
                 </div>
               </div>
+            </article>
+          </section>
+
+          <section className="control-grid supervisor-area" ref={supervisorFormRef}>
+            <article className="panel supervisor-builder">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Supervisor teams</p>
+                  <h2>{supervisorForm.id ? "Edit supervisor team" : "Create supervisor team"}</h2>
+                  <p className="muted">
+                    Add a supervisor, select multiple mapped employees, and use this later as a Dashboard filter.
+                  </p>
+                </div>
+
+                {supervisorForm.id ? (
+                  <span className="status active">Editing</span>
+                ) : (
+                  <span className="status neutral">New</span>
+                )}
+              </div>
+
+              <div className="form-grid single">
+                <div className="form-grid two">
+                  <label>
+                    <span>Supervisor name</span>
+                    <input
+                      value={supervisorForm.supervisor_name}
+                      onChange={(event) =>
+                        setSupervisorForm((prev) => ({
+                          ...prev,
+                          supervisor_name: event.target.value,
+                        }))
+                      }
+                      placeholder="Example: Abir Hasan Pial"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Supervisor email</span>
+                    <input
+                      type="email"
+                      value={supervisorForm.supervisor_email}
+                      onChange={(event) =>
+                        setSupervisorForm((prev) => ({
+                          ...prev,
+                          supervisor_email: event.target.value,
+                        }))
+                      }
+                      placeholder="supervisor@nextventures.io"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  <span>Notes</span>
+                  <textarea
+                    className="textarea note"
+                    value={supervisorForm.notes}
+                    onChange={(event) =>
+                      setSupervisorForm((prev) => ({
+                        ...prev,
+                        notes: event.target.value,
+                      }))
+                    }
+                    placeholder="Optional notes"
+                  />
+                </label>
+
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={supervisorForm.is_active}
+                    onChange={(event) =>
+                      setSupervisorForm((prev) => ({
+                        ...prev,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Active supervisor team</span>
+                </label>
+
+                <div className="member-picker">
+                  <div className="member-picker-head">
+                    <div>
+                      <p className="eyebrow">Team members</p>
+                      <h3>{formatNumber(supervisorForm.members.length)} selected</h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="secondary-btn small"
+                      onClick={() => setSupervisorForm((prev) => ({ ...prev, members: [] }))}
+                      disabled={!supervisorForm.members.length}
+                    >
+                      Clear members
+                    </button>
+                  </div>
+
+                  <input
+                    value={supervisorMemberSearch}
+                    onChange={(event) => setSupervisorMemberSearch(event.target.value)}
+                    placeholder="Search employee, email, Intercom name, or team"
+                  />
+
+                  {supervisorForm.members.length ? (
+                    <div className="selected-member-chips">
+                      {supervisorForm.members.map((member) => (
+                        <button
+                          type="button"
+                          key={getMemberKey(member)}
+                          className="selected-member-chip"
+                          onClick={() => handleToggleSupervisorMember(member)}
+                        >
+                          {member.employee_name}
+                          <span>Remove</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="member-option-list">
+                    {supervisorLoading ? (
+                      <div className="empty-box">Loading employees...</div>
+                    ) : filteredSupervisorEmployeeOptions.length === 0 ? (
+                      <div className="empty-box">No employee options found. Add active agent mappings first.</div>
+                    ) : (
+                      filteredSupervisorEmployeeOptions.slice(0, 160).map((option) => {
+                        const selected = isSupervisorMemberSelected(option);
+
+                        return (
+                          <button
+                            type="button"
+                            key={getMemberKey(option)}
+                            className={selected ? "member-option selected" : "member-option"}
+                            onClick={() => handleToggleSupervisorMember(option)}
+                          >
+                            <span className="member-check">{selected ? "✓" : "+"}</span>
+
+                            <span className="member-copy">
+                              <strong>{option.employee_name}</strong>
+                              <small>{option.employee_email || "No email"} • {option.team_name || "No team"}</small>
+                              <em>{option.intercom_agent_name || "No Intercom agent"}</em>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={handleSaveSupervisorTeam}
+                    disabled={supervisorSaveLoading}
+                  >
+                    {supervisorSaveLoading
+                      ? "Saving..."
+                      : supervisorForm.id
+                      ? "Update supervisor team"
+                      : "Save supervisor team"}
+                  </button>
+
+                  <button type="button" className="secondary-btn" onClick={handleClearSupervisorForm}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article className="panel supervisor-list-panel">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Saved supervisor teams</p>
+                  <h2>Team directory</h2>
+                  <p className="muted">Edit supervisor groups and keep Dashboard filtering clean.</p>
+                </div>
+              </div>
+
+              <div className="filter-grid compact">
+                <label>
+                  <span>Search supervisor teams</span>
+                  <input
+                    value={supervisorSearch}
+                    onChange={(event) => setSupervisorSearch(event.target.value)}
+                    placeholder="Search supervisor, email, member, or status"
+                  />
+                </label>
+              </div>
+
+              {supervisorLoading ? (
+                <div className="empty-box">Loading Supervisor Teams...</div>
+              ) : filteredSupervisorTeams.length === 0 ? (
+                <div className="empty-box">No Supervisor Teams saved yet.</div>
+              ) : (
+                <div className="supervisor-card-list">
+                  {filteredSupervisorTeams.map((team) => (
+                    <article key={team.id} className={team.is_active === false ? "supervisor-card inactive" : "supervisor-card"}>
+                      <div className="supervisor-card-head">
+                        <div>
+                          <h3>{team.supervisor_name}</h3>
+                          <p>{team.supervisor_email || "No email saved"}</p>
+                        </div>
+
+                        <span className={team.is_active === false ? "status inactive" : "status active"}>
+                          {team.is_active === false ? "Inactive" : "Active"}
+                        </span>
+                      </div>
+
+                      {team.notes ? <p className="supervisor-note">{team.notes}</p> : null}
+
+                      <div className="supervisor-member-preview">
+                        {(team.members || []).slice(0, 8).map((member) => (
+                          <span key={getMemberKey(member)}>{member.employee_name}</span>
+                        ))}
+
+                        {(team.members || []).length > 8 ? (
+                          <span>+{formatNumber((team.members || []).length - 8)} more</span>
+                        ) : null}
+
+                        {(team.members || []).length === 0 ? <span>No members assigned</span> : null}
+                      </div>
+
+                      <div className="supervisor-card-foot">
+                        <small>
+                          {formatNumber((team.members || []).length)} member(s) • Updated {formatDateTime(team.updated_at)}
+                        </small>
+
+                        <div className="table-actions">
+                          <button
+                            type="button"
+                            className="secondary-btn small"
+                            onClick={() => handleEditSupervisorTeam(team)}
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            className="secondary-btn small"
+                            disabled={supervisorToggleLoadingId === team.id}
+                            onClick={() => handleToggleSupervisorTeamActive(team)}
+                          >
+                            {supervisorToggleLoadingId === team.id
+                              ? "Saving..."
+                              : team.is_active === false
+                              ? "Activate"
+                              : "Deactivate"}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </article>
           </section>
 
@@ -2298,7 +2840,7 @@ const adminStyles = `
   }
 
   .control-grid {
-    grid-template-columns: minmax(0, 1.25fr) minmax(380px, 0.75fr);
+    grid-template-columns: minmax(0, 1.18fr) minmax(420px, 0.82fr);
     margin-bottom: 20px;
   }
 
@@ -2309,7 +2851,9 @@ const adminStyles = `
   .api-card,
   .role-form-card,
   .role-table-card,
-  .profile-card {
+  .profile-card,
+  .member-picker,
+  .supervisor-card {
     border: 1px solid rgba(255,255,255,0.08);
     background: linear-gradient(180deg, rgba(10,15,32,0.9), rgba(7,10,22,0.96));
     box-shadow: 0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03);
@@ -2628,6 +3172,176 @@ const adminStyles = `
     letter-spacing: 0.1em;
   }
 
+  .member-picker {
+    padding: 18px;
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at top left, rgba(59,130,246,0.12), transparent 32%),
+      rgba(255,255,255,0.03);
+  }
+
+  .member-picker-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .selected-member-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+  }
+
+  .selected-member-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(16,185,129,0.24);
+    background: rgba(16,185,129,0.08);
+    color: #bbf7d0;
+    border-radius: 999px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 850;
+    cursor: pointer;
+  }
+
+  .selected-member-chip span {
+    color: #fca5a5;
+    font-size: 11px;
+  }
+
+  .member-option-list {
+    display: grid;
+    gap: 9px;
+    max-height: 420px;
+    overflow: auto;
+    margin-top: 12px;
+    padding-right: 4px;
+  }
+
+  .member-option {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    text-align: left;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(5,8,18,0.72);
+    color: #e5ebff;
+    border-radius: 16px;
+    padding: 12px;
+    cursor: pointer;
+  }
+
+  .member-option.selected {
+    border-color: rgba(16,185,129,0.34);
+    background: rgba(16,185,129,0.09);
+  }
+
+  .member-check {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.06);
+    color: #bfdbfe;
+    font-weight: 900;
+  }
+
+  .member-option.selected .member-check {
+    background: rgba(16,185,129,0.18);
+    color: #bbf7d0;
+  }
+
+  .member-copy strong,
+  .member-copy small,
+  .member-copy em {
+    display: block;
+  }
+
+  .member-copy strong {
+    color: #fff;
+    margin-bottom: 4px;
+  }
+
+  .member-copy small {
+    color: #a9b4d0;
+    line-height: 1.4;
+  }
+
+  .member-copy em {
+    margin-top: 4px;
+    color: #8ea0d6;
+    font-size: 12px;
+    font-style: normal;
+  }
+
+  .supervisor-card-list {
+    display: grid;
+    gap: 14px;
+    max-height: 820px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .supervisor-card {
+    padding: 18px;
+    border-radius: 22px;
+    background:
+      radial-gradient(circle at top right, rgba(139,92,246,0.11), transparent 34%),
+      rgba(255,255,255,0.035);
+  }
+
+  .supervisor-card.inactive {
+    opacity: 0.72;
+  }
+
+  .supervisor-card-head,
+  .supervisor-card-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .supervisor-card-head p,
+  .supervisor-note,
+  .supervisor-card-foot small {
+    color: #a9b4d0;
+    line-height: 1.6;
+  }
+
+  .supervisor-card-head p {
+    margin: 6px 0 0;
+  }
+
+  .supervisor-note {
+    margin: 12px 0 0;
+  }
+
+  .supervisor-member-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 14px 0;
+  }
+
+  .supervisor-member-preview span {
+    padding: 7px 10px;
+    border-radius: 999px;
+    color: #dbe7ff;
+    background: rgba(96,165,250,0.1);
+    border: 1px solid rgba(96,165,250,0.18);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
   .rule-list {
     display: grid;
     gap: 12px;
@@ -2926,7 +3640,10 @@ const adminStyles = `
 
     .section-head,
     .mini-head,
-    .profile-card {
+    .profile-card,
+    .supervisor-card-head,
+    .supervisor-card-foot,
+    .member-picker-head {
       grid-template-columns: 1fr;
       flex-direction: column;
       align-items: stretch;
