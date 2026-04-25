@@ -656,44 +656,6 @@ export default function RunPage() {
     };
   }, []);
 
-  async function handleGoogleLogin() {
-    setAuthMessage("");
-
-    const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}/run` : undefined;
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo },
-    });
-
-    if (error) setAuthMessage(error.message || "Google sign-in failed.");
-  }
-
-  async function handleLogout() {
-    if (fetchAbortRef.current) fetchAbortRef.current.abort();
-    if (runAbortRef.current) runAbortRef.current.abort();
-
-    await supabase.auth.signOut();
-
-    setSession(null);
-    setProfile(null);
-    setAuthMessage("");
-    setAuthLoading(false);
-    setFetchData(null);
-    setRunData(null);
-    setFetchError("");
-    setFetchSuccess("");
-    setRunError("");
-    setRunSuccess("");
-    setDuplicateWarningOpen(false);
-    setDuplicateSummary(null);
-    setDuplicateDecisionLoading(false);
-    setPendingDuplicateConversations([]);
-    setOperationStatus("idle");
-    addLog("Signed out.", "neutral");
-  }
-
   function handleCancelFetch() {
     cancelRequestedRef.current = true;
 
@@ -1549,16 +1511,6 @@ export default function RunPage() {
           ) : null}
 
           <div className="button-row">
-            {!session?.user ? (
-              <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
-                Sign in with Google
-              </button>
-            ) : (
-              <button type="button" className="secondary-btn" onClick={handleLogout} disabled={isBusy}>
-                Sign out
-              </button>
-            )}
-
             {!fetchLoading ? (
               <button
                 type="button"
