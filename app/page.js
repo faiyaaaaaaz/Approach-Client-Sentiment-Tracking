@@ -31,6 +31,9 @@ const CLIENT_SENTIMENT_ORDER = [
 
 const RESOLUTION_ORDER = ["Resolved", "Pending", "Unclear", "Unresolved"];
 
+const RESULT_TYPE_OPTIONS = ["Positive", "Opportunity", "Risk", "Other"];
+const MAPPING_OPTIONS = ["Mapped", "Unmapped"];
+
 const RANGE_OPTIONS = [
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
@@ -48,12 +51,12 @@ const RANGE_OPTIONS = [
 
 const WEEKLY_METRIC_OPTIONS = [
   { key: "total", label: "Total conversations" },
+  { key: "likelyPositive", label: "Likely positive reviews" },
   { key: "missed", label: "Missed opportunities" },
-  { key: "risk", label: "Negative risk" },
   { key: "veryPositive", label: "Very positive" },
+  { key: "likelyNegative", label: "Likely negative reviews" },
   { key: "unresolved", label: "Unresolved" },
   { key: "resolutionRate", label: "Resolution rate" },
-  { key: "positiveRate", label: "Positive review rate" },
 ];
 
 function normalizeText(value, fallback = "-") {
@@ -246,6 +249,24 @@ function deriveResultType(reviewSentiment) {
   return "Other";
 }
 
+function isLikelyPositiveReview(row) {
+  return (
+    row?.review_sentiment === "Likely Positive Review" ||
+    row?.review_sentiment === "Highly Likely Positive Review"
+  );
+}
+
+function isLikelyNegativeReview(row) {
+  return (
+    row?.review_sentiment === "Likely Negative Review" ||
+    row?.review_sentiment === "Highly Likely Negative Review"
+  );
+}
+
+function isMapped(row) {
+  return Boolean(row?.employee_name || row?.employee_match_status === "mapped");
+}
+
 function conversationUrl(conversationId) {
   const id = String(conversationId || "").trim();
   return id ? `${INTERCOM_BASE_URL}/${id}` : "#";
@@ -284,8 +305,9 @@ function uniqueValues(rows, key) {
   ).sort((a, b) => a.localeCompare(b));
 }
 
-function isMapped(row) {
-  return Boolean(row?.employee_name || row?.employee_match_status === "mapped");
+function matchesMulti(selected, value) {
+  if (!Array.isArray(selected) || selected.length === 0) return true;
+  return selected.includes(String(value || ""));
 }
 
 function filterRows(rows, filters) {
@@ -298,39 +320,17 @@ function filterRows(rows, filters) {
     if (start && analyticsDate < start) return false;
     if (end && analyticsDate > end) return false;
 
-    if (filters.team !== "all" && row?.team_name !== filters.team) return false;
-    if (filters.employee !== "all" && row?.employee_name !== filters.employee) return false;
+    if (!matchesMulti(filters.teams, row?.team_name)) return false;
+    if (!matchesMulti(filters.employees, row?.employee_name)) return false;
+    if (!matchesMulti(filters.reviewSentiments, row?.review_sentiment)) return false;
+    if (!matchesMulti(filters.clientSentiments, row?.client_sentiment)) return false;
+    if (!matchesMulti(filters.resolutionStatuses, row?.resolution_status)) return false;
+    if (!matchesMulti(filters.resultTypes, deriveResultType(row?.review_sentiment))) return false;
 
-    if (
-      filters.reviewSentiment !== "all" &&
-      row?.review_sentiment !== filters.reviewSentiment
-    ) {
-      return false;
+    if (Array.isArray(filters.mappingStatuses) && filters.mappingStatuses.length > 0) {
+      const status = isMapped(row) ? "Mapped" : "Unmapped";
+      if (!filters.mappingStatuses.includes(status)) return false;
     }
-
-    if (
-      filters.clientSentiment !== "all" &&
-      row?.client_sentiment !== filters.clientSentiment
-    ) {
-      return false;
-    }
-
-    if (
-      filters.resolutionStatus !== "all" &&
-      row?.resolution_status !== filters.resolutionStatus
-    ) {
-      return false;
-    }
-
-    if (
-      filters.resultType !== "all" &&
-      deriveResultType(row?.review_sentiment) !== filters.resultType
-    ) {
-      return false;
-    }
-
-    if (filters.mappingStatus === "mapped" && !isMapped(row)) return false;
-    if (filters.mappingStatus === "unmapped" && isMapped(row)) return false;
 
     if (filters.cexOnly && row?.team_name !== "CEx") return false;
 
@@ -398,21 +398,21 @@ function resultTypeColor(label) {
   return "#8b5cf6";
 }
 
-function createGlobalFilters() {
-  const range = getPresetRange("past_30_days");
+function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
+  const range = getPresetRange(rangePreset);
 
   return {
-    rangePreset: "past_30_days",
+    rangePreset,
     startDate: formatInputDate(range.start),
     endDate: formatInputDate(range.end),
-    team: "all",
-    employee: "all",
-    reviewSentiment: "all",
-    clientSentiment: "all",
-    resolutionStatus: "all",
-    resultType: "all",
-    mappingStatus: "all",
-    cexOnly: true,
+    teams: [],
+    employees: [],
+    reviewSentiments: [],
+    clientSentiments: [],
+    resolutionStatuses: [],
+    resultTypes: [],
+    mappingStatuses: [],
+    cexOnly,
   };
 }
 
@@ -467,14 +467,12 @@ function buildPeriodsForRange(rows, filters) {
     .sort((a, b) => a.getTime() - b.getTime());
 
   if (!end) {
-    end = datedRows[datedRows.length - 1] ? endOfDay(datedRows[datedRows.length - 1]) : endOfDay(new Date());
+    end = datedRows[datedRows.length - 1]
+      ? endOfDay(datedRows[datedRows.length - 1])
+      : endOfDay(new Date());
   }
 
   if (!start) {
-    start = datedRows.length
-      ? startOfDay(datedRows[Math.max(0, datedRows.length - 1)])
-      : startOfDay(addDays(end, -27));
-
     start = startOfDay(addDays(end, -83));
   }
 
@@ -534,39 +532,17 @@ function rowsInPeriod(rows, period) {
 }
 
 function metricRows(rows, metric) {
-  if (metric === "missed") {
-    return rows.filter((row) => row.review_sentiment === "Missed Opportunity");
-  }
-
-  if (metric === "risk") {
-    return rows.filter((row) => deriveResultType(row.review_sentiment) === "Risk");
-  }
-
-  if (metric === "veryPositive") {
-    return rows.filter((row) => row.client_sentiment === "Very Positive");
-  }
-
-  if (metric === "unresolved") {
-    return rows.filter((row) => row.resolution_status === "Unresolved");
-  }
-
-  if (metric === "resolutionRate") {
-    return rows.filter((row) => row.resolution_status === "Resolved");
-  }
-
-  if (metric === "positiveRate") {
-    return rows.filter(
-      (row) =>
-        row.review_sentiment === "Likely Positive Review" ||
-        row.review_sentiment === "Highly Likely Positive Review"
-    );
-  }
-
+  if (metric === "likelyPositive") return rows.filter(isLikelyPositiveReview);
+  if (metric === "missed") return rows.filter((row) => row.review_sentiment === "Missed Opportunity");
+  if (metric === "veryPositive") return rows.filter((row) => row.client_sentiment === "Very Positive");
+  if (metric === "likelyNegative") return rows.filter(isLikelyNegativeReview);
+  if (metric === "unresolved") return rows.filter((row) => row.resolution_status === "Unresolved");
+  if (metric === "resolutionRate") return rows.filter((row) => row.resolution_status === "Resolved");
   return rows;
 }
 
 function metricValue(rows, metric) {
-  if (metric === "resolutionRate" || metric === "positiveRate") {
+  if (metric === "resolutionRate") {
     return rows.length ? (metricRows(rows, metric).length / rows.length) * 100 : 0;
   }
 
@@ -576,7 +552,7 @@ function metricValue(rows, metric) {
 function formatMetricValue(rows, metric) {
   const value = metricValue(rows, metric);
 
-  if (metric === "resolutionRate" || metric === "positiveRate") {
+  if (metric === "resolutionRate") {
     return rows.length ? formatPercent(value) : "-";
   }
 
@@ -633,27 +609,21 @@ function buildLeaderboard(rows) {
       employee,
       team: row?.team_name || "-",
       handled: 0,
+      likelyPositive: 0,
       missed: 0,
       veryPositive: 0,
+      likelyNegative: 0,
       unresolved: 0,
-      positiveReview: 0,
-      risk: 0,
       rows: [],
     };
 
     current.handled += 1;
 
+    if (isLikelyPositiveReview(row)) current.likelyPositive += 1;
     if (row?.review_sentiment === "Missed Opportunity") current.missed += 1;
     if (row?.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (isLikelyNegativeReview(row)) current.likelyNegative += 1;
     if (row?.resolution_status === "Unresolved") current.unresolved += 1;
-    if (deriveResultType(row?.review_sentiment) === "Risk") current.risk += 1;
-
-    if (
-      row?.review_sentiment === "Likely Positive Review" ||
-      row?.review_sentiment === "Highly Likely Positive Review"
-    ) {
-      current.positiveReview += 1;
-    }
 
     current.rows.push(row);
 
@@ -663,15 +633,117 @@ function buildLeaderboard(rows) {
   return Array.from(map.values())
     .map((item) => ({
       ...item,
+      likelyPositiveRate: item.handled ? (item.likelyPositive / item.handled) * 100 : 0,
       missedRate: item.handled ? (item.missed / item.handled) * 100 : 0,
-      positiveRate: item.handled ? (item.positiveReview / item.handled) * 100 : 0,
-      riskRate: item.handled ? (item.risk / item.handled) * 100 : 0,
+      likelyNegativeRate: item.handled ? (item.likelyNegative / item.handled) * 100 : 0,
       resolutionRate: item.handled ? ((item.handled - item.unresolved) / item.handled) * 100 : 0,
     }))
     .sort((a, b) => {
       if (b.handled !== a.handled) return b.handled - a.handled;
       return a.employee.localeCompare(b.employee);
     });
+}
+
+function MultiSelect({ label, options, selected, onChange, placeholder = "All" }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef(null);
+
+  const normalizedOptions = useMemo(
+    () =>
+      (options || [])
+        .filter(Boolean)
+        .map((item) =>
+          typeof item === "string" ? { value: item, label: item } : item
+        ),
+    [options]
+  );
+
+  const filteredOptions = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return normalizedOptions;
+
+    return normalizedOptions.filter((item) =>
+      String(item.label || "").toLowerCase().includes(search)
+    );
+  }, [query, normalizedOptions]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  const selectedSet = new Set(selected || []);
+  const allSelected = !selected || selected.length === 0;
+
+  function toggleValue(value) {
+    const next = new Set(selected || []);
+
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+
+    onChange(Array.from(next));
+  }
+
+  function displayValue() {
+    if (allSelected) return placeholder;
+
+    if (selected.length === 1) {
+      const found = normalizedOptions.find((item) => item.value === selected[0]);
+      return found?.label || selected[0];
+    }
+
+    return `${selected.length} selected`;
+  }
+
+  return (
+    <div ref={ref} className="multi-wrap">
+      <label>
+        <span>{label}</span>
+        <button type="button" className="multi-button" onClick={() => setOpen((prev) => !prev)}>
+          <strong>{displayValue()}</strong>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+      </label>
+
+      {open ? (
+        <div className="multi-menu">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Search ${label.toLowerCase()}`}
+          />
+
+          <button type="button" className="multi-option all" onClick={() => onChange([])}>
+            <span>{allSelected ? "Selected" : "Select"}</span>
+            <strong>{placeholder}</strong>
+          </button>
+
+          <div className="multi-options">
+            {filteredOptions.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={selectedSet.has(item.value) ? "multi-option active" : "multi-option"}
+                onClick={() => toggleValue(item.value)}
+              >
+                <span>{selectedSet.has(item.value) ? "Selected" : "Select"}</span>
+                <strong>{item.label}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function DateRangePicker({ filters, setFilters }) {
@@ -727,11 +799,13 @@ function DateRangePicker({ filters, setFilters }) {
 
   return (
     <div ref={boxRef} className="date-picker-wrap">
-      <button type="button" className="date-picker-button" onClick={() => setOpen((prev) => !prev)}>
-        <span>Calendar</span>
-        <strong>{getRangeDisplay(filters)}</strong>
-        <b>{open ? "Up" : "Down"}</b>
-      </button>
+      <label>
+        <span>Date range</span>
+        <button type="button" className="date-picker-button" onClick={() => setOpen((prev) => !prev)}>
+          <strong>{getRangeDisplay(filters)}</strong>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+      </label>
 
       {open ? (
         <div className="date-picker-popover">
@@ -802,47 +876,41 @@ function DateRangePicker({ filters, setFilters }) {
   );
 }
 
-function FilterBar({
+function DashboardFilterBar({
   filters,
   setFilters,
   teams,
   employees,
-  reviewSentiments,
-  clientSentiments,
-  resolutionStatuses,
+  reviewOptions,
+  clientOptions,
+  resolutionOptions,
+  showMapping = true,
+  resetTo,
 }) {
   function update(key, value) {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
   return (
-    <section className="filter-panel">
-      <div className="filter-top-row">
+    <div className="filter-panel">
+      <div className="filter-row first">
         <DateRangePicker filters={filters} setFilters={setFilters} />
 
-        <label>
-          <span>Team</span>
-          <select value={filters.team} onChange={(event) => update("team", event.target.value)}>
-            <option value="all">All Teams</option>
-            {teams.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelect
+          label="Team"
+          options={teams}
+          selected={filters.teams}
+          onChange={(value) => update("teams", value)}
+          placeholder="All teams"
+        />
 
-        <label>
-          <span>Employee</span>
-          <select value={filters.employee} onChange={(event) => update("employee", event.target.value)}>
-            <option value="all">All Employees</option>
-            {employees.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelect
+          label="Employee"
+          options={employees}
+          selected={filters.employees}
+          onChange={(value) => update("employees", value)}
+          placeholder="All employees"
+        />
 
         <label className="cex-check">
           <input
@@ -854,68 +922,54 @@ function FilterBar({
         </label>
       </div>
 
-      <div className="filter-bottom-row">
-        <label>
-          <span>Review</span>
-          <select value={filters.reviewSentiment} onChange={(event) => update("reviewSentiment", event.target.value)}>
-            <option value="all">All Review</option>
-            {reviewSentiments.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="filter-row second">
+        <MultiSelect
+          label="Review"
+          options={reviewOptions}
+          selected={filters.reviewSentiments}
+          onChange={(value) => update("reviewSentiments", value)}
+          placeholder="All review"
+        />
 
-        <label>
-          <span>Client</span>
-          <select value={filters.clientSentiment} onChange={(event) => update("clientSentiment", event.target.value)}>
-            <option value="all">All Client</option>
-            {clientSentiments.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelect
+          label="Client"
+          options={clientOptions}
+          selected={filters.clientSentiments}
+          onChange={(value) => update("clientSentiments", value)}
+          placeholder="All client"
+        />
 
-        <label>
-          <span>Resolution</span>
-          <select value={filters.resolutionStatus} onChange={(event) => update("resolutionStatus", event.target.value)}>
-            <option value="all">All Resolution</option>
-            {resolutionStatuses.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelect
+          label="Resolution"
+          options={resolutionOptions}
+          selected={filters.resolutionStatuses}
+          onChange={(value) => update("resolutionStatuses", value)}
+          placeholder="All resolution"
+        />
 
-        <label>
-          <span>Type</span>
-          <select value={filters.resultType} onChange={(event) => update("resultType", event.target.value)}>
-            <option value="all">All Types</option>
-            <option value="Positive">Positive</option>
-            <option value="Opportunity">Opportunity</option>
-            <option value="Risk">Risk</option>
-            <option value="Other">Other</option>
-          </select>
-        </label>
+        <MultiSelect
+          label="Type"
+          options={RESULT_TYPE_OPTIONS}
+          selected={filters.resultTypes}
+          onChange={(value) => update("resultTypes", value)}
+          placeholder="All types"
+        />
 
-        <label>
-          <span>Mapping</span>
-          <select value={filters.mappingStatus} onChange={(event) => update("mappingStatus", event.target.value)}>
-            <option value="all">All Mapping</option>
-            <option value="mapped">Mapped</option>
-            <option value="unmapped">Unmapped</option>
-          </select>
-        </label>
+        {showMapping ? (
+          <MultiSelect
+            label="Mapping"
+            options={MAPPING_OPTIONS}
+            selected={filters.mappingStatuses}
+            onChange={(value) => update("mappingStatuses", value)}
+            placeholder="All mapping"
+          />
+        ) : null}
 
-        <button type="button" className="primary-btn" onClick={() => setFilters(createGlobalFilters())}>
+        <button type="button" className="primary-btn reset-btn" onClick={() => setFilters(resetTo())}>
           Reset filters
         </button>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -929,9 +983,9 @@ function KPIStat({ label, value, accent, onClick }) {
   );
 }
 
-function ChartCard({ title, subtitle, onDrill, children }) {
+function ChartCard({ title, subtitle, onDrill, children, larger = false }) {
   return (
-    <article className="chart-card">
+    <article className={larger ? "chart-card large" : "chart-card"}>
       <div className="chart-head">
         <div>
           <h3>{title}</h3>
@@ -951,15 +1005,16 @@ function ChartCard({ title, subtitle, onDrill, children }) {
 }
 
 function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
-  const max = Math.max(...entries.map((item) => item.count), 1);
+  const visibleEntries = entries.filter((entry) => entry.count > 0);
+  const max = Math.max(...visibleEntries.map((item) => item.count), 1);
 
-  if (!entries.length) {
+  if (!visibleEntries.length) {
     return <div className="empty-box">No data for this section.</div>;
   }
 
   return (
     <div className="bar-list">
-      {entries.map((entry) => {
+      {visibleEntries.map((entry) => {
         const percent = total ? (entry.count / total) * 100 : 0;
         const width = Math.max((entry.count / max) * 100, 5);
         const color =
@@ -993,8 +1048,9 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
 }
 
 function DonutChart({ entries, total, onSelect }) {
-  const palette = ["#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#6366f1"];
-  const segments = buildPieSegments(entries, palette);
+  const palette = ["#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f59e0b", "#ec4899", "#6366f1"];
+  const visibleEntries = entries.filter((entry) => entry.count > 0);
+  const segments = buildPieSegments(visibleEntries, palette);
   const gradient = buildConicGradient(segments);
 
   return (
@@ -1025,64 +1081,54 @@ function DonutChart({ entries, total, onSelect }) {
   );
 }
 
-function DetailModal({ open, onClose, title, value, rows }) {
+function DetailModal({
+  open,
+  onClose,
+  title,
+  value,
+  rows,
+  teams,
+  employees,
+  reviewOptions,
+  clientOptions,
+  resolutionOptions,
+}) {
   const [query, setQuery] = useState("");
-  const [team, setTeam] = useState("all");
-  const [employee, setEmployee] = useState("all");
-  const [review, setReview] = useState("all");
-  const [client, setClient] = useState("all");
-  const [resolution, setResolution] = useState("all");
+  const [filters, setFilters] = useState(createBaseFilters("all", false));
 
   useEffect(() => {
     if (!open) return;
 
     setQuery("");
-    setTeam("all");
-    setEmployee("all");
-    setReview("all");
-    setClient("all");
-    setResolution("all");
+    setFilters(createBaseFilters("all", false));
   }, [open, title, value]);
-
-  const teams = useMemo(() => uniqueValues(rows, "team_name"), [rows]);
-  const employees = useMemo(() => uniqueValues(rows, "employee_name"), [rows]);
-  const reviews = useMemo(() => uniqueValues(rows, "review_sentiment"), [rows]);
-  const clients = useMemo(() => uniqueValues(rows, "client_sentiment"), [rows]);
-  const resolutions = useMemo(() => uniqueValues(rows, "resolution_status"), [rows]);
 
   const filteredRows = useMemo(() => {
     const search = query.trim().toLowerCase();
+    const dateFilteredRows = filterRows(rows, filters);
 
-    return (rows || []).filter((row) => {
-      if (team !== "all" && row?.team_name !== team) return false;
-      if (employee !== "all" && row?.employee_name !== employee) return false;
-      if (review !== "all" && row?.review_sentiment !== review) return false;
-      if (client !== "all" && row?.client_sentiment !== client) return false;
-      if (resolution !== "all" && row?.resolution_status !== resolution) return false;
+    if (!search) return dateFilteredRows;
 
-      if (search) {
-        const haystack = [
-          row?.conversation_id,
-          row?.agent_name,
-          row?.employee_name,
-          row?.employee_email,
-          row?.team_name,
-          row?.client_email,
-          row?.review_sentiment,
-          row?.client_sentiment,
-          row?.resolution_status,
-          row?.ai_verdict,
-          row?.error,
-        ]
-          .join(" ")
-          .toLowerCase();
+    return dateFilteredRows.filter((row) => {
+      const haystack = [
+        row?.conversation_id,
+        row?.agent_name,
+        row?.employee_name,
+        row?.employee_email,
+        row?.team_name,
+        row?.client_email,
+        row?.review_sentiment,
+        row?.client_sentiment,
+        row?.resolution_status,
+        row?.ai_verdict,
+        row?.error,
+      ]
+        .join(" ")
+        .toLowerCase();
 
-        if (!haystack.includes(search)) return false;
-      }
-
-      return true;
+      return haystack.includes(search);
     });
-  }, [rows, query, team, employee, review, client, resolution]);
+  }, [rows, filters, query]);
 
   if (!open) return null;
 
@@ -1091,7 +1137,7 @@ function DetailModal({ open, onClose, title, value, rows }) {
       <div className="drill-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <p>Chart drill-in</p>
+            <p>Chart drill in</p>
             <h2>{title}</h2>
             <span>
               {value} · {formatNumber(filteredRows.length)} of {formatNumber(rows.length)} conversation(s)
@@ -1099,7 +1145,7 @@ function DetailModal({ open, onClose, title, value, rows }) {
           </div>
 
           <div className="modal-actions">
-            <button type="button" className="secondary-btn" onClick={() => downloadCsv(filteredRows, "dashboard-drilldown.csv")}>
+            <button type="button" className="secondary-btn" onClick={() => downloadCsv(filteredRows, "dashboard-drill-in.csv")}>
               Export CSV
             </button>
             <button type="button" className="light-btn" onClick={onClose}>
@@ -1108,74 +1154,26 @@ function DetailModal({ open, onClose, title, value, rows }) {
           </div>
         </div>
 
-        <div className="modal-filter-grid">
-          <label>
+        <div className="modal-filter-block">
+          <DashboardFilterBar
+            filters={filters}
+            setFilters={setFilters}
+            teams={teams}
+            employees={employees}
+            reviewOptions={reviewOptions}
+            clientOptions={clientOptions}
+            resolutionOptions={resolutionOptions}
+            showMapping={false}
+            resetTo={() => createBaseFilters("all", false)}
+          />
+
+          <label className="modal-search">
             <span>Search</span>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Conversation, agent, employee, client, verdict"
             />
-          </label>
-
-          <label>
-            <span>Team</span>
-            <select value={team} onChange={(event) => setTeam(event.target.value)}>
-              <option value="all">All Teams</option>
-              {teams.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Employee</span>
-            <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
-              <option value="all">All Employees</option>
-              {employees.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Review</span>
-            <select value={review} onChange={(event) => setReview(event.target.value)}>
-              <option value="all">All Review</option>
-              {reviews.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Client</span>
-            <select value={client} onChange={(event) => setClient(event.target.value)}>
-              <option value="all">All Client</option>
-              {clients.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Resolution</span>
-            <select value={resolution} onChange={(event) => setResolution(event.target.value)}>
-              <option value="all">All Resolution</option>
-              {resolutions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
           </label>
         </div>
 
@@ -1223,7 +1221,7 @@ function DetailModal({ open, onClose, title, value, rows }) {
 
           {filteredRows.length > 500 ? (
             <div className="table-note">
-              Showing first 500 rows. Use Export CSV for the full filtered drill-in.
+              Showing first 500 rows. Use Export CSV for the full filtered drill in.
             </div>
           ) : null}
         </div>
@@ -1232,10 +1230,23 @@ function DetailModal({ open, onClose, title, value, rows }) {
   );
 }
 
-function WeeklyAgentTable({ rows, filters, metric, setMetric, onOpenDetail }) {
+function WeeklyAgentTable({
+  rows,
+  filters,
+  setFilters,
+  metric,
+  setMetric,
+  onOpenDetail,
+  teams,
+  employees,
+  reviewOptions,
+  clientOptions,
+  resolutionOptions,
+}) {
+  const weeklyRows = useMemo(() => filterRows(rows, filters), [rows, filters]);
   const { periods, tableRows } = useMemo(
-    () => buildAgentWeeklyRows(rows, filters, metric),
-    [rows, filters, metric]
+    () => buildAgentWeeklyRows(weeklyRows, filters, metric),
+    [weeklyRows, filters, metric]
   );
 
   const metricLabel = WEEKLY_METRIC_OPTIONS.find((item) => item.key === metric)?.label || "Metric";
@@ -1245,8 +1256,8 @@ function WeeklyAgentTable({ rows, filters, metric, setMetric, onOpenDetail }) {
       <div className="section-title-row">
         <div>
           <p>Weekly performance table</p>
-          <h2>Agent week-by-week view</h2>
-          <span>Click an employee or a weekly cell to drill into the underlying conversations.</span>
+          <h2>Agent week by week view</h2>
+          <span>Click an employee or weekly cell to open the underlying conversations.</span>
         </div>
 
         <div className="weekly-controls">
@@ -1266,6 +1277,18 @@ function WeeklyAgentTable({ rows, filters, metric, setMetric, onOpenDetail }) {
           </button>
         </div>
       </div>
+
+      <DashboardFilterBar
+        filters={filters}
+        setFilters={setFilters}
+        teams={teams}
+        employees={employees}
+        reviewOptions={reviewOptions}
+        clientOptions={clientOptions}
+        resolutionOptions={resolutionOptions}
+        showMapping={false}
+        resetTo={() => createBaseFilters("past_12_weeks", true)}
+      />
 
       <div className="weekly-table-wrap">
         <table>
@@ -1288,7 +1311,7 @@ function WeeklyAgentTable({ rows, filters, metric, setMetric, onOpenDetail }) {
                     <button
                       type="button"
                       className="text-link"
-                      onClick={() => onOpenDetail("Employee Drill-in", employeeRow.employee, employeeRow.totalRows)}
+                      onClick={() => onOpenDetail("Employee drill in", employeeRow.employee, employeeRow.totalRows)}
                     >
                       {employeeRow.employee}
                     </button>
@@ -1302,7 +1325,7 @@ function WeeklyAgentTable({ rows, filters, metric, setMetric, onOpenDetail }) {
                         className={period.rows.length ? "metric-cell has-data" : "metric-cell"}
                         onClick={() =>
                           period.rows.length
-                            ? onOpenDetail("Weekly Agent Drill-in", `${employeeRow.employee} · ${period.label}`, period.rows)
+                            ? onOpenDetail("Weekly agent drill in", `${employeeRow.employee} · ${period.label}`, period.rows)
                             : null
                         }
                       >
@@ -1353,8 +1376,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState([]);
   const [error, setError] = useState("");
-  const [globalFilters, setGlobalFilters] = useState(createGlobalFilters());
+  const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
+  const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
+  const [weeklyFilters, setWeeklyFilters] = useState(createBaseFilters("past_12_weeks", true));
   const [weeklyMetric, setWeeklyMetric] = useState("missed");
+  const [showJumpTop, setShowJumpTop] = useState(false);
 
   const [detailState, setDetailState] = useState({
     open: false,
@@ -1431,40 +1457,56 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    function handleScroll() {
+      setShowJumpTop(window.scrollY > 700);
+    }
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const dedupedRows = useMemo(() => dedupeLatestByConversation(rawRows), [rawRows]);
 
   const teams = useMemo(() => uniqueValues(dedupedRows, "team_name"), [dedupedRows]);
   const employees = useMemo(() => uniqueValues(dedupedRows, "employee_name"), [dedupedRows]);
-  const reviewSentiments = useMemo(() => uniqueValues(dedupedRows, "review_sentiment"), [dedupedRows]);
-  const clientSentiments = useMemo(() => uniqueValues(dedupedRows, "client_sentiment"), [dedupedRows]);
-  const resolutionStatuses = useMemo(() => uniqueValues(dedupedRows, "resolution_status"), [dedupedRows]);
+
+  const reviewOptions = REVIEW_SENTIMENT_ORDER;
+  const clientOptions = CLIENT_SENTIMENT_ORDER;
+  const resolutionOptions = RESOLUTION_ORDER;
 
   const filteredRows = useMemo(
     () => filterRows(dedupedRows, globalFilters),
     [dedupedRows, globalFilters]
   );
 
+  const leaderboardFilteredRows = useMemo(
+    () => filterRows(dedupedRows, leaderboardFilters),
+    [dedupedRows, leaderboardFilters]
+  );
+
   const reviewEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => row.review_sentiment, REVIEW_SENTIMENT_ORDER),
+    () => countRowsBy(filteredRows, (row) => row.review_sentiment, REVIEW_SENTIMENT_ORDER).filter((entry) => REVIEW_SENTIMENT_ORDER.includes(entry.label)),
     [filteredRows]
   );
 
   const clientEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER),
+    () => countRowsBy(filteredRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER).filter((entry) => CLIENT_SENTIMENT_ORDER.includes(entry.label)),
     [filteredRows]
   );
 
   const resolutionEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => row.resolution_status, RESOLUTION_ORDER),
+    () => countRowsBy(filteredRows, (row) => row.resolution_status, RESOLUTION_ORDER).filter((entry) => RESOLUTION_ORDER.includes(entry.label)),
     [filteredRows]
   );
 
   const resultTypeEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => deriveResultType(row.review_sentiment)),
+    () => countRowsBy(filteredRows, (row) => deriveResultType(row.review_sentiment), RESULT_TYPE_OPTIONS),
     [filteredRows]
   );
 
-  const leaderboard = useMemo(() => buildLeaderboard(filteredRows), [filteredRows]);
+  const leaderboard = useMemo(() => buildLeaderboard(leaderboardFilteredRows), [leaderboardFilteredRows]);
 
   const total = filteredRows.length;
 
@@ -1506,22 +1548,19 @@ export default function DashboardPage() {
         title={detailState.title}
         value={detailState.value}
         rows={detailState.rows}
+        teams={teams}
+        employees={employees}
+        reviewOptions={reviewOptions}
+        clientOptions={clientOptions}
+        resolutionOptions={resolutionOptions}
       />
 
       <div className="dashboard-shell">
-        <nav className="topbar">
-          <div>
-            <p>NEXT Ventures</p>
-            <strong>Review Approach & Client Sentiment Tracking Dashboard</strong>
-          </div>
-
-          <span>Secure workspace</span>
-        </nav>
-
         <section className="hero-panel">
           <div>
             <p>Dashboard</p>
-            <h1>QA intelligence</h1>
+            <h1>Review approach & client sentiment tracking dashboard</h1>
+            <strong>QA intelligence</strong>
             <span>Latest stored result: {formatDateTime(latestStoredAt)}</span>
           </div>
 
@@ -1538,14 +1577,16 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <FilterBar
+        <DashboardFilterBar
           filters={globalFilters}
           setFilters={setGlobalFilters}
           teams={teams}
           employees={employees}
-          reviewSentiments={reviewSentiments}
-          clientSentiments={clientSentiments}
-          resolutionStatuses={resolutionStatuses}
+          reviewOptions={reviewOptions}
+          clientOptions={clientOptions}
+          resolutionOptions={resolutionOptions}
+          showMapping
+          resetTo={() => createBaseFilters("past_30_days", true)}
         />
 
         <section className="kpi-grid">
@@ -1553,15 +1594,15 @@ export default function DashboardPage() {
             label="Unique conversations"
             value={formatNumber(total)}
             accent="linear-gradient(135deg, rgba(37,99,235,0.26), rgba(99,102,241,0.12))"
-            onClick={() => openDetail("KPI Drill-in", "Unique conversations", filteredRows)}
+            onClick={() => openDetail("KPI drill in", "Unique conversations", filteredRows)}
           />
           <KPIStat
             label="Missed opportunities"
             value={formatNumber(missedCount)}
-            accent="linear-gradient(135deg, rgba(245,158,11,0.25), rgba(249,115,22,0.12))"
+            accent="linear-gradient(135deg, rgba(239,68,68,0.25), rgba(249,115,22,0.12))"
             onClick={() =>
               openDetail(
-                "KPI Drill-in",
+                "KPI drill in",
                 "Missed opportunities",
                 filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity")
               )
@@ -1573,7 +1614,7 @@ export default function DashboardPage() {
             accent="linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
             onClick={() =>
               openDetail(
-                "KPI Drill-in",
+                "KPI drill in",
                 "Very positive",
                 filteredRows.filter((row) => row.client_sentiment === "Very Positive")
               )
@@ -1585,7 +1626,7 @@ export default function DashboardPage() {
             accent="linear-gradient(135deg, rgba(14,165,233,0.22), rgba(34,197,94,0.12))"
             onClick={() =>
               openDetail(
-                "KPI Drill-in",
+                "KPI drill in",
                 "Resolved",
                 filteredRows.filter((row) => row.resolution_status === "Resolved")
               )
@@ -1597,7 +1638,7 @@ export default function DashboardPage() {
             accent="linear-gradient(135deg, rgba(244,63,94,0.24), rgba(168,85,247,0.12))"
             onClick={() =>
               openDetail(
-                "KPI Drill-in",
+                "KPI drill in",
                 "Unresolved",
                 filteredRows.filter((row) => row.resolution_status === "Unresolved")
               )
@@ -1609,7 +1650,7 @@ export default function DashboardPage() {
             accent="linear-gradient(135deg, rgba(59,130,246,0.18), rgba(16,185,129,0.12))"
             onClick={() =>
               openDetail(
-                "KPI Drill-in",
+                "KPI drill in",
                 "Mapped records",
                 filteredRows.filter(isMapped)
               )
@@ -1632,50 +1673,52 @@ export default function DashboardPage() {
               <ChartCard
                 title="Review sentiment"
                 subtitle={`${formatNumber(filteredRows.length)} filtered conversations`}
-                onDrill={() => openDetail("Review Sentiment Drill-in", "All review sentiments", filteredRows)}
+                onDrill={() => openDetail("Review sentiment drill in", "All review sentiments", filteredRows)}
               >
                 <HorizontalBarChart
                   entries={reviewEntries}
                   total={filteredRows.length}
                   kind="review"
-                  onSelect={(entry) => openDetail("Review Sentiment Drill-in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Review sentiment drill in", entry.label, entry.rows)}
                 />
               </ChartCard>
 
               <ChartCard
                 title="Result type mix"
                 subtitle="Positive, opportunity, risk, and other"
-                onDrill={() => openDetail("Result Type Drill-in", "All result types", filteredRows)}
+                larger
+                onDrill={() => openDetail("Result type drill in", "All result types", filteredRows)}
               >
                 <DonutChart
                   entries={resultTypeEntries}
                   total={filteredRows.length}
-                  onSelect={(entry) => openDetail("Result Type Drill-in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Result type drill in", entry.label, entry.rows)}
                 />
               </ChartCard>
 
               <ChartCard
                 title="Client sentiment"
                 subtitle="Client emotional outcome"
-                onDrill={() => openDetail("Client Sentiment Drill-in", "All client sentiments", filteredRows)}
+                onDrill={() => openDetail("Client sentiment drill in", "All client sentiments", filteredRows)}
               >
                 <HorizontalBarChart
                   entries={clientEntries}
                   total={filteredRows.length}
                   kind="client"
-                  onSelect={(entry) => openDetail("Client Sentiment Drill-in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Client sentiment drill in", entry.label, entry.rows)}
                 />
               </ChartCard>
 
               <ChartCard
                 title="Resolution share"
                 subtitle="Resolved, pending, unclear, unresolved"
-                onDrill={() => openDetail("Resolution Drill-in", "All resolution statuses", filteredRows)}
+                larger
+                onDrill={() => openDetail("Resolution drill in", "All resolution statuses", filteredRows)}
               >
                 <DonutChart
                   entries={resolutionEntries}
                   total={filteredRows.length}
-                  onSelect={(entry) => openDetail("Resolution Drill-in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Resolution drill in", entry.label, entry.rows)}
                 />
               </ChartCard>
             </section>
@@ -1685,45 +1728,65 @@ export default function DashboardPage() {
                 <div>
                   <p>Performance command</p>
                   <h2>Agent leaderboard</h2>
-                  <span>Sorted by volume. Click any row to drill into the saved audit records.</span>
+                  <span>Use the filters below to rank agents for the selected period.</span>
                 </div>
 
-                <button type="button" className="secondary-btn" onClick={() => downloadCsv(filteredRows, "dashboard-filtered-results.csv")}>
+                <button type="button" className="secondary-btn" onClick={() => downloadCsv(leaderboardFilteredRows, "leaderboard-filtered-results.csv")}>
                   Export filtered CSV
                 </button>
               </div>
 
+              <DashboardFilterBar
+                filters={leaderboardFilters}
+                setFilters={setLeaderboardFilters}
+                teams={teams}
+                employees={employees}
+                reviewOptions={reviewOptions}
+                clientOptions={clientOptions}
+                resolutionOptions={resolutionOptions}
+                showMapping={false}
+                resetTo={() => createBaseFilters("past_30_days", true)}
+              />
+
               <div className="leaderboard-cards">
                 {[
                   {
-                    title: "Top volume",
-                    rows: [...leaderboard].sort((a, b) => b.handled - a.handled).slice(0, 5),
-                    value: (row) => formatNumber(row.handled),
+                    title: "Top likely positive reviews",
+                    theme: "green",
+                    rows: [...leaderboard].sort((a, b) => b.likelyPositive - a.likelyPositive).slice(0, 5),
+                    value: (row) => formatNumber(row.likelyPositive),
+                    rowsFor: (row) => row.rows.filter(isLikelyPositiveReview),
                   },
                   {
-                    title: "Missed opportunity",
+                    title: "Top missed opportunities",
+                    theme: "red",
                     rows: [...leaderboard].sort((a, b) => b.missed - a.missed).slice(0, 5),
                     value: (row) => formatNumber(row.missed),
+                    rowsFor: (row) => row.rows.filter((item) => item.review_sentiment === "Missed Opportunity"),
                   },
                   {
-                    title: "Very positive",
+                    title: "Top very positive",
+                    theme: "green",
                     rows: [...leaderboard].sort((a, b) => b.veryPositive - a.veryPositive).slice(0, 5),
                     value: (row) => formatNumber(row.veryPositive),
+                    rowsFor: (row) => row.rows.filter((item) => item.client_sentiment === "Very Positive"),
                   },
                   {
-                    title: "Risk rate",
-                    rows: [...leaderboard].sort((a, b) => b.riskRate - a.riskRate).slice(0, 5),
-                    value: (row) => formatPercent(row.riskRate),
+                    title: "Top likely negative reviews",
+                    theme: "red",
+                    rows: [...leaderboard].sort((a, b) => b.likelyNegative - a.likelyNegative).slice(0, 5),
+                    value: (row) => formatNumber(row.likelyNegative),
+                    rowsFor: (row) => row.rows.filter(isLikelyNegativeReview),
                   },
                 ].map((block) => (
-                  <div key={block.title} className="mini-rank-card">
+                  <div key={block.title} className={`mini-rank-card ${block.theme}`}>
                     <h3>{block.title}</h3>
                     {block.rows.length ? (
                       block.rows.map((row) => (
                         <button
                           key={`${block.title}-${row.employee}`}
                           type="button"
-                          onClick={() => openDetail("Leaderboard Drill-in", `${block.title}: ${row.employee}`, row.rows)}
+                          onClick={() => openDetail("Leaderboard drill in", `${block.title}: ${row.employee}`, block.rowsFor(row))}
                         >
                           <strong>{row.employee}</strong>
                           <span>{block.value(row)}</span>
@@ -1739,18 +1802,19 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              <div className="table-wrap">
+              <div className="table-wrap leaderboard-table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Employee</th>
                       <th>Team</th>
                       <th>Handled</th>
+                      <th>Likely positive</th>
                       <th>Missed</th>
                       <th>Very positive</th>
+                      <th>Likely negative</th>
                       <th>Resolution rate</th>
-                      <th>Risk rate</th>
-                      <th>Drill-in</th>
+                      <th>Drill in</th>
                     </tr>
                   </thead>
 
@@ -1758,18 +1822,19 @@ export default function DashboardPage() {
                     {leaderboard.map((row) => (
                       <tr key={row.employee}>
                         <td>
-                          <button type="button" className="text-link" onClick={() => openDetail("Employee Drill-in", row.employee, row.rows)}>
+                          <button type="button" className="text-link" onClick={() => openDetail("Employee drill in", row.employee, row.rows)}>
                             {row.employee}
                           </button>
                         </td>
                         <td>{row.team || "-"}</td>
                         <td>{formatNumber(row.handled)}</td>
-                        <td>{formatNumber(row.missed)}</td>
-                        <td>{formatNumber(row.veryPositive)}</td>
+                        <td className="good">{formatNumber(row.likelyPositive)}</td>
+                        <td className="bad">{formatNumber(row.missed)}</td>
+                        <td className="good">{formatNumber(row.veryPositive)}</td>
+                        <td className="bad">{formatNumber(row.likelyNegative)}</td>
                         <td>{formatPercent(row.resolutionRate)}</td>
-                        <td>{formatPercent(row.riskRate)}</td>
                         <td>
-                          <button type="button" className="small-btn" onClick={() => openDetail("Employee Drill-in", row.employee, row.rows)}>
+                          <button type="button" className="small-btn" onClick={() => openDetail("Employee drill in", row.employee, row.rows)}>
                             View
                           </button>
                         </td>
@@ -1781,10 +1846,16 @@ export default function DashboardPage() {
             </section>
 
             <WeeklyAgentTable
-              rows={filteredRows}
-              filters={globalFilters}
+              rows={dedupedRows}
+              filters={weeklyFilters}
+              setFilters={setWeeklyFilters}
               metric={weeklyMetric}
               setMetric={setWeeklyMetric}
+              teams={teams}
+              employees={employees}
+              reviewOptions={reviewOptions}
+              clientOptions={clientOptions}
+              resolutionOptions={resolutionOptions}
               onOpenDetail={openDetail}
             />
 
@@ -1843,6 +1914,12 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      {showJumpTop ? (
+        <button type="button" className="jump-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          Jump to top
+        </button>
+      ) : null}
     </main>
   );
 }
@@ -1850,88 +1927,85 @@ export default function DashboardPage() {
 const dashboardStyles = `
   .dashboard-page {
     min-height: 100vh;
-    padding: 32px 20px 72px;
+    padding: 24px 20px 72px;
     color: #f5f7ff;
     background:
-      radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 22%),
-      radial-gradient(circle at top right, rgba(168,85,247,0.16), transparent 20%),
+      radial-gradient(circle at top left, rgba(59,130,246,0.17), transparent 22%),
+      radial-gradient(circle at top right, rgba(168,85,247,0.2), transparent 20%),
+      radial-gradient(circle at 50% 12%, rgba(99,102,241,0.12), transparent 24%),
       radial-gradient(circle at bottom center, rgba(6,182,212,0.08), transparent 22%),
       linear-gradient(180deg, #040714 0%, #060b1d 45%, #04060d 100%);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
   .dashboard-shell {
-    width: min(1500px, 100%);
+    width: min(1540px, 100%);
     margin: 0 auto;
   }
 
-  .topbar,
   .hero-panel,
   .filter-panel,
   .panel,
   .chart-card,
   .kpi-card {
     border: 1px solid rgba(255,255,255,0.08);
-    background: linear-gradient(180deg, rgba(15,22,43,0.9), rgba(7,10,24,0.96));
+    background: linear-gradient(180deg, rgba(15,22,43,0.91), rgba(7,10,24,0.97));
     box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
   }
 
-  .topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    padding: 18px 20px;
-    border-radius: 22px;
-    margin-bottom: 24px;
-    background: rgba(9,13,29,0.72);
-    backdrop-filter: blur(14px);
-  }
-
-  .topbar p,
-  .hero-panel p,
-  .section-title-row p {
-    margin: 0 0 8px;
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
-  .topbar strong {
-    display: block;
-    font-size: 22px;
-    letter-spacing: -0.03em;
-  }
-
-  .topbar span {
-    padding: 8px 12px;
-    border-radius: 999px;
-    color: #bbf7d0;
-    border: 1px solid rgba(16,185,129,0.24);
-    background: rgba(16,185,129,0.1);
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
   .hero-panel {
+    position: relative;
+    overflow: hidden;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 18px;
-    padding: 28px;
-    border-radius: 28px;
+    gap: 26px;
+    padding: 34px 34px;
+    border-radius: 32px;
     margin-bottom: 18px;
   }
 
-  .hero-panel h1 {
+  .hero-panel::before {
+    content: "";
+    position: absolute;
+    inset: -120px -160px auto auto;
+    width: 420px;
+    height: 420px;
+    border-radius: 999px;
+    background: rgba(124,58,237,0.22);
+    filter: blur(55px);
+    pointer-events: none;
+  }
+
+  .hero-panel > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-panel p,
+  .section-title-row p,
+  .modal-head p {
     margin: 0 0 10px;
-    font-size: clamp(42px, 5vw, 62px);
+    color: #9fb2ee;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+  }
+
+  .hero-panel h1 {
+    max-width: 960px;
+    margin: 0 0 10px;
+    font-size: clamp(36px, 4.6vw, 68px);
     line-height: 0.98;
     letter-spacing: -0.07em;
+  }
+
+  .hero-panel strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #ffffff;
+    font-size: 28px;
+    letter-spacing: -0.04em;
   }
 
   .hero-panel span,
@@ -1962,7 +2036,7 @@ const dashboardStyles = `
     padding: 0 16px;
     border-radius: 14px;
     font-size: 13px;
-    font-weight: 900;
+    font-weight: 850;
     cursor: pointer;
     text-decoration: none;
   }
@@ -1996,19 +2070,18 @@ const dashboardStyles = `
     margin-bottom: 18px;
   }
 
-  .filter-top-row,
-  .filter-bottom-row {
+  .filter-row {
     display: grid;
     gap: 12px;
     align-items: end;
   }
 
-  .filter-top-row {
-    grid-template-columns: minmax(280px, 1.4fr) minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  .filter-row.first {
+    grid-template-columns: minmax(300px, 1.5fr) minmax(210px, 1fr) minmax(240px, 1fr) auto;
     margin-bottom: 12px;
   }
 
-  .filter-bottom-row {
+  .filter-row.second {
     grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
   }
 
@@ -2016,11 +2089,10 @@ const dashboardStyles = `
   .custom-range-panel small {
     display: block;
     margin-bottom: 7px;
-    color: #8ea0d6;
+    color: #9fb2ee;
     font-size: 11px;
-    font-weight: 900;
+    font-weight: 800;
     letter-spacing: 0.12em;
-    text-transform: uppercase;
   }
 
   input,
@@ -2059,52 +2131,112 @@ const dashboardStyles = `
     min-height: auto;
   }
 
-  .date-picker-wrap {
+  .date-picker-wrap,
+  .multi-wrap {
     position: relative;
   }
 
-  .date-picker-button {
+  .date-picker-button,
+  .multi-button {
     width: 100%;
-    min-height: 52px;
+    min-height: 48px;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
     padding: 0 14px;
     color: #e7ecff;
     border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 16px;
+    border-radius: 15px;
     background: rgba(5,8,18,0.9);
     cursor: pointer;
     text-align: left;
   }
 
-  .date-picker-button span,
-  .date-picker-button b {
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-  }
-
-  .date-picker-button strong {
+  .date-picker-button strong,
+  .multi-button strong {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .date-picker-popover {
+  .date-picker-button b,
+  .multi-button b {
+    color: #8ea0d6;
+    font-size: 11px;
+  }
+
+  .date-picker-popover,
+  .multi-menu {
     position: absolute;
     top: calc(100% + 10px);
     left: 0;
-    z-index: 100;
-    width: min(760px, 92vw);
-    display: grid;
-    grid-template-columns: 240px minmax(0, 1fr);
+    z-index: 200;
     overflow: hidden;
     border-radius: 22px;
     border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(16,22,36,0.98);
+    background: rgba(16,22,36,0.99);
     box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+  }
+
+  .date-picker-popover {
+    width: min(760px, 92vw);
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  .multi-menu {
+    width: min(340px, 88vw);
+    padding: 10px;
+  }
+
+  .multi-menu input {
+    margin-bottom: 8px;
+  }
+
+  .multi-options {
+    display: grid;
+    gap: 6px;
+    max-height: 260px;
+    overflow: auto;
+  }
+
+  .multi-option {
+    width: 100%;
+    min-height: 38px;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #e5ebff;
+    padding: 0 10px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .multi-option span {
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  .multi-option strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .multi-option.active,
+  .multi-option:hover,
+  .multi-option.all:hover {
+    background: rgba(255,255,255,0.08);
+  }
+
+  .multi-option.active span {
+    color: #34d399;
   }
 
   .date-preset-list {
@@ -2191,11 +2323,10 @@ const dashboardStyles = `
   }
 
   .kpi-card span {
-    color: #a8b7ef;
+    color: #c4d0ff;
     font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 850;
+    letter-spacing: 0.08em;
   }
 
   .kpi-card strong {
@@ -2205,9 +2336,9 @@ const dashboardStyles = `
   }
 
   .kpi-card small {
-    color: #cbd5ff;
+    color: #d6ddff;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 850;
   }
 
   .chart-grid {
@@ -2221,6 +2352,10 @@ const dashboardStyles = `
   .panel {
     border-radius: 26px;
     padding: 20px;
+  }
+
+  .chart-card.large {
+    min-height: 430px;
   }
 
   .chart-head,
@@ -2289,7 +2424,7 @@ const dashboardStyles = `
   .bar-line span {
     color: #cdd7ff;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 850;
     white-space: nowrap;
   }
 
@@ -2307,14 +2442,15 @@ const dashboardStyles = `
 
   .donut-layout {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    gap: 18px;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 22px;
     align-items: center;
+    min-height: 320px;
   }
 
   .donut {
-    width: 220px;
-    height: 220px;
+    width: 300px;
+    height: 300px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -2334,7 +2470,7 @@ const dashboardStyles = `
 
   .donut-hole strong {
     display: block;
-    font-size: 32px;
+    font-size: 36px;
     letter-spacing: -0.04em;
   }
 
@@ -2342,8 +2478,7 @@ const dashboardStyles = `
     display: block;
     color: #8ea0d6;
     font-size: 11px;
-    font-weight: 900;
-    text-transform: uppercase;
+    font-weight: 850;
     letter-spacing: 0.1em;
   }
 
@@ -2381,7 +2516,7 @@ const dashboardStyles = `
   .donut-legend span {
     color: #cdd7ff;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 850;
     white-space: nowrap;
   }
 
@@ -2399,6 +2534,14 @@ const dashboardStyles = `
     border: 1px solid rgba(255,255,255,0.08);
     background: rgba(255,255,255,0.03);
     padding: 16px;
+  }
+
+  .mini-rank-card.green {
+    background: linear-gradient(180deg, rgba(16,185,129,0.08), rgba(255,255,255,0.025));
+  }
+
+  .mini-rank-card.red {
+    background: linear-gradient(180deg, rgba(239,68,68,0.09), rgba(255,255,255,0.025));
   }
 
   .mini-rank-card h3 {
@@ -2421,12 +2564,16 @@ const dashboardStyles = `
 
   .mini-rank-card button span {
     color: #ffffff;
-    font-weight: 900;
+    font-weight: 850;
   }
 
   .mini-rank-card button small {
     color: #8ea0d6;
     font-weight: 800;
+  }
+
+  .leaderboard-table-wrap {
+    max-height: 660px;
   }
 
   .table-wrap,
@@ -2450,13 +2597,12 @@ const dashboardStyles = `
     z-index: 2;
     padding: 14px 12px;
     text-align: left;
-    color: #8ea0d6;
+    color: #9fb2ee;
     background: rgba(10,18,34,0.96);
     border-bottom: 1px solid rgba(255,255,255,0.08);
     font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 850;
+    letter-spacing: 0.1em;
   }
 
   td {
@@ -2464,6 +2610,16 @@ const dashboardStyles = `
     border-bottom: 1px solid rgba(255,255,255,0.06);
     color: #e5ebff;
     vertical-align: top;
+  }
+
+  td.good {
+    color: #bbf7d0;
+    font-weight: 850;
+  }
+
+  td.bad {
+    color: #fecdd3;
+    font-weight: 850;
   }
 
   td small {
@@ -2493,7 +2649,7 @@ const dashboardStyles = `
     padding: 0;
     color: #ffffff;
     background: transparent;
-    font-weight: 900;
+    font-weight: 850;
     cursor: pointer;
     text-align: left;
   }
@@ -2510,7 +2666,7 @@ const dashboardStyles = `
   }
 
   .weekly-controls label {
-    min-width: 240px;
+    min-width: 260px;
   }
 
   .weekly-table-wrap {
@@ -2536,7 +2692,7 @@ const dashboardStyles = `
     border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.025);
     cursor: default;
-    font-weight: 900;
+    font-weight: 850;
   }
 
   .metric-cell.has-data {
@@ -2575,15 +2731,6 @@ const dashboardStyles = `
     border-bottom: 1px solid rgba(255,255,255,0.08);
   }
 
-  .modal-head p {
-    margin: 0 0 8px;
-    color: #8ea0d6;
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-  }
-
   .modal-head h2 {
     margin: 0 0 8px;
     font-size: 30px;
@@ -2600,16 +2747,22 @@ const dashboardStyles = `
     align-items: center;
   }
 
-  .modal-filter-grid {
-    display: grid;
-    grid-template-columns: 1.5fr repeat(5, minmax(0, 1fr));
-    gap: 12px;
-    padding: 18px 24px;
+  .modal-filter-block {
+    padding: 16px 24px;
     border-bottom: 1px solid rgba(255,255,255,0.08);
   }
 
+  .modal-filter-block .filter-panel {
+    margin-bottom: 12px;
+    box-shadow: none;
+  }
+
+  .modal-search {
+    display: block;
+  }
+
   .modal-table-wrap {
-    max-height: calc(92vh - 230px);
+    max-height: calc(92vh - 360px);
     border-radius: 0;
     border-left: 0;
     border-right: 0;
@@ -2641,9 +2794,25 @@ const dashboardStyles = `
     margin-top: 18px;
   }
 
+  .jump-top {
+    position: fixed;
+    right: 26px;
+    bottom: 26px;
+    z-index: 1500;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 14px 16px;
+    color: #ffffff;
+    font-weight: 850;
+    font-size: 14px;
+    cursor: pointer;
+    background: linear-gradient(135deg, rgba(37,99,235,0.94), rgba(124,58,237,0.9), rgba(219,39,119,0.88));
+    box-shadow: 0 16px 36px rgba(0,0,0,0.35);
+  }
+
   @media (max-width: 1250px) {
-    .filter-top-row,
-    .filter-bottom-row,
+    .filter-row.first,
+    .filter-row.second,
     .kpi-grid,
     .leaderboard-cards {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2657,10 +2826,6 @@ const dashboardStyles = `
       grid-template-columns: 1fr;
       justify-items: center;
     }
-
-    .modal-filter-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   }
 
   @media (max-width: 760px) {
@@ -2668,7 +2833,6 @@ const dashboardStyles = `
       padding: 20px 12px 56px;
     }
 
-    .topbar,
     .hero-panel,
     .chart-head,
     .section-title-row,
@@ -2677,12 +2841,11 @@ const dashboardStyles = `
       align-items: stretch;
     }
 
-    .filter-top-row,
-    .filter-bottom-row,
+    .filter-row.first,
+    .filter-row.second,
     .kpi-grid,
     .leaderboard-cards,
-    .custom-range-grid,
-    .modal-filter-grid {
+    .custom-range-grid {
       grid-template-columns: 1fr;
     }
 
@@ -2698,6 +2861,11 @@ const dashboardStyles = `
 
     .hero-panel h1 {
       font-size: 42px;
+    }
+
+    .donut {
+      width: 240px;
+      height: 240px;
     }
   }
 `;
