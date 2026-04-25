@@ -29,6 +29,44 @@ function getKeyFingerprint(value) {
   return `${cleaned.slice(0, 6)}...${cleaned.slice(-6)}`;
 }
 
+async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) {
+  const { data, error } = await adminClient
+    .from("api_keys")
+    .select("secret_value, masked_value, updated_at")
+    .eq("key_type", keyType)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error && error.code !== "42P01") {
+    throw new Error(error.message || `Could not load active ${displayName} API key.`);
+  }
+
+  const savedSecret = String(data?.[0]?.secret_value || "").trim();
+
+  if (savedSecret) {
+    return {
+      value: savedSecret,
+      source: "admin_api_key_vault",
+      fingerprint: data?.[0]?.masked_value || getKeyFingerprint(savedSecret),
+    };
+  }
+
+  const fallbackSecret = getEnv(envName);
+
+  if (fallbackSecret) {
+    return {
+      value: fallbackSecret,
+      source: "vercel_env_fallback",
+      fingerprint: getKeyFingerprint(fallbackSecret),
+    };
+  }
+
+  throw new Error(
+    `No active ${displayName} API key found. Save it in Admin → API key vault first.`
+  );
+}
+
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
@@ -51,6 +89,7 @@ function canRunAudits(profile) {
     profile?.is_active === true &&
       (profile?.role === "master_admin" ||
         profile?.role === "admin" ||
+        profile?.role === "audit_runner" ||
         profile?.can_run_tests === true)
   );
 }
@@ -372,13 +411,12 @@ export async function POST(request) {
     const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
     const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const intercomApiKey = getEnv("INTERCOM_API_KEY");
 
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey || !intercomApiKey) {
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       return json(
         {
           ok: false,
-          error: "Missing required environment variables.",
+          error: "Missing required Supabase environment variables.",
         },
         { status: 500 }
       );
@@ -452,6 +490,15 @@ export async function POST(request) {
         { status: 403 }
       );
     }
+
+    const intercomKey = await loadActiveApiKey({
+      adminClient,
+      keyType: "intercom",
+      envName: "INTERCOM_API_KEY",
+      displayName: "Intercom",
+    });
+
+    const intercomApiKey = intercomKey.value;
 
     const body = await request.json();
     const startDate = String(body?.startDate || "").trim();
@@ -529,8 +576,8 @@ export async function POST(request) {
             maxFetchPagesPerDay: MAX_FETCH_PAGES_PER_DAY,
             lowCsatScores: LOW_CSAT_SCORES,
             auth: {
-              tokenSource: "INTERCOM_API_KEY",
-              tokenFingerprint: getKeyFingerprint(intercomApiKey),
+              tokenSource: intercomKey.source,
+              tokenFingerprint: intercomKey.fingerprint,
             },
             dailySummary,
           }
