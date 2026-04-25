@@ -533,6 +533,7 @@ export default function AdminPage() {
   const [seedLoading, setSeedLoading] = useState(false);
 
   const [profileRows, setProfileRows] = useState([]);
+  const [roleGrantRows, setRoleGrantRows] = useState([]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [roleForm, setRoleForm] = useState(createEmptyRoleForm());
   const [roleSearch, setRoleSearch] = useState("");
@@ -785,21 +786,34 @@ export default function AdminPage() {
     }
   }
 
-  async function loadProfilesData() {
+  async function loadRoleAccessData(activeSession, allowed = canManageUsersNow) {
+    if (!allowed || !activeSession?.access_token) {
+      setProfileRows([]);
+      setRoleGrantRows([]);
+      return;
+    }
+
     setProfileLoading(true);
 
     try {
-      const { data, error } = await withTimeout(
-        supabase
-          .from("profiles")
-          .select("id, email, full_name, role, can_run_tests, is_active")
-          .order("email", { ascending: true }),
-        "Loading user profiles"
+      const response = await withTimeout(
+        fetch("/api/admin/role-grants", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+        }),
+        "Loading user role grants"
       );
 
-      if (error) throw new Error(error.message || "Could not load user profiles.");
+      const data = await readApiJson(response);
 
-      setProfileRows(Array.isArray(data) ? data : []);
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load user role grants.");
+      }
+
+      setProfileRows(Array.isArray(data.profiles) ? data.profiles : []);
+      setRoleGrantRows(Array.isArray(data.grants) ? data.grants : []);
     } finally {
       setProfileLoading(false);
     }
@@ -852,7 +866,7 @@ export default function AdminPage() {
       loadPromptData(activeSession),
       loadMappingsData(),
       loadSupervisorTeamsData(),
-      loadProfilesData(),
+      loadRoleAccessData(activeSession, canManageUsers(effectiveProfile)),
     ];
 
     if (allowApiKeys) {
@@ -1668,25 +1682,25 @@ export default function AdminPage() {
 
   function handleUseRoleCandidate(option) {
     const email = normalizeEmail(option?.employee_email);
-    const existing = email
-      ? profileRows.find((row) => normalizeEmail(row?.email) === email)
+    const existingAccess = email
+      ? roleAccessRows.find((row) => normalizeEmail(row?.email) === email)
       : null;
 
     setRoleCandidateSearch(option?.employee_name || "");
     setRoleForm({
-      id: existing?.id || "",
+      id: existingAccess?.id || "",
       email,
-      full_name: option?.employee_name || existing?.full_name || "",
-      role: existing?.role || "viewer",
-      can_run_tests: Boolean(existing?.can_run_tests),
-      is_active: existing ? existing.is_active !== false : true,
+      full_name: option?.employee_name || existingAccess?.full_name || "",
+      role: existingAccess?.role || "viewer",
+      can_run_tests: Boolean(existingAccess?.can_run_tests),
+      is_active: existingAccess ? existingAccess.is_active !== false : true,
     });
 
     setPageError("");
     setPageSuccess(
-      existing
-        ? `Selected ${option?.employee_name || email} from Agent Mapping.`
-        : "Employee selected. This user must sign in once before role assignment can be saved."
+      existingAccess
+        ? `Selected ${option?.employee_name || email}. Existing access record found.`
+        : "Employee selected. You can pre-grant access before this user signs in."
     );
   }
 
@@ -1749,14 +1763,7 @@ export default function AdminPage() {
       return;
     }
 
-    const existing = profileRows.find((row) => normalizeEmail(row?.email) === email);
     const lockedName = getLockedNameForEmail(email, mappingRows);
-
-    if (!existing && !roleForm.id) {
-      setPageError("This user needs to sign in once before you can assign their role.");
-      return;
-    }
-
     const nextRole = email === MASTER_ADMIN_EMAIL ? "master_admin" : roleForm.role;
     const nextCanRunTests = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.can_run_tests);
     const nextIsActive = email === MASTER_ADMIN_EMAIL ? true : Boolean(roleForm.is_active);
@@ -1773,34 +1780,44 @@ export default function AdminPage() {
     setRoleSaveLoading(true);
 
     try {
-      const targetId = roleForm.id || existing?.id;
+      const freshSession = await getFreshSession();
 
-      const { error } = await withTimeout(
-        supabase
-          .from("profiles")
-          .update({
+      const response = await withTimeout(
+        fetch("/api/admin/role-grants", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
             email,
-            full_name: nextName,
+            fullName: nextName,
             role: nextRole,
-            can_run_tests: nextCanRunTests,
-            is_active: nextIsActive,
-          })
-          .eq("id", targetId),
-        "Saving user role"
+            canRunTests: nextCanRunTests,
+            isActive: nextIsActive,
+          }),
+        }),
+        "Saving user role grant"
       );
 
-      if (error) throw new Error(error.message || "Could not update user role.");
+      const data = await readApiJson(response);
 
-      setPageSuccess("User role updated.");
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not save user role grant.");
+      }
+
+      setProfileRows(Array.isArray(data.profiles) ? data.profiles : []);
+      setRoleGrantRows(Array.isArray(data.grants) ? data.grants : []);
+      setPageSuccess(data.message || "User role grant saved.");
       setRoleForm(createEmptyRoleForm());
-      await loadProfilesData();
+      setRoleCandidateSearch("");
 
       if (session?.user) {
         const profileResult = await loadProfile(session.user);
         setProfile(profileResult.profile);
       }
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not update user role.");
+      setPageError(error instanceof Error ? error.message : "Could not save user role grant.");
     } finally {
       setRoleSaveLoading(false);
     }
@@ -1901,16 +1918,73 @@ export default function AdminPage() {
     });
   }, [mappingTableRows, mappingSearch, mappingStatusFilter, mappingQualityFilter]);
 
+  const roleAccessRows = useMemo(() => {
+    const byEmail = new Map();
+
+    for (const row of profileRows || []) {
+      const email = normalizeEmail(row?.email);
+      if (!email) continue;
+
+      byEmail.set(email, {
+        id: row.id || email,
+        profile_id: row.id || "",
+        grant_id: "",
+        email,
+        full_name: row.full_name || "",
+        role: row.role || "viewer",
+        can_run_tests: Boolean(row.can_run_tests),
+        is_active: row.is_active !== false,
+        has_profile: true,
+        has_grant: false,
+        source_label: "Signed in",
+      });
+    }
+
+    for (const grant of roleGrantRows || []) {
+      const email = normalizeEmail(grant?.email);
+      if (!email) continue;
+
+      const existing = byEmail.get(email) || {};
+
+      byEmail.set(email, {
+        ...existing,
+        id: grant.id || existing.id || email,
+        profile_id: existing.profile_id || "",
+        grant_id: grant.id || "",
+        email,
+        full_name: grant.full_name || existing.full_name || "",
+        role: grant.role || existing.role || "viewer",
+        can_run_tests: Boolean(grant.can_run_tests),
+        is_active: grant.is_active !== false,
+        has_profile: Boolean(existing.has_profile),
+        has_grant: true,
+        source_label: existing.has_profile ? "Signed in + pre-grant" : "Pre-granted",
+      });
+    }
+
+    return Array.from(byEmail.values()).sort((a, b) => {
+      const aCreator = normalizeEmail(a.email) === MASTER_ADMIN_EMAIL;
+      const bCreator = normalizeEmail(b.email) === MASTER_ADMIN_EMAIL;
+
+      if (aCreator !== bCreator) return aCreator ? -1 : 1;
+
+      const aName = normalizeText(a.full_name) || normalizeEmail(a.email);
+      const bName = normalizeText(b.full_name) || normalizeEmail(b.email);
+      return aName.localeCompare(bName);
+    });
+  }, [profileRows, roleGrantRows]);
+
   const filteredProfileRows = useMemo(() => {
     const term = normalizeKey(roleSearch);
 
-    return profileRows.filter((row) => {
+    return roleAccessRows.filter((row) => {
       if (!term) return true;
 
       return [
         row?.email,
         row?.full_name,
         row?.role,
+        row?.source_label,
         row?.can_run_tests ? "run audit" : "no run audit",
         row?.is_active ? "active" : "inactive",
       ]
@@ -1918,7 +1992,7 @@ export default function AdminPage() {
         .join(" ")
         .includes(term);
     });
-  }, [profileRows, roleSearch]);
+  }, [roleAccessRows, roleSearch]);
 
   const filteredSupervisorTeams = useMemo(() => {
     const term = normalizeKey(supervisorSearch);
@@ -2880,7 +2954,7 @@ export default function AdminPage() {
                 <p className="eyebrow">Access control</p>
                 <h2>User roles</h2>
                 <p className="muted">
-                  Manage existing user profiles. New users need to sign in once before role assignment.
+                  Pre-grant access by nextventures.io email before a user signs in, or update users who already have profiles.
                 </p>
               </div>
 
@@ -3013,7 +3087,7 @@ export default function AdminPage() {
                       type="button"
                       className="primary-btn"
                       onClick={handleSaveRole}
-                      disabled={!canManageUsersNow || roleSaveLoading || !roleForm.id}
+                      disabled={!canManageUsersNow || roleSaveLoading || !normalizeEmail(roleForm.email)}
                     >
                       {roleSaveLoading ? "Saving..." : "Save role"}
                     </button>
@@ -3052,6 +3126,7 @@ export default function AdminPage() {
                           <div>
                             <strong>{row.full_name || row.email}</strong>
                             <small>{row.email}</small>
+                            <em>{row.source_label || (row.has_profile ? "Signed in" : "Pre-granted")}</em>
                           </div>
 
                           <div className="profile-card-meta">
