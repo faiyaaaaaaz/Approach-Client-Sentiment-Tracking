@@ -156,6 +156,53 @@ function canManageApiKeys(profile) {
   );
 }
 
+function canViewActivityLogs(profile) {
+  const email = normalizeEmail(profile?.email);
+  const role = normalizeKey(profile?.role);
+
+  return Boolean(
+    profile?.is_active === true && (email === MASTER_ADMIN_EMAIL || role === "master_admin")
+  );
+}
+
+function createEmptyActivityFilters() {
+  return {
+    start_date: "",
+    end_date: "",
+    email: "",
+    action_type: "",
+    status: "",
+    area: "",
+    search: "",
+  };
+}
+
+function formatDuration(seconds) {
+  const totalSeconds = Number(seconds || 0);
+
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "Active / Unknown";
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = Math.floor(totalSeconds % 60);
+
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${remainingSeconds}s`;
+
+  return `${remainingSeconds}s`;
+}
+
+function activityActionLabel(value) {
+  const normalized = normalizeText(value).replaceAll("_", " ");
+  if (!normalized) return "Activity";
+
+  return normalized
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function createEmptyApiKeyForm() {
   return {
     key_label: "Primary key",
@@ -565,6 +612,7 @@ export default function AdminPage() {
   const [activityError, setActivityError] = useState("");
   const [activityFilters, setActivityFilters] = useState(createEmptyActivityFilters());
   const [activityLimit, setActivityLimit] = useState(150);
+  const [activityVisibleCount, setActivityVisibleCount] = useState(25);
 
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
@@ -584,6 +632,11 @@ export default function AdminPage() {
   const activeActivitySessions = useMemo(
     () => activitySessions.filter((item) => item.status === "active").length,
     [activitySessions]
+  );
+
+  const visibleActivityLogs = useMemo(
+    () => activityLogs.slice(0, activityVisibleCount),
+    [activityLogs, activityVisibleCount]
   );
 
   function updateActivityFilter(key, value) {
@@ -920,6 +973,7 @@ export default function AdminPage() {
 
       setActivityLogs(Array.isArray(data.logs) ? data.logs : []);
       setActivitySessions(Array.isArray(data.sessions) ? data.sessions : []);
+      setActivityVisibleCount(25);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load system activity logs.";
       setActivityError(message);
@@ -2564,7 +2618,7 @@ export default function AdminPage() {
                       </thead>
 
                       <tbody>
-                        {activityLogs.map((row) => (
+                        {visibleActivityLogs.map((row) => (
                           <tr key={row.id}>
                             <td>
                               <strong>{formatDateTime(row.created_at)}</strong>
@@ -2604,6 +2658,36 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                   )}
+
+                  {activityLogs.length > 0 ? (
+                    <div className="activity-log-pagination">
+                      <span>
+                        Showing {formatNumber(Math.min(visibleActivityLogs.length, activityLogs.length))} Of {formatNumber(activityLogs.length)} Logs
+                      </span>
+
+                      <div>
+                        {visibleActivityLogs.length < activityLogs.length ? (
+                          <button
+                            type="button"
+                            className="secondary-btn small"
+                            onClick={() => setActivityVisibleCount((count) => Math.min(count + 25, activityLogs.length))}
+                          >
+                            Show More
+                          </button>
+                        ) : null}
+
+                        {visibleActivityLogs.length > 25 ? (
+                          <button
+                            type="button"
+                            className="secondary-btn small"
+                            onClick={() => setActivityVisibleCount(25)}
+                          >
+                            Show Less
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <aside className="session-panel">
@@ -5251,6 +5335,29 @@ const adminStyles = `
     font-size: 12px;
     font-style: normal;
     font-weight: 800;
+  }
+
+
+  .activity-log-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 42, 0.72);
+  }
+
+  .activity-log-pagination span {
+    color: #b8c4e5;
+    font-size: 12px;
+    font-weight: 850;
+  }
+
+  .activity-log-pagination div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .session-panel {
