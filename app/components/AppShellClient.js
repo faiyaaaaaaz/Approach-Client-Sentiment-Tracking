@@ -456,14 +456,19 @@ export default function AppShellClient({ children }) {
             <div className="brand-badge">Next Ventures</div>
 
             <div className="brand-block">
-              <div className="brand-mark">
-                <div className="brand-mark-core" />
+              <div className="brand-mark" aria-hidden="true">
+                <span className="brand-orbit orbit-one" />
+                <span className="brand-orbit orbit-two" />
+                <span className="brand-node node-one" />
+                <span className="brand-node node-two" />
+                <span className="brand-node node-three" />
+                <div className="brand-mark-core">AI</div>
               </div>
 
               <div>
-                <h1 className="brand-title">Audit Intelligence</h1>
+                <h1 className="brand-title">AI Auditor & Dashboard Platform</h1>
                 <p className="brand-subtitle">
-                  Review approach and client sentiment tracking.
+                  Review Approach & Client Sentiment Tracking.
                 </p>
               </div>
             </div>
@@ -505,7 +510,7 @@ export default function AppShellClient({ children }) {
           <header className="topbar">
             <div>
               <div className="topbar-kicker">Internal quality platform</div>
-              <div className="topbar-title">Review approach & client sentiment tracking</div>
+              <div className="topbar-title">Review Approach & Client Sentiment Tracking</div>
             </div>
 
             <div ref={profileMenuRef} className="profile-wrap">
@@ -752,37 +757,102 @@ const appShellStyles = `
   }
 
   .brand-mark {
+    position: relative;
     display: grid;
     place-items: center;
-    width: 52px;
-    height: 52px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.18), rgba(139, 92, 246, 0.24), rgba(236, 72, 153, 0.16));
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 12px 35px rgba(76, 29, 149, 0.22);
+    width: 58px;
+    height: 58px;
+    flex: 0 0 auto;
+    border-radius: 22px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.22), transparent 20%),
+      linear-gradient(135deg, rgba(37, 99, 235, 0.34), rgba(139, 92, 246, 0.34), rgba(236, 72, 153, 0.2));
+    border: 1px solid rgba(147, 197, 253, 0.22);
+    box-shadow:
+      0 18px 42px rgba(76, 29, 149, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .brand-orbit,
+  .brand-node {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .brand-orbit {
+    border: 1px solid rgba(191, 219, 254, 0.28);
+    border-radius: 999px;
+    transform: rotate(-24deg);
+  }
+
+  .orbit-one {
+    width: 48px;
+    height: 23px;
+  }
+
+  .orbit-two {
+    width: 23px;
+    height: 48px;
+    transform: rotate(28deg);
+  }
+
+  .brand-node {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #cffafe;
+    box-shadow: 0 0 14px rgba(34, 211, 238, 0.8);
+  }
+
+  .node-one {
+    top: 12px;
+    right: 14px;
+  }
+
+  .node-two {
+    left: 13px;
+    bottom: 15px;
+  }
+
+  .node-three {
+    right: 13px;
+    bottom: 13px;
+    background: #f0abfc;
+    box-shadow: 0 0 14px rgba(217, 70, 239, 0.75);
   }
 
   .brand-mark-core {
-    width: 24px;
-    height: 24px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, #60a5fa 0%, #8b5cf6 55%, #ec4899 100%);
-    box-shadow: 0 0 24px rgba(139, 92, 246, 0.45);
+    position: relative;
+    z-index: 1;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: -0.04em;
+    background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 52%, #ec4899 100%);
+    box-shadow: 0 0 28px rgba(139, 92, 246, 0.58);
   }
 
   .brand-title {
     margin: 0;
-    font-size: 22px;
-    line-height: 1.05;
-    letter-spacing: -0.04em;
-    font-weight: 850;
+    max-width: 165px;
+    font-size: 19px;
+    line-height: 1.12;
+    letter-spacing: -0.045em;
+    font-weight: 900;
     color: #ffffff;
   }
 
   .brand-subtitle {
-    margin: 7px 0 0;
+    margin: 8px 0 0;
+    max-width: 170px;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.45;
     color: #9caed3;
   }
 
@@ -792,11 +862,11 @@ const appShellStyles = `
   }
 
   .nav-section-label {
-    padding: 0 4px;
-    font-size: 11px;
-    font-weight: 850;
+    padding: 0 6px;
+    font-size: 12px;
+    font-weight: 900;
     letter-spacing: 0.14em;
-    color: #7386af;
+    color: #8296c4;
   }
 
   .nav-list {
@@ -810,8 +880,8 @@ const appShellStyles = `
     grid-template-columns: 10px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
-    min-height: 52px;
-    padding: 0 14px;
+    min-height: 56px;
+    padding: 0 16px;
     border-radius: 18px;
     text-decoration: none;
     color: #dce7ff;
@@ -820,6 +890,8 @@ const appShellStyles = `
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.04),
       0 10px 24px rgba(2, 6, 23, 0.18);
+    font-size: 15px;
+    font-weight: 800;
     transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
   }
 
@@ -880,23 +952,24 @@ const appShellStyles = `
   }
 
   .topbar {
-    position: sticky;
-    top: 14px;
+    position: relative;
     z-index: 500;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    min-height: 72px;
-    padding: 14px 18px;
+    min-height: 76px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 24px;
     background:
-      linear-gradient(180deg, rgba(11, 18, 39, 0.88), rgba(7, 12, 28, 0.78));
-    backdrop-filter: blur(20px);
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.1), transparent 34%),
+      linear-gradient(180deg, rgba(11, 18, 39, 0.94), rgba(7, 12, 28, 0.9));
+    backdrop-filter: blur(18px);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 18px 60px rgba(2, 6, 23, 0.22);
+      0 18px 60px rgba(2, 6, 23, 0.18);
   }
 
   .topbar-kicker {
@@ -908,10 +981,10 @@ const appShellStyles = `
 
   .topbar-title {
     margin-top: 7px;
-    font-size: 21px;
+    font-size: 23px;
     line-height: 1.1;
     letter-spacing: -0.04em;
-    font-weight: 850;
+    font-weight: 900;
     color: #ffffff;
   }
 
