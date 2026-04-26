@@ -9,6 +9,8 @@ const INTERCOM_BASE_URL =
 
 const PAGE_SIZE = 1000;
 const MAX_DASHBOARD_ROWS = 50000;
+const DASHBOARD_CACHE_KEY = "cx-insights-dashboard-cache-v1";
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const REVIEW_SENTIMENT_ORDER = [
   "Highly Likely Positive Review",
@@ -58,6 +60,30 @@ const WEEKLY_METRIC_OPTIONS = [
   { key: "unresolved", label: "Unresolved" },
   { key: "resolutionRate", label: "Resolution Rate" },
 ];
+
+
+function readClientCache(key) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeClientCache(key, value) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (_error) {
+    // Ignore quota or serialization failures.
+  }
+}
 
 function normalizeText(value, fallback = "-") {
   const text = String(value || "").trim();
@@ -1732,8 +1758,26 @@ export default function DashboardPage() {
     }
 
     async function loadRows() {
-      setLoading(true);
+      const cached = readClientCache(DASHBOARD_CACHE_KEY);
+      const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
+      const hasCachedRows = Array.isArray(cached?.rows) && cached.rows.length > 0;
+      const hasCachedTeams = Array.isArray(cached?.supervisorTeams);
+      const shouldHydrateFromCache = hasCachedRows || hasCachedTeams;
+      const shouldSkipNetwork = shouldHydrateFromCache && cacheAge <= DASHBOARD_CACHE_TTL_MS;
+
+      if (shouldHydrateFromCache && active) {
+        setRawRows(Array.isArray(cached?.rows) ? cached.rows : []);
+        setSupervisorTeams(Array.isArray(cached?.supervisorTeams) ? cached.supervisorTeams : []);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
       setError("");
+
+      if (shouldSkipNetwork) {
+        return;
+      }
 
       try {
         const [loadedSupervisorTeams] = await Promise.all([loadSupervisorTeams()]);
@@ -1783,11 +1827,19 @@ export default function DashboardPage() {
 
         setSupervisorTeams(loadedSupervisorTeams);
         setRawRows(allRows);
+        writeClientCache(DASHBOARD_CACHE_KEY, {
+          savedAt: Date.now(),
+          rows: allRows,
+          supervisorTeams: loadedSupervisorTeams,
+        });
       } catch (loadError) {
         if (!active) return;
         setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
-        setRawRows([]);
-        setSupervisorTeams([]);
+
+        if (!shouldHydrateFromCache) {
+          setRawRows([]);
+          setSupervisorTeams([]);
+        }
       } finally {
         if (active) setLoading(false);
       }
