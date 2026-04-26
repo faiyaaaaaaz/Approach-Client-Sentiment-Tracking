@@ -50,11 +50,10 @@ const RANGE_OPTIONS = [
 ];
 
 const WEEKLY_METRIC_OPTIONS = [
-  { key: "missedVeryPositive", label: "Missed Opportunities + Very Positive" },
-  { key: "total", label: "Total Conversations" },
-  { key: "likelyPositive", label: "Likely Positive Reviews" },
   { key: "missed", label: "Missed Opportunities" },
   { key: "veryPositive", label: "Very Positive" },
+  { key: "total", label: "Total Conversations" },
+  { key: "likelyPositive", label: "Likely Positive Reviews" },
   { key: "likelyNegative", label: "Likely Negative Reviews" },
   { key: "unresolved", label: "Unresolved" },
   { key: "resolutionRate", label: "Resolution Rate" },
@@ -563,6 +562,27 @@ function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
   };
 }
 
+function createWeeklyDefaultFilters() {
+  const filters = createBaseFilters("past_12_weeks", true);
+  filters.reviewSentiments = ["Missed Opportunity"];
+  filters.clientSentiments = ["Very Positive"];
+  return filters;
+}
+
+function detailFiltersWith(baseFilters, overrides = {}) {
+  const next = cloneFilters(baseFilters, "all", false);
+
+  for (const [key, value] of Object.entries(overrides || {})) {
+    if (Array.isArray(value)) {
+      next[key] = [...value];
+    } else if (value !== undefined) {
+      next[key] = value;
+    }
+  }
+
+  return next;
+}
+
 function cloneFilters(filters, fallbackPreset = "all", fallbackCexOnly = false) {
   const source = filters || createBaseFilters(fallbackPreset, fallbackCexOnly);
 
@@ -695,9 +715,6 @@ function rowsInPeriod(rows, period) {
 }
 
 function metricRows(rows, metric) {
-  if (metric === "missedVeryPositive") {
-    return rows.filter((row) => row.review_sentiment === "Missed Opportunity" || row.client_sentiment === "Very Positive");
-  }
   if (metric === "likelyPositive") return rows.filter(isLikelyPositiveReview);
   if (metric === "missed") return rows.filter((row) => row.review_sentiment === "Missed Opportunity");
   if (metric === "veryPositive") return rows.filter((row) => row.client_sentiment === "Very Positive");
@@ -716,15 +733,6 @@ function metricValue(rows, metric) {
 }
 
 function formatMetricValue(rows, metric) {
-  if (metric === "missedVeryPositive") {
-    const missed = metricRows(rows, "missed").length;
-    const veryPositive = metricRows(rows, "veryPositive").length;
-
-    if (!missed && !veryPositive) return "-";
-
-    return `MO ${formatNumber(missed)} · VP ${formatNumber(veryPositive)}`;
-  }
-
   const value = metricValue(rows, metric);
 
   if (metric === "resolutionRate") {
@@ -1214,6 +1222,7 @@ function ChartCard({ title, subtitle, onDrill, children, larger = false }) {
 }
 
 function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
+  const [hovered, setHovered] = useState(null);
   const visibleEntries = entries.filter((entry) => entry.count > 0);
   const max = Math.max(...visibleEntries.map((item) => item.count), 1);
 
@@ -1227,9 +1236,19 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
         const percent = total ? (entry.count / total) * 100 : 0;
         const width = Math.max((entry.count / max) * 100, 5);
         const color = chartGradient(entry.label, kind, 0);
+        const isHovered = hovered === entry.label;
 
         return (
-          <button key={entry.label} type="button" className="bar-item" onClick={() => onSelect(entry)}>
+          <button
+            key={entry.label}
+            type="button"
+            className="bar-item"
+            onMouseEnter={() => setHovered(entry.label)}
+            onMouseLeave={() => setHovered(null)}
+            onFocus={() => setHovered(entry.label)}
+            onBlur={() => setHovered(null)}
+            onClick={() => onSelect(entry)}
+          >
             <div className="bar-line">
               <strong title={entry.label}>{entry.label}</strong>
               <span>
@@ -1240,6 +1259,15 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
             <div className="bar-track">
               <div className="bar-fill" style={{ width: `${width}%`, background: color }} />
             </div>
+
+            {isHovered ? (
+              <span className="chart-hover-card bar-hover-card">
+                <strong>{entry.label}</strong>
+                <small>
+                  {formatNumber(entry.count)} ({formatPercent(percent)})
+                </small>
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -1248,27 +1276,69 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
 }
 
 function DonutChart({ entries, total, onSelect, kind = "result" }) {
+  const [hovered, setHovered] = useState(null);
   const visibleEntries = entries.filter((entry) => entry.count > 0);
   const coloredEntries = visibleEntries.map((entry, index) => ({
     ...entry,
     color: chartColor(entry.label, kind, index),
   }));
   const segments = buildPieSegments(coloredEntries, coloredEntries.map((entry) => entry.color));
-  const gradient = buildConicGradient(segments);
 
   return (
     <div className="donut-layout">
-      <div className="donut" style={{ background: gradient }}>
+      <div className="donut svg-donut">
+        <svg viewBox="0 0 300 300" aria-label={`${kind} breakdown`}>
+          <circle className="donut-base-ring" cx="150" cy="150" r="104" />
+          {segments.map((segment) => (
+            <circle
+              key={segment.label}
+              className="donut-segment"
+              cx="150"
+              cy="150"
+              r="104"
+              pathLength="100"
+              stroke={segment.color}
+              strokeDasharray={`${segment.percent} ${100 - segment.percent}`}
+              strokeDashoffset={-segment.start}
+              onMouseEnter={() => setHovered(segment)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(segment)}
+              onBlur={() => setHovered(null)}
+              onClick={() => onSelect(segment)}
+              tabIndex={0}
+              role="button"
+              aria-label={`${segment.label}: ${formatNumber(segment.count)} (${formatPercent(segment.percent)})`}
+            />
+          ))}
+        </svg>
+
         <div className="donut-hole">
           <strong>{formatNumber(total)}</strong>
           <span>Total</span>
         </div>
+
+        {hovered ? (
+          <div className="chart-hover-card donut-hover-card">
+            <strong>{hovered.label}</strong>
+            <small>
+              {formatNumber(hovered.count)} ({formatPercent(hovered.percent)})
+            </small>
+          </div>
+        ) : null}
       </div>
 
       <div className="donut-legend">
         {segments.length ? (
           segments.map((segment) => (
-            <button key={segment.label} type="button" onClick={() => onSelect(segment)}>
+            <button
+              key={segment.label}
+              type="button"
+              onMouseEnter={() => setHovered(segment)}
+              onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(segment)}
+              onBlur={() => setHovered(null)}
+              onClick={() => onSelect(segment)}
+            >
               <i style={{ background: segment.color }} />
               <strong title={segment.label}>{segment.label}</strong>
               <span>
@@ -1468,7 +1538,7 @@ function WeeklyAgentTable({
           <p>Weekly Performance Table</p>
           <div className="title-with-help">
             <h2>Agent Week By Week View</h2>
-            <InfoTip text="This table compares each agent across weekly periods for the selected date range and filters. By default, each cell shows Missed Opportunities and Very Positive results together. Click any employee or weekly cell to open the exact conversations behind the number." />
+            <InfoTip text="This table compares each agent across weekly periods for the selected date range and filters. By default, it is filtered to Review = Missed Opportunity and Client = Very Positive, so each cell shows one clean count. You can change the filters or metric anytime." />
           </div>
           <span>Click An Employee Or Weekly Cell To Open The Underlying Conversations.</span>
         </div>
@@ -1477,7 +1547,7 @@ function WeeklyAgentTable({
           <label>
             <span className="label-with-help">
               Metric
-              <InfoTip text="Change the table metric anytime. The default view shows MO for Missed Opportunities and VP for Very Positive client sentiment." />
+              <InfoTip text="Change the table metric anytime. The default setup counts Missed Opportunities where the client sentiment is Very Positive. The Review and Client filters below show this default clearly." />
             </span>
             <select value={metric} onChange={(event) => setMetric(event.target.value)}>
               {WEEKLY_METRIC_OPTIONS.map((item) => (
@@ -1503,7 +1573,7 @@ function WeeklyAgentTable({
         clientOptions={clientOptions}
         resolutionOptions={resolutionOptions}
         showMapping={false}
-        resetTo={() => createBaseFilters("past_12_weeks", true)}
+        resetTo={() => createWeeklyDefaultFilters()}
       />
 
       <div className="weekly-table-wrap">
@@ -1541,7 +1611,7 @@ function WeeklyAgentTable({
                         <button
                           type="button"
                           className={drillRows.length ? "metric-cell has-data" : "metric-cell"}
-                          title={metric === "missedVeryPositive" ? "MO = Missed Opportunities, VP = Very Positive" : metricLabel}
+                          title={metricLabel}
                           onClick={() =>
                             drillRows.length
                               ? onOpenDetail("Weekly Agent Drill In", `${employeeRow.employee} · ${period.label}`, drillRows, filters)
@@ -1599,8 +1669,8 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
-  const [weeklyFilters, setWeeklyFilters] = useState(createBaseFilters("past_12_weeks", true));
-  const [weeklyMetric, setWeeklyMetric] = useState("missedVeryPositive");
+  const [weeklyFilters, setWeeklyFilters] = useState(() => createWeeklyDefaultFilters());
+  const [weeklyMetric, setWeeklyMetric] = useState("missed");
   const [showJumpTop, setShowJumpTop] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(false);
 
@@ -1936,7 +2006,7 @@ export default function DashboardPage() {
                 "KPI Drill In",
                 "Missed Opportunities",
                 filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity"),
-                globalFilters
+                detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
               )
             }
           />
@@ -1950,7 +2020,7 @@ export default function DashboardPage() {
                 "KPI Drill In",
                 "Very Positive",
                 filteredRows.filter((row) => row.client_sentiment === "Very Positive"),
-                globalFilters
+                detailFiltersWith(globalFilters, { clientSentiments: ["Very Positive"] })
               )
             }
           />
@@ -1964,7 +2034,7 @@ export default function DashboardPage() {
                 "KPI Drill In",
                 "Resolved",
                 filteredRows.filter((row) => row.resolution_status === "Resolved"),
-                globalFilters
+                detailFiltersWith(globalFilters, { resolutionStatuses: ["Resolved"] })
               )
             }
           />
@@ -1978,7 +2048,7 @@ export default function DashboardPage() {
                 "KPI Drill In",
                 "Unresolved",
                 filteredRows.filter((row) => row.resolution_status === "Unresolved"),
-                globalFilters
+                detailFiltersWith(globalFilters, { resolutionStatuses: ["Unresolved"] })
               )
             }
           />
@@ -2020,26 +2090,60 @@ export default function DashboardPage() {
               <ChartCard
                 title="Missed Opportunities"
                 subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Client Sentiment`}
-                onDrill={() => openDetail("Missed Opportunities Drill In", "All Client Sentiments", missedRows, globalFilters)}
+                onDrill={() =>
+                  openDetail(
+                    "Missed Opportunities Drill In",
+                    "All Client Sentiments",
+                    missedRows,
+                    detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
+                  )
+                }
               >
                 <HorizontalBarChart
                   entries={missedClientEntries}
                   total={missedRows.length}
                   kind="client"
-                  onSelect={(entry) => openDetail("Missed Opportunities Drill In", entry.label, entry.rows, globalFilters)}
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Missed Opportunities Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, {
+                        reviewSentiments: ["Missed Opportunity"],
+                        clientSentiments: [entry.label],
+                      })
+                    )
+                  }
                 />
               </ChartCard>
 
               <ChartCard
                 title="Missed Opportunities"
                 subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Resolution Status`}
-                onDrill={() => openDetail("Missed Opportunities Drill In", "All Resolution Statuses", missedRows, globalFilters)}
+                onDrill={() =>
+                  openDetail(
+                    "Missed Opportunities Drill In",
+                    "All Resolution Statuses",
+                    missedRows,
+                    detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
+                  )
+                }
               >
                 <HorizontalBarChart
                   entries={missedResolutionEntries}
                   total={missedRows.length}
                   kind="resolution"
-                  onSelect={(entry) => openDetail("Missed Opportunities Drill In", entry.label, entry.rows, globalFilters)}
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Missed Opportunities Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, {
+                        reviewSentiments: ["Missed Opportunity"],
+                        resolutionStatuses: [entry.label],
+                      })
+                    )
+                  }
                 />
               </ChartCard>
 
@@ -2053,7 +2157,14 @@ export default function DashboardPage() {
                   entries={clientEntries}
                   total={filteredRows.length}
                   kind="client"
-                  onSelect={(entry) => openDetail("Client Sentiment Drill In", entry.label, entry.rows, globalFilters)}
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Client Sentiment Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, { clientSentiments: [entry.label] })
+                    )
+                  }
                 />
               </ChartCard>
 
@@ -2067,7 +2178,14 @@ export default function DashboardPage() {
                   entries={resolutionEntries}
                   total={filteredRows.length}
                   kind="resolution"
-                  onSelect={(entry) => openDetail("Resolution Drill In", entry.label, entry.rows, globalFilters)}
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Resolution Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, { resolutionStatuses: [entry.label] })
+                    )
+                  }
                 />
               </ChartCard>
             </section>
@@ -3091,12 +3209,58 @@ const dashboardStyles = `
     transform: translateY(-1px);
   }
 
+
+  .chart-hover-card {
+    pointer-events: none;
+    position: absolute;
+    z-index: 30;
+    min-width: 190px;
+    max-width: 300px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    color: #f8fbff;
+    border: 1px solid rgba(147, 197, 253, 0.24);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.18), transparent 36%),
+      #111827;
+    box-shadow:
+      0 22px 55px rgba(0, 0, 0, 0.58),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    text-align: left;
+  }
+
+  .chart-hover-card strong,
+  .chart-hover-card small {
+    display: block;
+  }
+
+  .chart-hover-card strong {
+    color: #ffffff;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .chart-hover-card small {
+    margin-top: 4px;
+    color: #dbeafe;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .bar-hover-card {
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
   .bar-list {
     display: grid;
     gap: 12px;
   }
 
   .bar-item {
+    position: relative;
+    overflow: visible;
     width: 100%;
     text-align: left;
     border-radius: 16px;
@@ -3162,6 +3326,52 @@ const dashboardStyles = `
     display: grid;
     place-items: center;
     box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+  }
+
+  .svg-donut {
+    position: relative;
+    overflow: visible;
+    background: transparent;
+  }
+
+  .svg-donut svg,
+  .svg-donut .donut-hole {
+    grid-area: 1 / 1;
+  }
+
+  .svg-donut svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+    overflow: visible;
+  }
+
+  .donut-base-ring {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.06);
+    stroke-width: 48;
+  }
+
+  .donut-segment {
+    fill: none;
+    stroke-width: 48;
+    stroke-linecap: butt;
+    cursor: pointer;
+    transition: opacity 0.18s ease, stroke-width 0.18s ease;
+    outline: none;
+  }
+
+  .donut-segment:hover,
+  .donut-segment:focus {
+    opacity: 0.86;
+    stroke-width: 54;
+  }
+
+  .donut-hover-card {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -118%);
+    text-align: center;
   }
 
   .donut-hole {
