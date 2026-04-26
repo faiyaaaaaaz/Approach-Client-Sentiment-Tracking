@@ -96,6 +96,27 @@ function getAvatarUrl(profile, session) {
   return "";
 }
 
+
+async function postClientActivity(session, payload) {
+  const token = session?.access_token;
+
+  if (!token) return;
+
+  try {
+    await fetch("/api/admin/activity-logs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+  } catch (_error) {
+    // Activity logs should never block the user experience.
+  }
+}
+
 function SidebarIcon({ kind, active = false }) {
   const stroke = active ? "#22d3ee" : "#94a3b8";
   const glow = active ? "rgba(34, 211, 238, 0.22)" : "rgba(148, 163, 184, 0.08)";
@@ -497,6 +518,25 @@ export default function AppShellClient({ children }) {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
+  useEffect(() => {
+    if (!session?.access_token) return undefined;
+
+    postClientActivity(session, {
+      action_type: "page_viewed",
+      page: pathname || "/",
+    });
+
+    const intervalId = window.setInterval(() => {
+      postClientActivity(session, {
+        action_type: "session_heartbeat",
+        page: pathname || "/",
+      });
+    }, 60 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [pathname, session?.access_token]);
+
+
   async function handleGoogleLogin() {
     setAuthMessage("");
 
@@ -512,6 +552,11 @@ export default function AppShellClient({ children }) {
   }
 
   async function handleLogout() {
+    await postClientActivity(session, {
+      action_type: "session_ended",
+      page: pathname || "/",
+    });
+
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
@@ -562,7 +607,7 @@ export default function AppShellClient({ children }) {
               </div>
 
               <div>
-                <h1 className="brand-title">AI Auditor & Insights Platform</h1>
+                <h1 className="brand-title">AI Auditor & Dashboard Platform</h1>
                 <p className="brand-subtitle">
                   Review Approach & Client Sentiment Tracking.
                 </p>
