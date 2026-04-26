@@ -754,11 +754,11 @@ export default function AdminPage() {
             .in("supervisor_team_id", teamIds)
             .order("employee_name", { ascending: true })
             .limit(10000),
-          "Loading Supervisor Team members"
+          "Loading Supervisor Team Members"
         );
 
         if (membersResult.error) {
-          throw new Error(membersResult.error.message || "Could not load Supervisor Team members.");
+          throw new Error(membersResult.error.message || "Could not load Supervisor Team Members.");
         }
 
         members = Array.isArray(membersResult.data) ? membersResult.data : [];
@@ -1017,7 +1017,7 @@ export default function AdminPage() {
     }
 
     if (!livePromptInput.trim()) {
-      setPageError("Live prompt cannot be empty.");
+      setPageError("Live Prompt cannot be empty.");
       return;
     }
 
@@ -1052,7 +1052,7 @@ export default function AdminPage() {
       setDbReady(Boolean(data.dbReady));
       setLivePromptInput(data?.prompt?.livePrompt || livePromptInput);
       setChangeNote("");
-      setPageSuccess("Live prompt saved. New audits will use the updated live prompt.");
+      setPageSuccess("Live Prompt saved. New audits will use the updated live prompt.");
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save the live prompt.");
     } finally {
@@ -1500,12 +1500,12 @@ export default function AdminPage() {
     const supervisorEmail = normalizeEmail(supervisorForm.supervisor_email);
 
     if (!supervisorName) {
-      setPageError("Supervisor name is required.");
+      setPageError("Supervisor Name is required.");
       return;
     }
 
     if (supervisorEmail && !supervisorEmail.endsWith("@nextventures.io")) {
-      setPageError("Supervisor email must use the nextventures.io domain.");
+      setPageError("Supervisor Email must use the nextventures.io domain.");
       return;
     }
 
@@ -1604,11 +1604,11 @@ export default function AdminPage() {
             .upsert(desiredMembers, {
               onConflict: "supervisor_team_id,employee_name",
             }),
-          "Saving Supervisor Team members"
+          "Saving Supervisor Team Members"
         );
 
         if (upsertError) {
-          throw new Error(upsertError.message || "Could not save Supervisor Team members.");
+          throw new Error(upsertError.message || "Could not save Supervisor Team Members.");
         }
       }
 
@@ -1617,7 +1617,7 @@ export default function AdminPage() {
           .from("supervisor_team_members")
           .select("id, employee_name")
           .eq("supervisor_team_id", savedTeam.id),
-        "Checking current Supervisor Team members"
+        "Checking current Supervisor Team Members"
       );
 
       if (currentMembersError) {
@@ -1633,7 +1633,7 @@ export default function AdminPage() {
       if (obsoleteIds.length > 0) {
         const { error: deleteError } = await withTimeout(
           supabase.from("supervisor_team_members").delete().in("id", obsoleteIds),
-          "Removing unselected Supervisor Team members"
+          "Removing unselected Supervisor Team Members"
         );
 
         if (deleteError) {
@@ -2107,7 +2107,7 @@ export default function AdminPage() {
     {
       label: "Prompt",
       value: dbReady ? "Ready" : "Not ready",
-      note: dbReady ? "Live prompt connected." : "Prompt storage unavailable.",
+      note: dbReady ? "Live Prompt connected." : "Prompt storage unavailable.",
       tone: dbReady ? "success" : "warning",
     },
     {
@@ -2127,7 +2127,7 @@ export default function AdminPage() {
       tone: inactiveMappingsCount ? "notice" : "success",
     },
     {
-      label: "Supervisor teams",
+      label: "Supervisor Teams",
       value: formatNumber(activeSupervisorTeamsCount),
       note: `${formatNumber(totalSupervisorMembersCount)} assigned member(s).`,
       tone: activeSupervisorTeamsCount ? "success" : "notice",
@@ -2148,10 +2148,10 @@ export default function AdminPage() {
 
       <section className="hero">
         <div>
-          <div className="hero-badge">Admin operations</div>
-          <h1>Control center</h1>
+          <div className="hero-badge">Admin Operations</div>
+          <h1>Control Center</h1>
           <p>
-            Manage live prompts, secure keys, role access, agent mappings, and Supervisor Teams from one premium command workspace.
+            Manage Live Prompts, Secure Keys, Role Access, Agent Mappings, And Supervisor Teams From One Premium Command Workspace.
           </p>
         </div>
 
@@ -2184,8 +2184,8 @@ export default function AdminPage() {
 
           <div className="admin-quick-nav" aria-label="Admin quick navigation">
             <a href="#live-prompt">Prompt</a>
-            {canManageApiKeysNow ? <a href="#api-vault">API vault</a> : null}
-            <a href="#supervisor-teams">Supervisor teams</a>
+            {canManageApiKeysNow ? <a href="#api-vault">API Vault</a> : null}
+            <a href="#supervisor-teams">Supervisor Teams</a>
             <a href="#user-roles">Roles</a>
             <a href="#agent-mappings">Mappings</a>
           </div>
@@ -2212,11 +2212,11 @@ export default function AdminPage() {
 
       {!session?.user ? (
         <section className="panel gate-panel">
-          <p className="eyebrow">Sign in required</p>
-          <h2>Admin is ready, but you are not signed in.</h2>
-          <p className="muted">Use your nextventures.io Google account to continue.</p>
+          <p className="eyebrow">Sign In Required</p>
+          <h2>Admin Is Ready, But You Are Not Signed In.</h2>
+          <p className="muted">Use Your Nextventures.io Google Account To Continue.</p>
           <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
-            Sign in with Google
+            Sign In With Google
           </button>
         </section>
       ) : !isAdmin ? (
@@ -2232,8 +2232,8 @@ export default function AdminPage() {
               <div className="section-head">
                 <div>
                   <p className="eyebrow">Live configuration</p>
-                  <h2>Live prompt</h2>
-                  <p className="muted">This is the prompt used by new audits. Update it here without changing code.</p>
+                  <h2>Live Prompt</h2>
+                  <p className="muted">This Is The Prompt Used By New Audits. Update It Here Without Changing Code.</p>
                 </div>
 
                 <span className={dbReady ? "status active" : "status inactive"}>
@@ -2245,7 +2245,7 @@ export default function AdminPage() {
                 className="textarea live"
                 value={livePromptInput}
                 onChange={(event) => setLivePromptInput(event.target.value)}
-                placeholder="Live prompt"
+                placeholder="Live Prompt"
               />
 
               <textarea
@@ -2262,12 +2262,12 @@ export default function AdminPage() {
                   onClick={handleSavePrompt}
                   disabled={saveLoading || !livePromptInput.trim()}
                 >
-                  {saveLoading ? "Saving..." : "Save prompt"}
+                  {saveLoading ? "Saving..." : "Save Prompt"}
                 </button>
               </div>
 
               <details className="trusted-prompt-drawer">
-                <summary>Original trusted prompt reference</summary>
+                <summary>Original Trusted Prompt Reference</summary>
                 <p>
                   This is kept as a read-only baseline. It is not meant to take over the live prompt unless you copy it manually.
                 </p>
@@ -2284,9 +2284,9 @@ export default function AdminPage() {
                 <div className="section-head">
                   <div>
                     <p className="eyebrow">Creator Master Admin only</p>
-                    <h2>API key vault</h2>
+                    <h2>API Key Vault</h2>
                     <p className="muted">
-                      Save replacement keys securely. Full key values are never displayed after saving; only masked values are returned to this page.
+                      Save Replacement Keys Securely. Full Key Values Are Never Displayed After Saving; Only Masked Values Are Returned To This Page.
                     </p>
                   </div>
 
@@ -2304,7 +2304,7 @@ export default function AdminPage() {
                         <div className="api-card-top">
                           <div>
                             <span>{type.label}</span>
-                            <strong>{activeKey ? activeKey.masked_value : "No active key saved"}</strong>
+                            <strong>{activeKey ? activeKey.masked_value : "No Active Key Saved"}</strong>
                             <p>{type.description}</p>
                           </div>
 
@@ -2363,7 +2363,7 @@ export default function AdminPage() {
                                 updateApiKeyForm(type.value, { make_active: event.target.checked })
                               }
                             />
-                            <span>Make active immediately</span>
+                            <span>Make Active Immediately</span>
                           </label>
 
                           <button
@@ -2431,8 +2431,8 @@ export default function AdminPage() {
             <article className="panel supervisor-builder">
               <div className="section-head">
                 <div>
-                  <p className="eyebrow">Supervisor teams</p>
-                  <h2>{supervisorForm.id ? "Edit supervisor team" : "Create supervisor team"}</h2>
+                  <p className="eyebrow">Supervisor Teams</p>
+                  <h2>{supervisorForm.id ? "Edit supervisor team" : "Create Supervisor Team"}</h2>
                   <p className="muted">
                     Add a supervisor, select mapped employees, and use this later as a Dashboard filter.
                   </p>
@@ -2448,7 +2448,7 @@ export default function AdminPage() {
               <div className="form-grid single">
                 <div className="form-grid two">
                   <label className="supervisor-name-field">
-                    <span>Supervisor name</span>
+                    <span>Supervisor Name</span>
                     <input
                       value={supervisorForm.supervisor_name}
                       onChange={(event) =>
@@ -2457,7 +2457,7 @@ export default function AdminPage() {
                           supervisor_name: event.target.value,
                         }))
                       }
-                      placeholder="Search existing employee or type a new supervisor"
+                      placeholder="Search Existing Employee or type a new supervisor"
                     />
 
                     {supervisorForm.supervisor_name.trim().length >= 2 ? (
@@ -2487,7 +2487,7 @@ export default function AdminPage() {
                   </label>
 
                   <label>
-                    <span>Supervisor email</span>
+                    <span>Supervisor Email</span>
                     <input
                       type="email"
                       value={supervisorForm.supervisor_email}
@@ -2528,13 +2528,13 @@ export default function AdminPage() {
                       }))
                     }
                   />
-                  <span>Active supervisor team</span>
+                  <span>Active Supervisor Team</span>
                 </label>
 
                 <div className="member-picker">
                   <div className="member-picker-head">
                     <div>
-                      <p className="eyebrow">Team members</p>
+                      <p className="eyebrow">Team Members</p>
                       <h3>{formatNumber(supervisorForm.members.length)} selected</h3>
                     </div>
 
@@ -2544,7 +2544,7 @@ export default function AdminPage() {
                       onClick={() => setSupervisorForm((prev) => ({ ...prev, members: [] }))}
                       disabled={!supervisorForm.members.length}
                     >
-                      Clear members
+                      Clear Members
                     </button>
                   </div>
 
@@ -2611,7 +2611,7 @@ export default function AdminPage() {
                       ? "Saving..."
                       : supervisorForm.id
                       ? "Update supervisor team"
-                      : "Save supervisor team"}
+                      : "Save Supervisor Team"}
                   </button>
 
                   <button type="button" className="secondary-btn" onClick={handleClearSupervisorForm}>
@@ -2625,14 +2625,14 @@ export default function AdminPage() {
               <div className="section-head">
                 <div>
                   <p className="eyebrow">Saved supervisor teams</p>
-                  <h2>Team directory</h2>
-                  <p className="muted">Edit supervisor groups and keep Dashboard filtering clean.</p>
+                  <h2>Team Directory</h2>
+                  <p className="muted">Edit Supervisor Groups And Keep Dashboard Filtering Clean.</p>
                 </div>
               </div>
 
               <div className="filter-grid compact">
                 <label>
-                  <span>Search supervisor teams</span>
+                  <span>Search Supervisor Teams</span>
                   <input
                     value={supervisorSearch}
                     onChange={(event) => setSupervisorSearch(event.target.value)}
@@ -2644,7 +2644,7 @@ export default function AdminPage() {
               {supervisorLoading ? (
                 <div className="empty-box">Loading Supervisor Teams...</div>
               ) : filteredSupervisorTeams.length === 0 ? (
-                <div className="empty-box">No Supervisor Teams saved yet.</div>
+                <div className="empty-box">No Supervisor Teams Saved Yet.</div>
               ) : (
                 <div className="supervisor-card-list">
                   {filteredSupervisorTeams.map((team) => (
@@ -2714,7 +2714,7 @@ export default function AdminPage() {
               <div className="section-head">
                 <div>
                   <p className="eyebrow">Agent mapping</p>
-                  <h2>{mappingForm.id ? "Edit mapping" : "Map agent"}</h2>
+                  <h2>{mappingForm.id ? "Edit mapping" : "Map Agent"}</h2>
                   <p className="muted">Map raw Intercom names to employee identity, team, and email.</p>
                 </div>
 
@@ -2831,8 +2831,8 @@ export default function AdminPage() {
               <div className="section-head">
                 <div>
                   <p className="eyebrow">Detected agents</p>
-                  <h2>Suggested mappings</h2>
-                  <p className="muted">Agents found in stored results without saved mappings.</p>
+                  <h2>Suggested Mappings</h2>
+                  <p className="muted">Agents Found In Stored Results Without Saved Mappings.</p>
                 </div>
               </div>
 
@@ -2973,24 +2973,24 @@ export default function AdminPage() {
             <div className="section-head">
               <div>
                 <p className="eyebrow">Access control</p>
-                <h2>User roles</h2>
+                <h2>User Roles</h2>
                 <p className="muted">
-                  Pre-grant access by nextventures.io email before a user signs in, or update users who already have profiles.
+                  Pre-Grant Access By Nextventures.io Email Before A User Signs In, Or Update Users Who Already Have Profiles.
                 </p>
               </div>
 
               <span className={canManageUsersNow ? "status active" : "status inactive"}>
-                {canManageUsersNow ? "Role manager" : "Read only"}
+                {canManageUsersNow ? "Role Manager" : "Read only"}
               </span>
             </div>
 
             <div className="role-grid">
               <div className="role-form-card">
-                <h3>{roleForm.id ? "Edit user access" : "Select a user to edit"}</h3>
+                <h3>{roleForm.id ? "Edit user access" : "Select A User To Edit"}</h3>
 
                 <div className="form-grid single">
                   <label className="role-candidate-field">
-                    <span>Search existing employee</span>
+                    <span>Search Existing Employee</span>
                     <input
                       value={roleCandidateSearch}
                       onChange={(event) => setRoleCandidateSearch(event.target.value)}
@@ -3069,6 +3069,15 @@ export default function AdminPage() {
                       ))}
                     </select>
                     <small className="lock-note">{roleDescription(roleForm.role)}</small>
+
+                    <div className="role-hover-guide" aria-label="Role Permission Guide">
+                      {ROLE_OPTIONS.map((item) => (
+                        <span key={item.value} className={roleForm.role === item.value ? "active" : ""}>
+                          {item.label}
+                          <em>{item.description}</em>
+                        </span>
+                      ))}
+                    </div>
                   </label>
 
                   <div className="permission-grid">
@@ -3084,7 +3093,7 @@ export default function AdminPage() {
                           }))
                         }
                       />
-                      <span>Can run audits</span>
+                      <span>Can Run Audits</span>
                     </label>
 
                     <label className="check-row permission-check">
@@ -3099,7 +3108,7 @@ export default function AdminPage() {
                           }))
                         }
                       />
-                      <span>Active user</span>
+                      <span>Active User</span>
                     </label>
                   </div>
 
@@ -3110,7 +3119,7 @@ export default function AdminPage() {
                       onClick={handleSaveRole}
                       disabled={!canManageUsersNow || roleSaveLoading || !normalizeEmail(roleForm.email)}
                     >
-                      {roleSaveLoading ? "Saving..." : "Save role"}
+                      {roleSaveLoading ? "Saving..." : "Save Role"}
                     </button>
 
                     <button type="button" className="secondary-btn" onClick={handleClearRoleForm}>
@@ -3123,7 +3132,7 @@ export default function AdminPage() {
               <div className="role-table-card">
                 <div className="filter-grid compact">
                   <label>
-                    <span>Search users</span>
+                    <span>Search Users</span>
                     <input
                       value={roleSearch}
                       onChange={(event) => setRoleSearch(event.target.value)}
@@ -3186,7 +3195,7 @@ export default function AdminPage() {
           <section className="panel wide" id="agent-mappings">
             <div className="section-head">
               <div>
-                <p className="eyebrow">Mapping table</p>
+                <p className="eyebrow">Mapping Table</p>
                 <h2>Agent mappings</h2>
                 <p className="muted">Edit, activate, deactivate, and review mapping quality.</p>
               </div>
@@ -3217,7 +3226,7 @@ export default function AdminPage() {
                 <input
                   value={mappingSearch}
                   onChange={(event) => setMappingSearch(event.target.value)}
-                  placeholder="Search mappings"
+                  placeholder="Search Mappings"
                 />
               </label>
 
@@ -3227,7 +3236,7 @@ export default function AdminPage() {
                   value={mappingStatusFilter}
                   onChange={(event) => setMappingStatusFilter(event.target.value)}
                 >
-                  <option value="all">All statuses</option>
+                  <option value="all">All Statuses</option>
                   <option value="active">Active only</option>
                   <option value="inactive">Inactive only</option>
                 </select>
@@ -3239,7 +3248,7 @@ export default function AdminPage() {
                   value={mappingQualityFilter}
                   onChange={(event) => setMappingQualityFilter(event.target.value)}
                 >
-                  <option value="all">All quality states</option>
+                  <option value="all">All Quality States</option>
                   <option value="needs_attention">Needs attention</option>
                   <option value="missing_email_team">Needs email and team</option>
                   <option value="missing_email">Needs email</option>
@@ -3371,7 +3380,7 @@ export default function AdminPage() {
           <section className="panel wide" id="prompt-history">
             <div className="section-head">
               <div>
-                <p className="eyebrow">Prompt history</p>
+                <p className="eyebrow">Prompt History</p>
                 <h2>Recent changes</h2>
                 <p className="muted">Recent saved prompt changes.</p>
               </div>
@@ -4731,6 +4740,65 @@ const adminStyles = `
     cursor: pointer;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34);
   }
+
+
+  .role-hover-guide {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .role-hover-guide span {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 999px;
+    color: #c7d2fe;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    background: rgba(59, 130, 246, 0.07);
+    font-size: 12px;
+    font-weight: 900;
+    cursor: help;
+  }
+
+  .role-hover-guide span.active {
+    color: #bbf7d0;
+    border-color: rgba(16, 185, 129, 0.28);
+    background: rgba(16, 185, 129, 0.12);
+  }
+
+  .role-hover-guide span em {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    z-index: 20;
+    width: min(280px, 78vw);
+    transform: translate(-50%, 6px);
+    opacity: 0;
+    pointer-events: none;
+    padding: 12px;
+    border-radius: 14px;
+    color: #e5ebff;
+    border: 1px solid rgba(147, 197, 253, 0.22);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 36%),
+      #0b1122;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.46);
+    font-size: 12px;
+    font-style: normal;
+    line-height: 1.55;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+
+  .role-hover-guide span:hover em,
+  .role-hover-guide span:focus-within em {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
 
   @media (max-width: 1180px) {
     .hero,
