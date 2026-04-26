@@ -228,10 +228,54 @@ function getRangeDisplay(filters) {
   const label = option?.label || "Custom";
   const { start, end } = buildDateRange(filters);
 
-  if (filters.rangePreset === "all") return "All time";
+  if (filters.rangePreset === "all") return "All Time";
   if (!start && !end) return label;
 
   return `${formatDateShort(start)} - ${formatDateShort(end)}`;
+}
+
+function createPreviousPeriodFilters(filters) {
+  const { start, end } = buildDateRange(filters || {});
+
+  if (!start || !end) return null;
+
+  const durationMs = end.getTime() - start.getTime() + 1;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
+
+  const previousEnd = new Date(start.getTime() - 1);
+  const previousStart = new Date(previousEnd.getTime() - durationMs + 1);
+
+  return {
+    ...cloneFilters(filters, "custom", true),
+    rangePreset: "custom",
+    startDate: formatInputDate(previousStart),
+    endDate: formatInputDate(previousEnd),
+  };
+}
+
+function buildMetricTrend(currentValue, previousValue, options = {}) {
+  const { type = "number", inverse = false } = options;
+  const current = Number(currentValue || 0);
+  const previous = Number(previousValue || 0);
+  const diff = current - previous;
+
+  if (!Number.isFinite(diff)) return null;
+
+  if (Math.abs(diff) < 0.0001) {
+    return { label: "No Change", tone: "neutral" };
+  }
+
+  const isImprovement = inverse ? diff < 0 : diff > 0;
+  const direction = diff > 0 ? "▲" : "▼";
+  const amount =
+    type === "percent"
+      ? `${Math.abs(diff).toFixed(1)} pts`
+      : formatNumber(Math.abs(diff));
+
+  return {
+    label: `${direction} ${amount}`,
+    tone: isImprovement ? "positive" : "negative",
+  };
 }
 
 function deriveResultType(reviewSentiment) {
@@ -1068,12 +1112,15 @@ function DashboardFilterBar({
   );
 }
 
-function KPIStat({ label, value, accent, onClick }) {
+function KPIStat({ label, value, accent, onClick, trend }) {
   return (
     <button type="button" className="kpi-card" onClick={onClick} style={{ "--accent": accent }}>
       <span>{label}</span>
       <strong>{value}</strong>
-      <small>Drill In</small>
+      <div className="kpi-footer">
+        <small>Drill In</small>
+        {trend ? <em className={`kpi-change ${trend.tone}`}>{trend.label}</em> : null}
+      </div>
     </button>
   );
 }
@@ -1667,6 +1714,16 @@ export default function DashboardPage() {
 
   const leaderboard = useMemo(() => buildLeaderboard(leaderboardFilteredRows), [leaderboardFilteredRows]);
 
+  const previousGlobalFilters = useMemo(
+    () => createPreviousPeriodFilters(globalFilters),
+    [globalFilters]
+  );
+
+  const previousRows = useMemo(
+    () => previousGlobalFilters ? filterRows(dedupedRows, previousGlobalFilters, supervisorLookup) : [],
+    [dedupedRows, previousGlobalFilters, supervisorLookup]
+  );
+
   const total = filteredRows.length;
 
   const missedCount = filteredRows.filter(
@@ -1686,6 +1743,16 @@ export default function DashboardPage() {
   ).length;
 
   const mappedCount = filteredRows.filter(isMapped).length;
+
+  const previousTotal = previousRows.length;
+  const previousMissedCount = previousRows.filter((row) => row.review_sentiment === "Missed Opportunity").length;
+  const previousVeryPositiveCount = previousRows.filter((row) => row.client_sentiment === "Very Positive").length;
+  const previousResolvedCount = previousRows.filter((row) => row.resolution_status === "Resolved").length;
+  const previousUnresolvedCount = previousRows.filter((row) => row.resolution_status === "Unresolved").length;
+  const previousMappedCount = previousRows.filter(isMapped).length;
+  const currentResolutionRate = total ? (resolvedCount / total) * 100 : 0;
+  const previousResolutionRate = previousTotal ? (previousResolvedCount / previousTotal) * 100 : 0;
+
   const latestStoredAt = dedupedRows[0]?.created_at || "";
 
   function openDetail(title, value, rows, initialFilters = globalFilters) {
@@ -1782,12 +1849,14 @@ export default function DashboardPage() {
           <KPIStat
             label="Unique Conversations"
             value={formatNumber(total)}
+            trend={previousGlobalFilters ? buildMetricTrend(total, previousTotal) : null}
             accent="linear-gradient(135deg, rgba(37,99,235,0.26), rgba(99,102,241,0.12))"
             onClick={() => openDetail("KPI Drill In", "Unique Conversations", filteredRows, globalFilters)}
           />
           <KPIStat
             label="Missed Opportunities"
             value={formatNumber(missedCount)}
+            trend={previousGlobalFilters ? buildMetricTrend(missedCount, previousMissedCount, { inverse: true }) : null}
             accent="linear-gradient(135deg, rgba(239,68,68,0.25), rgba(249,115,22,0.12))"
             onClick={() =>
               openDetail(
@@ -1801,6 +1870,7 @@ export default function DashboardPage() {
           <KPIStat
             label="Very Positive"
             value={formatNumber(veryPositiveCount)}
+            trend={previousGlobalFilters ? buildMetricTrend(veryPositiveCount, previousVeryPositiveCount) : null}
             accent="linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
             onClick={() =>
               openDetail(
@@ -1813,7 +1883,8 @@ export default function DashboardPage() {
           />
           <KPIStat
             label="Resolution Rate"
-            value={formatPercent(total ? (resolvedCount / total) * 100 : 0)}
+            value={formatPercent(currentResolutionRate)}
+            trend={previousGlobalFilters ? buildMetricTrend(currentResolutionRate, previousResolutionRate, { type: "percent" }) : null}
             accent="linear-gradient(135deg, rgba(14,165,233,0.22), rgba(34,197,94,0.12))"
             onClick={() =>
               openDetail(
@@ -1827,6 +1898,7 @@ export default function DashboardPage() {
           <KPIStat
             label="Unresolved"
             value={formatNumber(unresolvedCount)}
+            trend={previousGlobalFilters ? buildMetricTrend(unresolvedCount, previousUnresolvedCount, { inverse: true }) : null}
             accent="linear-gradient(135deg, rgba(244,63,94,0.24), rgba(168,85,247,0.12))"
             onClick={() =>
               openDetail(
@@ -1840,6 +1912,7 @@ export default function DashboardPage() {
           <KPIStat
             label="Mapped Records"
             value={`${formatNumber(mappedCount)}/${formatNumber(total)}`}
+            trend={previousGlobalFilters ? buildMetricTrend(mappedCount, previousMappedCount) : null}
             accent="linear-gradient(135deg, rgba(59,130,246,0.18), rgba(16,185,129,0.12))"
             onClick={() =>
               openDetail(
@@ -2778,10 +2851,49 @@ const dashboardStyles = `
     letter-spacing: -0.05em;
   }
 
+  .kpi-footer {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
   .kpi-card small {
     color: #d6ddff;
     font-size: 12px;
     font-weight: 900;
+  }
+
+  .kpi-change {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 950;
+    white-space: nowrap;
+  }
+
+  .kpi-change.positive {
+    color: #bbf7d0;
+    border: 1px solid rgba(16, 185, 129, 0.26);
+    background: rgba(16, 185, 129, 0.13);
+  }
+
+  .kpi-change.negative {
+    color: #fecdd3;
+    border: 1px solid rgba(244, 63, 94, 0.28);
+    background: rgba(244, 63, 94, 0.13);
+  }
+
+  .kpi-change.neutral {
+    color: #bfdbfe;
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    background: rgba(59, 130, 246, 0.1);
   }
 
   .chart-grid {
