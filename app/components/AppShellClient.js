@@ -10,10 +10,10 @@ const SESSION_TIMEOUT_MS = 8000;
 const PROFILE_TIMEOUT_MS = 10000;
 
 const navItems = [
-  { label: "Dashboard", href: "/", permission: "dashboard" },
-  { label: "Run Audit", href: "/run", permission: "run_audit" },
-  { label: "Results", href: "/results", permission: "results" },
-  { label: "Admin", href: "/admin", permission: "admin" },
+  { label: "Dashboard", href: "/", permission: "dashboard", icon: "dashboard" },
+  { label: "Run Audit", href: "/run", permission: "run_audit", icon: "spark" },
+  { label: "Results", href: "/results", permission: "results", icon: "results" },
+  { label: "Admin", href: "/admin", permission: "admin", icon: "shield" },
 ];
 
 function withTimeout(promise, label, timeoutMs = SESSION_TIMEOUT_MS) {
@@ -77,6 +77,84 @@ function roleLabel(role) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function getAvatarUrl(profile, session) {
+  const candidates = [
+    session?.user?.user_metadata?.avatar_url,
+    session?.user?.user_metadata?.picture,
+    session?.user?.identities?.[0]?.identity_data?.avatar_url,
+    session?.user?.identities?.[0]?.identity_data?.picture,
+    profile?.avatar_url,
+  ];
+
+  for (const value of candidates) {
+    const normalized = normalizeText(value);
+    if (normalized) return normalized;
+  }
+
+  return "";
+}
+
+function SidebarIcon({ kind, active = false }) {
+  const stroke = active ? "#22d3ee" : "#94a3b8";
+  const glow = active ? "rgba(34, 211, 238, 0.22)" : "rgba(148, 163, 184, 0.08)";
+
+  const shared = {
+    width: 20,
+    height: 20,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    'aria-hidden': 'true',
+  };
+
+  if (kind === "spark") {
+    return (
+      <span className="nav-link-icon" style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${glow}` }}>
+        <svg {...shared}>
+          <path d="M12 3L13.7 8.3L19 10L13.7 11.7L12 17L10.3 11.7L5 10L10.3 8.3L12 3Z" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+          <path d="M18.2 4.8L18.8 6.2L20.2 6.8L18.8 7.4L18.2 8.8L17.6 7.4L16.2 6.8L17.6 6.2L18.2 4.8Z" fill={stroke} />
+        </svg>
+      </span>
+    );
+  }
+
+  if (kind === "results") {
+    return (
+      <span className="nav-link-icon" style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${glow}` }}>
+        <svg {...shared}>
+          <rect x="4.5" y="5" width="15" height="14" rx="3" stroke={stroke} strokeWidth="1.8" />
+          <path d="M8 14L10.8 11.2L12.9 13.3L16 10.2" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="8" cy="14" r="1" fill={stroke} />
+          <circle cx="10.8" cy="11.2" r="1" fill={stroke} />
+          <circle cx="12.9" cy="13.3" r="1" fill={stroke} />
+          <circle cx="16" cy="10.2" r="1" fill={stroke} />
+        </svg>
+      </span>
+    );
+  }
+
+  if (kind === "shield") {
+    return (
+      <span className="nav-link-icon" style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${glow}` }}>
+        <svg {...shared}>
+          <path d="M12 3.8L18 6.1V11.3C18 15.1 15.6 18.5 12 20.2C8.4 18.5 6 15.1 6 11.3V6.1L12 3.8Z" stroke={stroke} strokeWidth="1.8" strokeLinejoin="round" />
+          <path d="M9.2 11.9L10.8 13.5L14.9 9.4" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    );
+  }
+
+  return (
+    <span className="nav-link-icon" style={{ boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px ${glow}` }}>
+      <svg {...shared}>
+        <path d="M5 12.5C5 8.35 8.35 5 12.5 5H18.5V11C18.5 15.15 15.15 18.5 11 18.5H5V12.5Z" stroke={stroke} strokeWidth="1.8" />
+        <path d="M9 13.2H14.8" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M9 9.8H14" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 function getInitials(nameOrEmail) {
@@ -198,6 +276,7 @@ export default function AppShellClient({ children }) {
     );
   }, [profile, session]);
 
+  const displayAvatarUrl = useMemo(() => getAvatarUrl(profile, session), [profile, session]);
   const displayEmail = session?.user?.email || profile?.email || "";
   const lockReason = getLockReason(pathname, session, profile);
   const pageLocked = Boolean(!authLoading && lockReason);
@@ -457,12 +536,29 @@ export default function AppShellClient({ children }) {
 
             <div className="brand-block">
               <div className="brand-mark" aria-hidden="true">
+                <span className="brand-mark-halo" />
                 <span className="brand-orbit orbit-one" />
                 <span className="brand-orbit orbit-two" />
                 <span className="brand-node node-one" />
                 <span className="brand-node node-two" />
                 <span className="brand-node node-three" />
-                <div className="brand-mark-core">AI</div>
+                <div className="brand-mark-core">
+                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#brandGradientMain)" />
+                    <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#brandGradientAccent)" opacity="0.92" />
+                    <defs>
+                      <linearGradient id="brandGradientMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
+                        <stop stopColor="#22D3EE" />
+                        <stop offset="0.48" stopColor="#8B5CF6" />
+                        <stop offset="1" stopColor="#EC4899" />
+                      </linearGradient>
+                      <linearGradient id="brandGradientAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
+                        <stop stopColor="#FDE047" />
+                        <stop offset="1" stopColor="#F97316" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
               </div>
 
               <div>
@@ -491,7 +587,7 @@ export default function AppShellClient({ children }) {
                       !allowed && session?.user ? "locked-nav" : ""
                     }`}
                   >
-                    <span className="nav-link-dot" />
+                    <SidebarIcon kind={item.icon} active={active} />
                     <span>{item.label}</span>
                     {!allowed && session?.user ? <em>Locked</em> : null}
                   </Link>
@@ -523,7 +619,13 @@ export default function AppShellClient({ children }) {
                     className="profile-button"
                     onClick={() => setProfileOpen((prev) => !prev)}
                   >
-                    <span className="profile-avatar">{getInitials(displayName)}</span>
+                    <span className="profile-avatar">
+                      {displayAvatarUrl ? (
+                        <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                      ) : (
+                        getInitials(displayName)
+                      )}
+                    </span>
 
                     <span className="profile-copy">
                       <strong>{displayName}</strong>
@@ -536,7 +638,13 @@ export default function AppShellClient({ children }) {
                   {profileOpen ? (
                     <div className="profile-menu">
                       <div className="profile-menu-head">
-                        <span className="profile-avatar large">{getInitials(displayName)}</span>
+                        <span className="profile-avatar large">
+                          {displayAvatarUrl ? (
+                            <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                          ) : (
+                            getInitials(displayName)
+                          )}
+                        </span>
                         <div>
                           <strong>{displayName}</strong>
                           <small>{displayEmail}</small>
@@ -766,12 +874,21 @@ const appShellStyles = `
     border-radius: 22px;
     overflow: hidden;
     background:
-      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.22), transparent 20%),
-      linear-gradient(135deg, rgba(37, 99, 235, 0.34), rgba(139, 92, 246, 0.34), rgba(236, 72, 153, 0.2));
-    border: 1px solid rgba(147, 197, 253, 0.22);
+      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.22), transparent 22%),
+      linear-gradient(145deg, rgba(5, 12, 31, 0.96), rgba(15, 23, 42, 0.92));
+    border: 1px solid rgba(125, 211, 252, 0.18);
     box-shadow:
-      0 18px 42px rgba(76, 29, 149, 0.28),
-      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      0 20px 44px rgba(18, 31, 67, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 0 42px rgba(45, 212, 191, 0.06);
+  }
+
+  .brand-mark-halo {
+    position: absolute;
+    inset: 8px;
+    border-radius: 18px;
+    background: radial-gradient(circle at center, rgba(34, 211, 238, 0.1), rgba(139, 92, 246, 0.08), transparent 70%);
+    filter: blur(6px);
   }
 
   .brand-orbit,
@@ -825,17 +942,17 @@ const appShellStyles = `
   .brand-mark-core {
     position: relative;
     z-index: 1;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     display: grid;
     place-items: center;
-    border-radius: 13px;
-    color: #ffffff;
-    font-size: 12px;
-    font-weight: 950;
-    letter-spacing: -0.04em;
-    background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 52%, #ec4899 100%);
-    box-shadow: 0 0 28px rgba(139, 92, 246, 0.58);
+    filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.4));
+  }
+
+  .brand-mark-core svg {
+    width: 34px;
+    height: 34px;
+    display: block;
   }
 
   .brand-title {
@@ -877,7 +994,7 @@ const appShellStyles = `
   .nav-link {
     position: relative;
     display: grid;
-    grid-template-columns: 10px minmax(0, 1fr) auto;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
     min-height: 56px;
@@ -902,12 +1019,20 @@ const appShellStyles = `
     background: linear-gradient(180deg, rgba(91, 33, 182, 0.18), rgba(255, 255, 255, 0.03));
   }
 
-  .nav-link-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #60a5fa, #8b5cf6);
-    box-shadow: 0 0 18px rgba(96, 165, 250, 0.45);
+  .nav-link-icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    transition: transform 0.18s ease, background 0.18s ease;
+  }
+
+  .nav-link:hover .nav-link-icon,
+  .nav-link.active .nav-link-icon {
+    transform: translateY(-1px);
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.1), rgba(139, 92, 246, 0.08));
   }
 
   .nav-link em {
@@ -1023,12 +1148,20 @@ const appShellStyles = `
     height: 38px;
     display: grid;
     place-items: center;
+    overflow: hidden;
     border-radius: 15px;
     color: #ffffff;
     font-size: 13px;
     font-weight: 900;
     background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
     box-shadow: 0 0 24px rgba(139,92,246,0.42);
+  }
+
+  .profile-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   .profile-avatar.large {
