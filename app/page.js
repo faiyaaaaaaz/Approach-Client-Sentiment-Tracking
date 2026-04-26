@@ -37,26 +37,26 @@ const MAPPING_OPTIONS = ["Mapped", "Unmapped"];
 const RANGE_OPTIONS = [
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
-  { key: "past_week", label: "Past week" },
-  { key: "past_30_days", label: "Past 30 days" },
-  { key: "month_to_date", label: "Month to date" },
-  { key: "past_4_weeks", label: "Past 4 weeks" },
-  { key: "past_12_weeks", label: "Past 12 weeks" },
-  { key: "year_to_date", label: "Year to date" },
-  { key: "past_6_months", label: "Past 6 months" },
-  { key: "past_12_months", label: "Past 12 months" },
-  { key: "all", label: "All time" },
+  { key: "past_week", label: "Past Week" },
+  { key: "past_30_days", label: "Past 30 Days" },
+  { key: "month_to_date", label: "Month To Date" },
+  { key: "past_4_weeks", label: "Past 4 Weeks" },
+  { key: "past_12_weeks", label: "Past 12 Weeks" },
+  { key: "year_to_date", label: "Year To Date" },
+  { key: "past_6_months", label: "Past 6 Months" },
+  { key: "past_12_months", label: "Past 12 Months" },
+  { key: "all", label: "All Time" },
   { key: "custom", label: "Custom" },
 ];
 
 const WEEKLY_METRIC_OPTIONS = [
-  { key: "total", label: "Total conversations" },
-  { key: "likelyPositive", label: "Likely positive reviews" },
-  { key: "missed", label: "Missed opportunities" },
-  { key: "veryPositive", label: "Very positive" },
-  { key: "likelyNegative", label: "Likely negative reviews" },
+  { key: "total", label: "Total Conversations" },
+  { key: "likelyPositive", label: "Likely Positive Reviews" },
+  { key: "missed", label: "Missed Opportunities" },
+  { key: "veryPositive", label: "Very Positive" },
+  { key: "likelyNegative", label: "Likely Negative Reviews" },
   { key: "unresolved", label: "Unresolved" },
-  { key: "resolutionRate", label: "Resolution rate" },
+  { key: "resolutionRate", label: "Resolution Rate" },
 ];
 
 function normalizeText(value, fallback = "-") {
@@ -473,6 +473,22 @@ function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
   };
 }
 
+function cloneFilters(filters, fallbackPreset = "all", fallbackCexOnly = false) {
+  const source = filters || createBaseFilters(fallbackPreset, fallbackCexOnly);
+
+  return {
+    ...source,
+    supervisorTeamIds: [...(source.supervisorTeamIds || [])],
+    teams: [...(source.teams || [])],
+    employees: [...(source.employees || [])],
+    reviewSentiments: [...(source.reviewSentiments || [])],
+    clientSentiments: [...(source.clientSentiments || [])],
+    resolutionStatuses: [...(source.resolutionStatuses || [])],
+    resultTypes: [...(source.resultTypes || [])],
+    mappingStatuses: [...(source.mappingStatuses || [])],
+  };
+}
+
 function escapeCsv(value) {
   const text = String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
@@ -798,7 +814,7 @@ function MultiSelect({ label, options, selected, onChange, placeholder = "All" }
             ))}
 
             {!filteredOptions.length ? (
-              <div className="multi-empty">No matching options.</div>
+              <div className="multi-empty">No Matching Options.</div>
             ) : null}
           </div>
         </div>
@@ -861,7 +877,7 @@ function DateRangePicker({ filters, setFilters }) {
   return (
     <div ref={boxRef} className="date-picker-wrap">
       <label>
-        <span>Date range</span>
+        <span>Date Range</span>
         <button type="button" className="date-picker-button" onClick={() => setOpen((prev) => !prev)}>
           <strong>{getRangeDisplay(filters)}</strong>
           <b>{open ? "Up" : "Down"}</b>
@@ -886,7 +902,7 @@ function DateRangePicker({ filters, setFilters }) {
 
           <div className="custom-range-panel">
             <div>
-              <small>Custom date range</small>
+              <small>Custom Date Range</small>
               <strong>{getRangeDisplay({ ...filters, rangePreset: "custom" })}</strong>
             </div>
 
@@ -976,11 +992,11 @@ function DashboardFilterBar({
         <DateRangePicker filters={filters} setFilters={setFilters} />
 
         <MultiSelect
-          label="Supervisor team"
+          label="Supervisor Team"
           options={supervisorOptions}
           selected={filters.supervisorTeamIds}
           onChange={(value) => update("supervisorTeamIds", value)}
-          placeholder="All supervisors"
+          placeholder="All Supervisors"
         />
 
         <MultiSelect
@@ -988,7 +1004,7 @@ function DashboardFilterBar({
           options={employees}
           selected={filters.employees}
           onChange={(value) => update("employees", value)}
-          placeholder="All employees"
+          placeholder="All Employees"
         />
 
         <label className="cex-check">
@@ -997,7 +1013,7 @@ function DashboardFilterBar({
             checked={filters.cexOnly}
             onChange={(event) => update("cexOnly", event.target.checked)}
           />
-          CEx only
+          CEx Only
         </label>
       </div>
 
@@ -1007,7 +1023,7 @@ function DashboardFilterBar({
           options={reviewOptions}
           selected={filters.reviewSentiments}
           onChange={(value) => update("reviewSentiments", value)}
-          placeholder="All review"
+          placeholder="All Review"
         />
 
         <MultiSelect
@@ -1015,7 +1031,7 @@ function DashboardFilterBar({
           options={clientOptions}
           selected={filters.clientSentiments}
           onChange={(value) => update("clientSentiments", value)}
-          placeholder="All client"
+          placeholder="All Client"
         />
 
         <MultiSelect
@@ -1023,7 +1039,7 @@ function DashboardFilterBar({
           options={resolutionOptions}
           selected={filters.resolutionStatuses}
           onChange={(value) => update("resolutionStatuses", value)}
-          placeholder="All resolution"
+          placeholder="All Resolution"
         />
 
         <MultiSelect
@@ -1031,7 +1047,7 @@ function DashboardFilterBar({
           options={RESULT_TYPE_OPTIONS}
           selected={filters.resultTypes}
           onChange={(value) => update("resultTypes", value)}
-          placeholder="All types"
+          placeholder="All Types"
         />
 
         {showMapping ? (
@@ -1040,12 +1056,12 @@ function DashboardFilterBar({
             options={MAPPING_OPTIONS}
             selected={filters.mappingStatuses}
             onChange={(value) => update("mappingStatuses", value)}
-            placeholder="All mapping"
+            placeholder="All Mapping"
           />
         ) : null}
 
         <button type="button" className="primary-btn reset-btn" onClick={() => setFilters(resetTo())}>
-          Reset filters
+          Reset Filters
         </button>
       </div>
     </div>
@@ -1057,7 +1073,7 @@ function KPIStat({ label, value, accent, onClick }) {
     <button type="button" className="kpi-card" onClick={onClick} style={{ "--accent": accent }}>
       <span>{label}</span>
       <strong>{value}</strong>
-      <small>Drill in</small>
+      <small>Drill In</small>
     </button>
   );
 }
@@ -1088,7 +1104,7 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
   const max = Math.max(...visibleEntries.map((item) => item.count), 1);
 
   if (!visibleEntries.length) {
-    return <div className="empty-box">No data for this section.</div>;
+    return <div className="empty-box">No Data For This Section.</div>;
   }
 
   return (
@@ -1153,7 +1169,7 @@ function DonutChart({ entries, total, onSelect }) {
             </button>
           ))
         ) : (
-          <div className="empty-box compact">No data.</div>
+          <div className="empty-box compact">No Data.</div>
         )}
       </div>
     </div>
@@ -1172,16 +1188,17 @@ function DetailModal({
   reviewOptions,
   clientOptions,
   resolutionOptions,
+  initialFilters,
 }) {
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState(createBaseFilters("all", false));
+  const [filters, setFilters] = useState(() => cloneFilters(initialFilters, "all", false));
 
   useEffect(() => {
     if (!open) return;
 
     setQuery("");
-    setFilters(createBaseFilters("all", false));
-  }, [open, title, value]);
+    setFilters(cloneFilters(initialFilters, "all", false));
+  }, [open, title, value, initialFilters]);
 
   const filteredRows = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -1217,10 +1234,10 @@ function DetailModal({
       <div className="drill-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <p>Chart drill in</p>
+            <p>Chart Drill In</p>
             <h2>{title}</h2>
             <span>
-              {value} · {formatNumber(filteredRows.length)} of {formatNumber(rows.length)} conversation(s)
+              {value} · {formatNumber(filteredRows.length)} of {formatNumber(rows.length)} Conversation(s)
             </span>
           </div>
 
@@ -1244,7 +1261,7 @@ function DetailModal({
             clientOptions={clientOptions}
             resolutionOptions={resolutionOptions}
             showMapping={false}
-            resetTo={() => createBaseFilters("all", false)}
+            resetTo={() => cloneFilters(initialFilters, "all", false)}
           />
 
           <label className="modal-search">
@@ -1252,7 +1269,7 @@ function DetailModal({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Conversation, agent, employee, client, verdict"
+              placeholder="Conversation, Agent, Employee, Client, Verdict"
             />
           </label>
         </div>
@@ -1301,7 +1318,7 @@ function DetailModal({
 
           {filteredRows.length > 500 ? (
             <div className="table-note">
-              Showing first 500 rows. Use Export CSV for the full filtered drill in.
+              Showing First 500 Rows. Use Export CSV For The Full Filtered Drill-In.
             </div>
           ) : null}
         </div>
@@ -1340,9 +1357,9 @@ function WeeklyAgentTable({
     <section className="panel weekly-panel">
       <div className="section-title-row">
         <div>
-          <p>Weekly performance table</p>
-          <h2>Agent week by week view</h2>
-          <span>Click an employee or weekly cell to open the underlying conversations.</span>
+          <p>Weekly Performance Table</p>
+          <h2>Agent Week By Week View</h2>
+          <span>Click An Employee Or Weekly Cell To Open The Underlying Conversations.</span>
         </div>
 
         <div className="weekly-controls">
@@ -1358,7 +1375,7 @@ function WeeklyAgentTable({
           </label>
 
           <button type="button" className="secondary-btn" onClick={() => downloadWeeklyCsv(tableRows, periods, metric, metricLabel)}>
-            Export table CSV
+            Export Table CSV
           </button>
         </div>
       </div>
@@ -1396,7 +1413,7 @@ function WeeklyAgentTable({
                     <button
                       type="button"
                       className="text-link"
-                      onClick={() => onOpenDetail("Employee drill in", employeeRow.employee, employeeRow.totalRows)}
+                      onClick={() => onOpenDetail("Employee Drill In", employeeRow.employee, employeeRow.totalRows, filters)}
                     >
                       {employeeRow.employee}
                     </button>
@@ -1410,7 +1427,7 @@ function WeeklyAgentTable({
                         className={period.rows.length ? "metric-cell has-data" : "metric-cell"}
                         onClick={() =>
                           period.rows.length
-                            ? onOpenDetail("Weekly agent drill in", `${employeeRow.employee} · ${period.label}`, period.rows)
+                            ? onOpenDetail("Weekly Agent Drill In", `${employeeRow.employee} · ${period.label}`, period.rows, filters)
                             : null
                         }
                       >
@@ -1422,7 +1439,7 @@ function WeeklyAgentTable({
               ))
             ) : (
               <tr>
-                <td colSpan={3 + periods.length}>No weekly agent data for the selected filters.</td>
+                <td colSpan={3 + periods.length}>No Weekly Agent Data For The Selected Filters.</td>
               </tr>
             )}
           </tbody>
@@ -1467,12 +1484,14 @@ export default function DashboardPage() {
   const [weeklyFilters, setWeeklyFilters] = useState(createBaseFilters("past_12_weeks", true));
   const [weeklyMetric, setWeeklyMetric] = useState("missed");
   const [showJumpTop, setShowJumpTop] = useState(false);
+  const [explorerExpanded, setExplorerExpanded] = useState(false);
 
   const [detailState, setDetailState] = useState({
     open: false,
     title: "",
     value: "",
     rows: [],
+    initialFilters: createBaseFilters("all", false),
   });
 
   useEffect(() => {
@@ -1669,12 +1688,13 @@ export default function DashboardPage() {
   const mappedCount = filteredRows.filter(isMapped).length;
   const latestStoredAt = dedupedRows[0]?.created_at || "";
 
-  function openDetail(title, value, rows) {
+  function openDetail(title, value, rows, initialFilters = globalFilters) {
     setDetailState({
       open: true,
       title,
       value,
       rows: rows || [],
+      initialFilters: cloneFilters(initialFilters, "all", false),
     });
   }
 
@@ -1684,10 +1704,19 @@ export default function DashboardPage() {
 
       <DetailModal
         open={detailState.open}
-        onClose={() => setDetailState({ open: false, title: "", value: "", rows: [] })}
+        onClose={() =>
+          setDetailState({
+            open: false,
+            title: "",
+            value: "",
+            rows: [],
+            initialFilters: createBaseFilters("all", false),
+          })
+        }
         title={detailState.title}
         value={detailState.value}
         rows={detailState.rows}
+        initialFilters={detailState.initialFilters}
         supervisorTeams={supervisorTeams}
         supervisorLookup={supervisorLookup}
         employees={employees}
@@ -1699,17 +1728,17 @@ export default function DashboardPage() {
       <div className="dashboard-shell">
         <section className="hero-panel">
           <div className="hero-copy">
-            <p>Dashboard intelligence</p>
-            <h1>Review approach & client sentiment tracking</h1>
-            <strong>QA intelligence command center</strong>
-            <span>Latest stored result: {formatDateTime(latestStoredAt)}</span>
+            <p>Dashboard Intelligence</p>
+            <h1>Review Approach & Client Sentiment Tracking</h1>
+            <strong>QA Intelligence Command Center</strong>
+            <span>Latest Stored Result: {formatDateTime(latestStoredAt)}</span>
           </div>
 
           <div className="hero-command-card">
             <div>
-              <span>Current view</span>
-              <strong>{formatNumber(total)} conversations</strong>
-              <small>{getRangeDisplay(globalFilters)} · {globalFilters.cexOnly ? "CEx only" : "All teams"}</small>
+              <span>Current View</span>
+              <strong>{formatNumber(total)} Conversations</strong>
+              <small>{getRangeDisplay(globalFilters)} · {globalFilters.cexOnly ? "CEx Only" : "All Teams"}</small>
             </div>
 
             <div className="hero-metric-grid">
@@ -1751,44 +1780,47 @@ export default function DashboardPage() {
 
         <section className="kpi-grid">
           <KPIStat
-            label="Unique conversations"
+            label="Unique Conversations"
             value={formatNumber(total)}
             accent="linear-gradient(135deg, rgba(37,99,235,0.26), rgba(99,102,241,0.12))"
-            onClick={() => openDetail("KPI drill in", "Unique conversations", filteredRows)}
+            onClick={() => openDetail("KPI Drill In", "Unique Conversations", filteredRows, globalFilters)}
           />
           <KPIStat
-            label="Missed opportunities"
+            label="Missed Opportunities"
             value={formatNumber(missedCount)}
             accent="linear-gradient(135deg, rgba(239,68,68,0.25), rgba(249,115,22,0.12))"
             onClick={() =>
               openDetail(
-                "KPI drill in",
-                "Missed opportunities",
-                filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity")
+                "KPI Drill In",
+                "Missed Opportunities",
+                filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity"),
+                globalFilters
               )
             }
           />
           <KPIStat
-            label="Very positive"
+            label="Very Positive"
             value={formatNumber(veryPositiveCount)}
             accent="linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
             onClick={() =>
               openDetail(
-                "KPI drill in",
-                "Very positive",
-                filteredRows.filter((row) => row.client_sentiment === "Very Positive")
+                "KPI Drill In",
+                "Very Positive",
+                filteredRows.filter((row) => row.client_sentiment === "Very Positive"),
+                globalFilters
               )
             }
           />
           <KPIStat
-            label="Resolution rate"
+            label="Resolution Rate"
             value={formatPercent(total ? (resolvedCount / total) * 100 : 0)}
             accent="linear-gradient(135deg, rgba(14,165,233,0.22), rgba(34,197,94,0.12))"
             onClick={() =>
               openDetail(
-                "KPI drill in",
+                "KPI Drill In",
                 "Resolved",
-                filteredRows.filter((row) => row.resolution_status === "Resolved")
+                filteredRows.filter((row) => row.resolution_status === "Resolved"),
+                globalFilters
               )
             }
           />
@@ -1798,21 +1830,23 @@ export default function DashboardPage() {
             accent="linear-gradient(135deg, rgba(244,63,94,0.24), rgba(168,85,247,0.12))"
             onClick={() =>
               openDetail(
-                "KPI drill in",
+                "KPI Drill In",
                 "Unresolved",
-                filteredRows.filter((row) => row.resolution_status === "Unresolved")
+                filteredRows.filter((row) => row.resolution_status === "Unresolved"),
+                globalFilters
               )
             }
           />
           <KPIStat
-            label="Mapped records"
+            label="Mapped Records"
             value={`${formatNumber(mappedCount)}/${formatNumber(total)}`}
             accent="linear-gradient(135deg, rgba(59,130,246,0.18), rgba(16,185,129,0.12))"
             onClick={() =>
               openDetail(
-                "KPI drill in",
-                "Mapped records",
-                filteredRows.filter(isMapped)
+                "KPI Drill In",
+                "Mapped Records",
+                filteredRows.filter(isMapped),
+                globalFilters
               )
             }
           />
@@ -1821,8 +1855,8 @@ export default function DashboardPage() {
         {loading ? (
           <section className="panel loading-panel">
             <p className="panel-eyebrow">Loading</p>
-            <h2>Preparing the intelligence view...</h2>
-            <p className="muted">Reading stored audit results and Supervisor Teams from Supabase.</p>
+            <h2>Preparing The Intelligence View...</h2>
+            <p className="muted">Reading Stored Audit Results And Supervisor Teams From Supabase.</p>
           </section>
         ) : error ? (
           <section className="panel">
@@ -1832,73 +1866,73 @@ export default function DashboardPage() {
           <>
             <section className="insight-strip">
               <div>
-                <span>Active date range</span>
+                <span>Active Date Range</span>
                 <strong>{getRangeDisplay(globalFilters)}</strong>
               </div>
               <div>
-                <span>Filtered records</span>
+                <span>Filtered Records</span>
                 <strong>{formatNumber(filteredRows.length)}</strong>
               </div>
               <div>
-                <span>Leaderboard scope</span>
+                <span>Leaderboard Scope</span>
                 <strong>{getRangeDisplay(leaderboardFilters)}</strong>
               </div>
               <div>
-                <span>Supervisor teams</span>
+                <span>Supervisor Teams</span>
                 <strong>{formatNumber(supervisorTeams.length)}</strong>
               </div>
             </section>
 
             <section className="chart-grid">
               <ChartCard
-                title="Review sentiment"
-                subtitle={`${formatNumber(filteredRows.length)} filtered conversations`}
-                onDrill={() => openDetail("Review sentiment drill in", "All review sentiments", filteredRows)}
+                title="Review Sentiment"
+                subtitle={`${formatNumber(filteredRows.length)} Filtered Conversations`}
+                onDrill={() => openDetail("Review Sentiment Drill In", "All Review Sentiments", filteredRows, globalFilters)}
               >
                 <HorizontalBarChart
                   entries={reviewEntries}
                   total={filteredRows.length}
                   kind="review"
-                  onSelect={(entry) => openDetail("Review sentiment drill in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Review Sentiment Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
 
               <ChartCard
-                title="Result type mix"
-                subtitle="Positive, opportunity, risk, and other"
+                title="Result Type Mix"
+                subtitle="Positive, Opportunity, Risk, and Other"
                 larger
-                onDrill={() => openDetail("Result type drill in", "All result types", filteredRows)}
+                onDrill={() => openDetail("Result Type Drill In", "All Result Types", filteredRows, globalFilters)}
               >
                 <DonutChart
                   entries={resultTypeEntries}
                   total={filteredRows.length}
-                  onSelect={(entry) => openDetail("Result type drill in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Result Type Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
 
               <ChartCard
-                title="Client sentiment"
-                subtitle="Client emotional outcome"
-                onDrill={() => openDetail("Client sentiment drill in", "All client sentiments", filteredRows)}
+                title="Client Sentiment"
+                subtitle="Client Emotional Outcome"
+                onDrill={() => openDetail("Client Sentiment Drill In", "All Client Sentiments", filteredRows, globalFilters)}
               >
                 <HorizontalBarChart
                   entries={clientEntries}
                   total={filteredRows.length}
                   kind="client"
-                  onSelect={(entry) => openDetail("Client sentiment drill in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Client Sentiment Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
 
               <ChartCard
-                title="Resolution share"
-                subtitle="Resolved, pending, unclear, unresolved"
+                title="Resolution Share"
+                subtitle="Resolved, Pending, Unclear, Unresolved"
                 larger
-                onDrill={() => openDetail("Resolution drill in", "All resolution statuses", filteredRows)}
+                onDrill={() => openDetail("Resolution Drill In", "All Resolution Statuses", filteredRows, globalFilters)}
               >
                 <DonutChart
                   entries={resolutionEntries}
                   total={filteredRows.length}
-                  onSelect={(entry) => openDetail("Resolution drill in", entry.label, entry.rows)}
+                  onSelect={(entry) => openDetail("Resolution Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
             </section>
@@ -1906,13 +1940,13 @@ export default function DashboardPage() {
             <section className="panel leaderboard-panel">
               <div className="section-title-row">
                 <div>
-                  <p>Performance command</p>
-                  <h2>Agent leaderboard</h2>
-                  <span>Use date, supervisor, employee, and outcome filters to rank agents for the selected period.</span>
+                  <p>Performance Command</p>
+                  <h2>Agent Leaderboard</h2>
+                  <span>Use Date, Supervisor, Employee, and Outcome Filters To Rank Agents For The Selected Period.</span>
                 </div>
 
                 <button type="button" className="secondary-btn" onClick={() => downloadCsv(leaderboardFilteredRows, "leaderboard-filtered-results.csv")}>
-                  Export filtered CSV
+                  Export Filtered CSV
                 </button>
               </div>
 
@@ -1931,28 +1965,28 @@ export default function DashboardPage() {
               <div className="leaderboard-cards">
                 {[
                   {
-                    title: "Top likely positive reviews",
+                    title: "Top Likely Positive Reviews",
                     theme: "green",
                     rows: [...leaderboard].sort((a, b) => b.likelyPositive - a.likelyPositive).slice(0, 5),
                     value: (row) => formatNumber(row.likelyPositive),
                     rowsFor: (row) => row.rows.filter(isLikelyPositiveReview),
                   },
                   {
-                    title: "Top missed opportunities",
+                    title: "Top Missed Opportunities",
                     theme: "red",
                     rows: [...leaderboard].sort((a, b) => b.missed - a.missed).slice(0, 5),
                     value: (row) => formatNumber(row.missed),
                     rowsFor: (row) => row.rows.filter((item) => item.review_sentiment === "Missed Opportunity"),
                   },
                   {
-                    title: "Top very positive",
+                    title: "Top Very Positive",
                     theme: "green",
                     rows: [...leaderboard].sort((a, b) => b.veryPositive - a.veryPositive).slice(0, 5),
                     value: (row) => formatNumber(row.veryPositive),
                     rowsFor: (row) => row.rows.filter((item) => item.client_sentiment === "Very Positive"),
                   },
                   {
-                    title: "Top likely negative reviews",
+                    title: "Top Likely Negative Reviews",
                     theme: "red",
                     rows: [...leaderboard].sort((a, b) => b.likelyNegative - a.likelyNegative).slice(0, 5),
                     value: (row) => formatNumber(row.likelyNegative),
@@ -1966,17 +2000,17 @@ export default function DashboardPage() {
                         <button
                           key={`${block.title}-${row.employee}`}
                           type="button"
-                          onClick={() => openDetail("Leaderboard drill in", `${block.title}: ${row.employee}`, block.rowsFor(row))}
+                          onClick={() => openDetail("Leaderboard Drill In", `${block.title}: ${row.employee}`, block.rowsFor(row), leaderboardFilters)}
                         >
                           <strong>{row.employee}</strong>
                           <span>{block.value(row)}</span>
                           <small>
-                            {row.team || "-"} · {formatNumber(row.handled)} handled
+                            {row.team || "-"} · {formatNumber(row.handled)} Handled
                           </small>
                         </button>
                       ))
                     ) : (
-                      <p>No data.</p>
+                      <p>No Data.</p>
                     )}
                   </div>
                 ))}
@@ -1989,12 +2023,12 @@ export default function DashboardPage() {
                       <th>Employee</th>
                       <th>Team</th>
                       <th>Handled</th>
-                      <th>Likely positive</th>
+                      <th>Likely Positive</th>
                       <th>Missed</th>
-                      <th>Very positive</th>
-                      <th>Likely negative</th>
-                      <th>Resolution rate</th>
-                      <th>Drill in</th>
+                      <th>Very Positive</th>
+                      <th>Likely Negative</th>
+                      <th>Resolution Rate</th>
+                      <th>Drill In</th>
                     </tr>
                   </thead>
 
@@ -2002,7 +2036,7 @@ export default function DashboardPage() {
                     {leaderboard.map((row) => (
                       <tr key={row.employee}>
                         <td>
-                          <button type="button" className="text-link" onClick={() => openDetail("Employee drill in", row.employee, row.rows)}>
+                          <button type="button" className="text-link" onClick={() => openDetail("Employee Drill In", row.employee, row.rows, leaderboardFilters)}>
                             {row.employee}
                           </button>
                         </td>
@@ -2014,7 +2048,7 @@ export default function DashboardPage() {
                         <td className="bad">{formatNumber(row.likelyNegative)}</td>
                         <td>{formatPercent(row.resolutionRate)}</td>
                         <td>
-                          <button type="button" className="small-btn" onClick={() => openDetail("Employee drill in", row.employee, row.rows)}>
+                          <button type="button" className="small-btn" onClick={() => openDetail("Employee Drill In", row.employee, row.rows, leaderboardFilters)}>
                             View
                           </button>
                         </td>
@@ -2040,16 +2074,27 @@ export default function DashboardPage() {
               onOpenDetail={openDetail}
             />
 
-            <section className="panel explorer-panel">
+            <section className={explorerExpanded ? "panel explorer-panel expanded" : "panel explorer-panel"}>
               <div className="section-title-row">
                 <div>
-                  <p>Conversation explorer</p>
-                  <h2>Latest filtered conversations</h2>
-                  <span>Showing the first 100 records from the current dashboard filter.</span>
+                  <p>Conversation Explorer</p>
+                  <h2>Latest Filtered Conversations</h2>
+                  <span>
+                    Showing {formatNumber(Math.min(explorerExpanded ? 100 : 12, filteredRows.length))} of{" "}
+                    {formatNumber(filteredRows.length)} Records From The Current Dashboard Filter.
+                  </span>
                 </div>
+
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setExplorerExpanded((prev) => !prev)}
+                >
+                  {explorerExpanded ? "Show Less" : "Show More"}
+                </button>
               </div>
 
-              <div className="table-wrap">
+              <div className="table-wrap explorer-table-wrap">
                 <table>
                   <thead>
                     <tr>
@@ -2065,7 +2110,7 @@ export default function DashboardPage() {
                   </thead>
 
                   <tbody>
-                    {filteredRows.slice(0, 100).map((row, index) => (
+                    {filteredRows.slice(0, explorerExpanded ? 100 : 12).map((row, index) => (
                       <tr key={`${row.conversation_id}-${index}`}>
                         <td>
                           <strong>{row.conversation_id}</strong>
@@ -2098,7 +2143,7 @@ export default function DashboardPage() {
 
       {showJumpTop ? (
         <button type="button" className="jump-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-          Jump to top
+          Jump To Top
         </button>
       ) : null}
     </main>
@@ -3285,6 +3330,19 @@ const dashboardStyles = `
 
   .explorer-panel {
     margin-top: 18px;
+  }
+
+
+  .explorer-panel .section-title-row {
+    align-items: center;
+  }
+
+  .explorer-table-wrap {
+    max-height: 520px;
+  }
+
+  .explorer-panel:not(.expanded) .explorer-table-wrap {
+    max-height: 520px;
   }
 
   .jump-top {
