@@ -6,6 +6,8 @@ import { supabase } from "../../lib/supabase";
 
 const INTERCOM_CONVERSATION_URL_PREFIX =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
+const RESULTS_CACHE_PREFIX = "cx-insights-results-cache";
+const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -113,6 +115,34 @@ const IMPORT_PROGRESS_STEPS = [
     percent: 96,
   },
 ];
+
+function getResultsCacheKey(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  return `${RESULTS_CACHE_PREFIX}:${normalized || "anonymous"}`;
+}
+
+function readClientCache(key) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeClientCache(key, value) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (_error) {
+    // Ignore quota or serialization failures.
+  }
+}
 
 function normalizeToStartOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -680,7 +710,23 @@ export default function ResultsPage() {
   }
 
   async function loadStoredResults(activeSession = session) {
-    setLoading(true);
+    const cacheKey = getResultsCacheKey(activeSession?.user?.email);
+    const cached = readClientCache(cacheKey);
+    const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
+    const hasCachedData = Array.isArray(cached?.results) || Array.isArray(cached?.runs);
+    const shouldSkipNetwork = hasCachedData && cacheAge <= RESULTS_CACHE_TTL_MS;
+
+    if (hasCachedData) {
+      setRuns(Array.isArray(cached?.runs) ? cached.runs : []);
+      setResults(Array.isArray(cached?.results) ? cached.results : []);
+      setSupervisorTeams(Array.isArray(cached?.supervisorTeams) ? cached.supervisorTeams : []);
+      setSelectedIds([]);
+      setExpandedRows({});
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setPageError("");
     setPageSuccess("");
 
@@ -691,6 +737,10 @@ export default function ResultsPage() {
         setSupervisorTeams([]);
         setSelectedIds([]);
         setLoading(false);
+        return;
+      }
+
+      if (shouldSkipNetwork) {
         return;
       }
 
@@ -710,18 +760,29 @@ export default function ResultsPage() {
       }
 
       const loadedSupervisorTeams = await loadSupervisorTeams();
+      const nextRuns = Array.isArray(data?.runs) ? data.runs : [];
+      const nextResults = Array.isArray(data?.results) ? data.results : [];
 
-      setRuns(Array.isArray(data?.runs) ? data.runs : []);
-      setResults(Array.isArray(data?.results) ? data.results : []);
+      setRuns(nextRuns);
+      setResults(nextResults);
       setSupervisorTeams(loadedSupervisorTeams);
       setSelectedIds([]);
       setExpandedRows({});
+      writeClientCache(cacheKey, {
+        savedAt: Date.now(),
+        runs: nextRuns,
+        results: nextResults,
+        supervisorTeams: loadedSupervisorTeams,
+      });
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not load stored results.");
-      setRuns([]);
-      setResults([]);
-      setSupervisorTeams([]);
-      setSelectedIds([]);
+
+      if (!hasCachedData) {
+        setRuns([]);
+        setResults([]);
+        setSupervisorTeams([]);
+        setSelectedIds([]);
+      }
     } finally {
       setLoading(false);
     }
