@@ -50,6 +50,7 @@ const RANGE_OPTIONS = [
 ];
 
 const WEEKLY_METRIC_OPTIONS = [
+  { key: "missedVeryPositive", label: "Missed Opportunities + Very Positive" },
   { key: "total", label: "Total Conversations" },
   { key: "likelyPositive", label: "Likely Positive Reviews" },
   { key: "missed", label: "Missed Opportunities" },
@@ -498,6 +499,51 @@ function resultTypeColor(label) {
   return "#8b5cf6";
 }
 
+function clientSentimentColor(label) {
+  if (label === "Very Positive") return "#10b981";
+  if (label === "Positive") return "#22c55e";
+  if (label === "Slightly Positive") return "#14b8a6";
+  if (label === "Neutral") return "#8b5cf6";
+  if (label === "Slightly Negative") return "#f59e0b";
+  if (label === "Negative") return "#f97316";
+  if (label === "Very Negative") return "#ef4444";
+  return "#6366f1";
+}
+
+function resolutionStatusColor(label) {
+  if (label === "Resolved") return "#10b981";
+  if (label === "Pending") return "#f59e0b";
+  if (label === "Unclear") return "#8b5cf6";
+  if (label === "Unresolved") return "#ef4444";
+  return "#6366f1";
+}
+
+function chartColor(label, kind, index = 0) {
+  const fallback = ["#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f59e0b", "#ec4899", "#6366f1"];
+  if (kind === "client") return clientSentimentColor(label);
+  if (kind === "resolution") return resolutionStatusColor(label);
+  if (kind === "result") return resultTypeColor(label);
+  return fallback[index % fallback.length];
+}
+
+function chartGradient(label, kind, index = 0) {
+  const color = chartColor(label, kind, index);
+  if (kind === "client") {
+    if (["Very Positive", "Positive", "Slightly Positive"].includes(label)) return `linear-gradient(90deg, ${color}, #06b6d4)`;
+    if (label === "Neutral") return `linear-gradient(90deg, ${color}, #6366f1)`;
+    return `linear-gradient(90deg, ${color}, #ef4444)`;
+  }
+
+  if (kind === "resolution") {
+    if (label === "Resolved") return "linear-gradient(90deg, #10b981, #06b6d4)";
+    if (label === "Pending") return "linear-gradient(90deg, #f59e0b, #f97316)";
+    if (label === "Unclear") return "linear-gradient(90deg, #8b5cf6, #ec4899)";
+    return "linear-gradient(90deg, #ef4444, #7f1d1d)";
+  }
+
+  return `linear-gradient(90deg, ${color}, #8b5cf6)`;
+}
+
 function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
   const range = getPresetRange(rangePreset);
 
@@ -649,6 +695,9 @@ function rowsInPeriod(rows, period) {
 }
 
 function metricRows(rows, metric) {
+  if (metric === "missedVeryPositive") {
+    return rows.filter((row) => row.review_sentiment === "Missed Opportunity" || row.client_sentiment === "Very Positive");
+  }
   if (metric === "likelyPositive") return rows.filter(isLikelyPositiveReview);
   if (metric === "missed") return rows.filter((row) => row.review_sentiment === "Missed Opportunity");
   if (metric === "veryPositive") return rows.filter((row) => row.client_sentiment === "Very Positive");
@@ -667,6 +716,15 @@ function metricValue(rows, metric) {
 }
 
 function formatMetricValue(rows, metric) {
+  if (metric === "missedVeryPositive") {
+    const missed = metricRows(rows, "missed").length;
+    const veryPositive = metricRows(rows, "veryPositive").length;
+
+    if (!missed && !veryPositive) return "-";
+
+    return `MO ${formatNumber(missed)} · VP ${formatNumber(veryPositive)}`;
+  }
+
   const value = metricValue(rows, metric);
 
   if (metric === "resolutionRate") {
@@ -1125,6 +1183,15 @@ function KPIStat({ label, value, accent, onClick, trend }) {
   );
 }
 
+function InfoTip({ text }) {
+  return (
+    <span className="info-tip" tabIndex={0} aria-label={text}>
+      ?
+      <span className="info-tip-bubble">{text}</span>
+    </span>
+  );
+}
+
 function ChartCard({ title, subtitle, onDrill, children, larger = false }) {
   return (
     <article className={larger ? "chart-card large" : "chart-card"}>
@@ -1136,7 +1203,7 @@ function ChartCard({ title, subtitle, onDrill, children, larger = false }) {
 
         {onDrill ? (
           <button type="button" className="drill-btn card-action" onClick={onDrill}>
-            Drill in
+            Drill In
           </button>
         ) : null}
       </div>
@@ -1159,16 +1226,7 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
       {visibleEntries.map((entry) => {
         const percent = total ? (entry.count / total) * 100 : 0;
         const width = Math.max((entry.count / max) * 100, 5);
-        const color =
-          kind === "resolution"
-            ? entry.label === "Resolved"
-              ? "linear-gradient(90deg, #10b981, #06b6d4)"
-              : entry.label === "Pending"
-              ? "linear-gradient(90deg, #f59e0b, #f97316)"
-              : entry.label === "Unclear"
-              ? "linear-gradient(90deg, #8b5cf6, #ec4899)"
-              : "linear-gradient(90deg, #ef4444, #7f1d1d)"
-            : resultTypeColor(deriveResultType(entry.label));
+        const color = chartGradient(entry.label, kind, 0);
 
         return (
           <button key={entry.label} type="button" className="bar-item" onClick={() => onSelect(entry)}>
@@ -1189,10 +1247,13 @@ function HorizontalBarChart({ entries, total, onSelect, kind = "review" }) {
   );
 }
 
-function DonutChart({ entries, total, onSelect }) {
-  const palette = ["#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f59e0b", "#ec4899", "#6366f1"];
+function DonutChart({ entries, total, onSelect, kind = "result" }) {
   const visibleEntries = entries.filter((entry) => entry.count > 0);
-  const segments = buildPieSegments(visibleEntries, palette);
+  const coloredEntries = visibleEntries.map((entry, index) => ({
+    ...entry,
+    color: chartColor(entry.label, kind, index),
+  }));
+  const segments = buildPieSegments(coloredEntries, coloredEntries.map((entry) => entry.color));
   const gradient = buildConicGradient(segments);
 
   return (
@@ -1405,13 +1466,19 @@ function WeeklyAgentTable({
       <div className="section-title-row">
         <div>
           <p>Weekly Performance Table</p>
-          <h2>Agent Week By Week View</h2>
+          <div className="title-with-help">
+            <h2>Agent Week By Week View</h2>
+            <InfoTip text="This table compares each agent across weekly periods for the selected date range and filters. By default, each cell shows Missed Opportunities and Very Positive results together. Click any employee or weekly cell to open the exact conversations behind the number." />
+          </div>
           <span>Click An Employee Or Weekly Cell To Open The Underlying Conversations.</span>
         </div>
 
         <div className="weekly-controls">
           <label>
-            <span>Metric</span>
+            <span className="label-with-help">
+              Metric
+              <InfoTip text="Change the table metric anytime. The default view shows MO for Missed Opportunities and VP for Very Positive client sentiment." />
+            </span>
             <select value={metric} onChange={(event) => setMetric(event.target.value)}>
               {WEEKLY_METRIC_OPTIONS.map((item) => (
                 <option key={item.key} value={item.key}>
@@ -1467,21 +1534,25 @@ function WeeklyAgentTable({
                   </td>
                   <td>{employeeRow.team || "-"}</td>
                   <td>{formatMetricValue(employeeRow.totalRows, metric)}</td>
-                  {employeeRow.periods.map((period) => (
-                    <td key={`${employeeRow.employee}-${period.key}`}>
-                      <button
-                        type="button"
-                        className={period.rows.length ? "metric-cell has-data" : "metric-cell"}
-                        onClick={() =>
-                          period.rows.length
-                            ? onOpenDetail("Weekly Agent Drill In", `${employeeRow.employee} · ${period.label}`, period.rows, filters)
-                            : null
-                        }
-                      >
-                        {period.label}
-                      </button>
-                    </td>
-                  ))}
+                  {employeeRow.periods.map((period) => {
+                    const drillRows = metric === "total" ? period.rows : metricRows(period.rows, metric);
+                    return (
+                      <td key={`${employeeRow.employee}-${period.key}`}>
+                        <button
+                          type="button"
+                          className={drillRows.length ? "metric-cell has-data" : "metric-cell"}
+                          title={metric === "missedVeryPositive" ? "MO = Missed Opportunities, VP = Very Positive" : metricLabel}
+                          onClick={() =>
+                            drillRows.length
+                              ? onOpenDetail("Weekly Agent Drill In", `${employeeRow.employee} · ${period.label}`, drillRows, filters)
+                              : null
+                          }
+                        >
+                          {period.label}
+                        </button>
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             ) : (
@@ -1529,7 +1600,7 @@ export default function DashboardPage() {
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
   const [weeklyFilters, setWeeklyFilters] = useState(createBaseFilters("past_12_weeks", true));
-  const [weeklyMetric, setWeeklyMetric] = useState("missed");
+  const [weeklyMetric, setWeeklyMetric] = useState("missedVeryPositive");
   const [showJumpTop, setShowJumpTop] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(false);
 
@@ -1692,11 +1763,6 @@ export default function DashboardPage() {
     [dedupedRows, leaderboardFilters, supervisorLookup]
   );
 
-  const reviewEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => row.review_sentiment, REVIEW_SENTIMENT_ORDER).filter((entry) => REVIEW_SENTIMENT_ORDER.includes(entry.label)),
-    [filteredRows]
-  );
-
   const clientEntries = useMemo(
     () => countRowsBy(filteredRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER).filter((entry) => CLIENT_SENTIMENT_ORDER.includes(entry.label)),
     [filteredRows]
@@ -1707,9 +1773,19 @@ export default function DashboardPage() {
     [filteredRows]
   );
 
-  const resultTypeEntries = useMemo(
-    () => countRowsBy(filteredRows, (row) => deriveResultType(row.review_sentiment), RESULT_TYPE_OPTIONS),
+  const missedRows = useMemo(
+    () => filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity"),
     [filteredRows]
+  );
+
+  const missedClientEntries = useMemo(
+    () => countRowsBy(missedRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER).filter((entry) => CLIENT_SENTIMENT_ORDER.includes(entry.label)),
+    [missedRows]
+  );
+
+  const missedResolutionEntries = useMemo(
+    () => countRowsBy(missedRows, (row) => row.resolution_status, RESOLUTION_ORDER).filter((entry) => RESOLUTION_ORDER.includes(entry.label)),
+    [missedRows]
   );
 
   const leaderboard = useMemo(() => buildLeaderboard(leaderboardFilteredRows), [leaderboardFilteredRows]);
@@ -1742,14 +1818,11 @@ export default function DashboardPage() {
     (row) => row.resolution_status === "Unresolved"
   ).length;
 
-  const mappedCount = filteredRows.filter(isMapped).length;
-
   const previousTotal = previousRows.length;
   const previousMissedCount = previousRows.filter((row) => row.review_sentiment === "Missed Opportunity").length;
   const previousVeryPositiveCount = previousRows.filter((row) => row.client_sentiment === "Very Positive").length;
   const previousResolvedCount = previousRows.filter((row) => row.resolution_status === "Resolved").length;
   const previousUnresolvedCount = previousRows.filter((row) => row.resolution_status === "Unresolved").length;
-  const previousMappedCount = previousRows.filter(isMapped).length;
   const currentResolutionRate = total ? (resolvedCount / total) * 100 : 0;
   const previousResolutionRate = previousTotal ? (previousResolvedCount / previousTotal) * 100 : 0;
 
@@ -1909,20 +1982,7 @@ export default function DashboardPage() {
               )
             }
           />
-          <KPIStat
-            label="Mapped Records"
-            value={`${formatNumber(mappedCount)}/${formatNumber(total)}`}
-            trend={previousGlobalFilters ? buildMetricTrend(mappedCount, previousMappedCount) : null}
-            accent="linear-gradient(135deg, rgba(59,130,246,0.18), rgba(16,185,129,0.12))"
-            onClick={() =>
-              openDetail(
-                "KPI Drill In",
-                "Mapped Records",
-                filteredRows.filter(isMapped),
-                globalFilters
-              )
-            }
-          />
+
         </section>
 
         {loading ? (
@@ -1958,37 +2018,38 @@ export default function DashboardPage() {
 
             <section className="chart-grid">
               <ChartCard
-                title="Review Sentiment"
-                subtitle={`${formatNumber(filteredRows.length)} Filtered Conversations`}
-                onDrill={() => openDetail("Review Sentiment Drill In", "All Review Sentiments", filteredRows, globalFilters)}
+                title="Missed Opportunities"
+                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Client Sentiment`}
+                onDrill={() => openDetail("Missed Opportunities Drill In", "All Client Sentiments", missedRows, globalFilters)}
               >
                 <HorizontalBarChart
-                  entries={reviewEntries}
-                  total={filteredRows.length}
-                  kind="review"
-                  onSelect={(entry) => openDetail("Review Sentiment Drill In", entry.label, entry.rows, globalFilters)}
+                  entries={missedClientEntries}
+                  total={missedRows.length}
+                  kind="client"
+                  onSelect={(entry) => openDetail("Missed Opportunities Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
 
               <ChartCard
-                title="Result Type Mix"
-                subtitle="Positive, Opportunity, Risk, and Other"
-                larger
-                onDrill={() => openDetail("Result Type Drill In", "All Result Types", filteredRows, globalFilters)}
+                title="Missed Opportunities"
+                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Resolution Status`}
+                onDrill={() => openDetail("Missed Opportunities Drill In", "All Resolution Statuses", missedRows, globalFilters)}
               >
-                <DonutChart
-                  entries={resultTypeEntries}
-                  total={filteredRows.length}
-                  onSelect={(entry) => openDetail("Result Type Drill In", entry.label, entry.rows, globalFilters)}
+                <HorizontalBarChart
+                  entries={missedResolutionEntries}
+                  total={missedRows.length}
+                  kind="resolution"
+                  onSelect={(entry) => openDetail("Missed Opportunities Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
 
               <ChartCard
-                title="Client Sentiment"
+                title="Client Sentiments"
                 subtitle="Client Emotional Outcome"
+                larger
                 onDrill={() => openDetail("Client Sentiment Drill In", "All Client Sentiments", filteredRows, globalFilters)}
               >
-                <HorizontalBarChart
+                <DonutChart
                   entries={clientEntries}
                   total={filteredRows.length}
                   kind="client"
@@ -1997,14 +2058,15 @@ export default function DashboardPage() {
               </ChartCard>
 
               <ChartCard
-                title="Resolution Share"
-                subtitle="Resolved, Pending, Unclear, Unresolved"
+                title="Resolution Statuses"
+                subtitle="Resolved, Pending, Unclear, And Unresolved"
                 larger
                 onDrill={() => openDetail("Resolution Drill In", "All Resolution Statuses", filteredRows, globalFilters)}
               >
                 <DonutChart
                   entries={resolutionEntries}
                   total={filteredRows.length}
+                  kind="resolution"
                   onSelect={(entry) => openDetail("Resolution Drill In", entry.label, entry.rows, globalFilters)}
                 />
               </ChartCard>
@@ -2792,7 +2854,7 @@ const dashboardStyles = `
 
   .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 14px;
     margin-bottom: 18px;
   }
@@ -2945,6 +3007,64 @@ const dashboardStyles = `
     gap: 16px;
     align-items: flex-start;
     margin-bottom: 16px;
+  }
+
+  .title-with-help,
+  .label-with-help {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .title-with-help h2 {
+    margin-bottom: 0;
+  }
+
+  .info-tip {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    color: #bfdbfe;
+    border: 1px solid rgba(96, 165, 250, 0.32);
+    background: rgba(59, 130, 246, 0.12);
+    font-size: 12px;
+    font-weight: 900;
+    cursor: help;
+  }
+
+  .info-tip-bubble {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    z-index: 1000;
+    width: min(340px, 80vw);
+    transform: translateX(-50%) translateY(6px);
+    padding: 12px 14px;
+    border-radius: 14px;
+    color: #e5ebff;
+    border: 1px solid rgba(147, 197, 253, 0.22);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 35%),
+      #0b1122;
+    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.52);
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.55;
+    letter-spacing: 0;
+    text-transform: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .info-tip:hover .info-tip-bubble,
+  .info-tip:focus .info-tip-bubble {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 
   .chart-head h3,
@@ -3197,7 +3317,7 @@ const dashboardStyles = `
 
   table {
     width: 100%;
-    min-width: 1120px;
+    min-width: 1280px;
     border-collapse: collapse;
   }
 
@@ -3306,6 +3426,7 @@ const dashboardStyles = `
   .metric-cell {
     width: 100%;
     min-height: 36px;
+    min-width: 72px;
     border-radius: 12px;
     color: #7684a7;
     border: 1px solid rgba(255, 255, 255, 0.06);
