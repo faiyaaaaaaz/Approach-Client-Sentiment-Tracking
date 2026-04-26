@@ -1,7 +1,7 @@
 import AppShellClient from "./components/AppShellClient";
 
 export const metadata = {
-  title: "NEXT Ventures Audit Tool",
+  title: "AI Auditor & Insights Platform",
   description: "Internal audit system",
 };
 
