@@ -559,9 +559,39 @@ export default function AdminPage() {
   const [supervisorSearch, setSupervisorSearch] = useState("");
   const [supervisorMemberSearch, setSupervisorMemberSearch] = useState("");
 
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [activitySessions, setActivitySessions] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState("");
+  const [activityFilters, setActivityFilters] = useState(createEmptyActivityFilters());
+  const [activityLimit, setActivityLimit] = useState(150);
+
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
   const canManageApiKeysNow = canManageApiKeys(profile);
+  const canViewActivityLogsNow = canViewActivityLogs(profile);
+
+  const activityActionOptions = useMemo(() => {
+    const values = new Set(activityLogs.map((row) => normalizeText(row.action_type)).filter(Boolean));
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [activityLogs]);
+
+  const activityAreaOptions = useMemo(() => {
+    const values = new Set(activityLogs.map((row) => normalizeText(row.area)).filter(Boolean));
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [activityLogs]);
+
+  const activeActivitySessions = useMemo(
+    () => activitySessions.filter((item) => item.status === "active").length,
+    [activitySessions]
+  );
+
+  function updateActivityFilter(key, value) {
+    setActivityFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
 
   async function getFreshSession() {
     const result = await withTimeout(supabase.auth.getSession(), "Session check");
@@ -852,6 +882,117 @@ export default function AdminPage() {
     }
   }
 
+  async function loadActivityLogsData(activeSession, allowed = canViewActivityLogsNow, filters = activityFilters) {
+    if (!allowed || !activeSession?.access_token) {
+      setActivityLogs([]);
+      setActivitySessions([]);
+      return;
+    }
+
+    setActivityLoading(true);
+    setActivityError("");
+
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", String(activityLimit || 150));
+
+      for (const [key, value] of Object.entries(filters || {})) {
+        const normalized = normalizeText(value);
+        if (normalized) params.set(key, normalized);
+      }
+
+      const response = await withTimeout(
+        fetch(`/api/admin/activity-logs?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+          cache: "no-store",
+        }),
+        "Loading system activity logs"
+      );
+
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load system activity logs.");
+      }
+
+      setActivityLogs(Array.isArray(data.logs) ? data.logs : []);
+      setActivitySessions(Array.isArray(data.sessions) ? data.sessions : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load system activity logs.";
+      setActivityError(message);
+      setActivityLogs([]);
+      setActivitySessions([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
+  async function handleRefreshActivityLogs(nextFilters = activityFilters) {
+    setPageError("");
+
+    try {
+      const freshSession = await getFreshSession();
+      await loadActivityLogsData(freshSession, canViewActivityLogsNow, nextFilters);
+    } catch (error) {
+      setActivityError(error instanceof Error ? error.message : "Could not refresh system activity logs.");
+    }
+  }
+
+  function handleClearActivityFilters() {
+    const nextFilters = createEmptyActivityFilters();
+    setActivityFilters(nextFilters);
+    handleRefreshActivityLogs(nextFilters);
+  }
+
+  function handleExportActivityLogs() {
+    const headers = [
+      "Timestamp",
+      "User name",
+      "User email",
+      "Role",
+      "Action",
+      "Area",
+      "Status",
+      "Target",
+      "Description",
+      "Session ID",
+    ];
+
+    const csvRows = activityLogs.map((row) => [
+      formatDateTime(row.created_at),
+      row.actor_name || "",
+      row.actor_email || "",
+      roleLabel(row.actor_role),
+      row.action_label || activityActionLabel(row.action_type),
+      row.area || "",
+      row.status || "",
+      row.target_label || row.target_id || "",
+      row.description || "",
+      row.session_id || "",
+    ]);
+
+    const csv = [headers, ...csvRows]
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `system-activity-logs-${stamp}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function loadAll(activeSession, options = {}) {
     const silent = options.silent === true;
     const effectiveProfile = options.profile || profile;
@@ -874,6 +1015,13 @@ export default function AdminPage() {
       jobs.push(loadApiKeysData(activeSession, true));
     } else {
       setApiKeys([]);
+    }
+
+    if (canViewActivityLogs(effectiveProfile)) {
+      jobs.push(loadActivityLogsData(activeSession, true));
+    } else {
+      setActivityLogs([]);
+      setActivitySessions([]);
     }
 
     const results = await Promise.allSettled(jobs);
@@ -2185,6 +2333,7 @@ export default function AdminPage() {
           <div className="admin-quick-nav" aria-label="Admin quick navigation">
             <a href="#live-prompt">Prompt</a>
             {canManageApiKeysNow ? <a href="#api-vault">API Vault</a> : null}
+            {canViewActivityLogsNow ? <a href="#system-activity-logs">Activity Logs</a> : null}
             <a href="#supervisor-teams">Supervisor Teams</a>
             <a href="#user-roles">Roles</a>
             <a href="#agent-mappings">Mappings</a>
@@ -2227,6 +2376,286 @@ export default function AdminPage() {
         </section>
       ) : (
         <>
+          {canViewActivityLogsNow ? (
+            <section className="panel wide activity-panel" id="system-activity-logs">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Master Admin Only</p>
+                  <h2>System Activity Logs</h2>
+                  <p className="muted">
+                    Review Sign-Ins, Session Activity, Admin Actions, And System Changes With Timestamps.
+                  </p>
+                </div>
+
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => handleRefreshActivityLogs()}
+                    disabled={activityLoading}
+                  >
+                    {activityLoading ? "Loading..." : "Refresh Logs"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={handleExportActivityLogs}
+                    disabled={!activityLogs.length}
+                  >
+                    Export CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="activity-summary-grid">
+                <article>
+                  <span>Log Events</span>
+                  <strong>{formatNumber(activityLogs.length)}</strong>
+                  <small>Latest protected events</small>
+                </article>
+                <article>
+                  <span>Sessions</span>
+                  <strong>{formatNumber(activitySessions.length)}</strong>
+                  <small>Recent user sessions</small>
+                </article>
+                <article>
+                  <span>Active Now</span>
+                  <strong>{formatNumber(activeActivitySessions)}</strong>
+                  <small>Based on last heartbeat</small>
+                </article>
+                <article>
+                  <span>Visibility</span>
+                  <strong>Master Admin</strong>
+                  <small>Co-Admins cannot view this section</small>
+                </article>
+              </div>
+
+              <div className="filter-grid activity-filter-grid">
+                <label>
+                  <span>Start Date</span>
+                  <input
+                    type="date"
+                    value={activityFilters.start_date}
+                    onChange={(event) => updateActivityFilter("start_date", event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>End Date</span>
+                  <input
+                    type="date"
+                    value={activityFilters.end_date}
+                    onChange={(event) => updateActivityFilter("end_date", event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>User Email</span>
+                  <input
+                    value={activityFilters.email}
+                    onChange={(event) => updateActivityFilter("email", normalizeEmail(event.target.value))}
+                    placeholder="user@nextventures.io"
+                  />
+                </label>
+
+                <label>
+                  <span>Action</span>
+                  <select
+                    value={activityFilters.action_type}
+                    onChange={(event) => updateActivityFilter("action_type", event.target.value)}
+                  >
+                    <option value="">All Actions</option>
+                    {activityActionOptions.map((item) => (
+                      <option key={item} value={item}>
+                        {activityActionLabel(item)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Status</span>
+                  <select
+                    value={activityFilters.status}
+                    onChange={(event) => updateActivityFilter("status", event.target.value)}
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="success">Success</option>
+                    <option value="failed">Failed</option>
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Area</span>
+                  <select
+                    value={activityFilters.area}
+                    onChange={(event) => updateActivityFilter("area", event.target.value)}
+                  >
+                    <option value="">All Areas</option>
+                    {activityAreaOptions.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="activity-search-field">
+                  <span>Search</span>
+                  <input
+                    value={activityFilters.search}
+                    onChange={(event) => updateActivityFilter("search", event.target.value)}
+                    placeholder="Search user, email, action, area, or detail"
+                  />
+                </label>
+
+                <label>
+                  <span>Limit</span>
+                  <select
+                    value={activityLimit}
+                    onChange={(event) => setActivityLimit(Number(event.target.value))}
+                  >
+                    <option value={50}>50 Rows</option>
+                    <option value={100}>100 Rows</option>
+                    <option value={150}>150 Rows</option>
+                    <option value={300}>300 Rows</option>
+                  </select>
+                </label>
+
+                <div className="activity-filter-actions">
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => handleRefreshActivityLogs()}
+                    disabled={activityLoading}
+                  >
+                    Apply Filters
+                  </button>
+
+                  <button type="button" className="secondary-btn" onClick={handleClearActivityFilters}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              {activityError ? <div className="message error">{activityError}</div> : null}
+
+              <div className="activity-layout">
+                <div className="activity-table-shell">
+                  {activityLoading ? (
+                    <div className="empty-box">Loading System Activity Logs...</div>
+                  ) : activityLogs.length === 0 ? (
+                    <div className="empty-box">No matching activity logs yet.</div>
+                  ) : (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>User</th>
+                          <th>Action</th>
+                          <th>Area</th>
+                          <th>Status</th>
+                          <th>Target</th>
+                          <th>Details</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {activityLogs.map((row) => (
+                          <tr key={row.id}>
+                            <td>
+                              <strong>{formatDateTime(row.created_at)}</strong>
+                              {row.session_id ? <small>Session {String(row.session_id).slice(0, 8)}</small> : null}
+                            </td>
+
+                            <td>
+                              <strong>{row.actor_name || row.actor_email || "Unknown User"}</strong>
+                              <small>{row.actor_email || "No email"}</small>
+                              <em>{roleLabel(row.actor_role)}</em>
+                            </td>
+
+                            <td>
+                              <strong>{row.action_label || activityActionLabel(row.action_type)}</strong>
+                              <small>{row.action_type || "activity"}</small>
+                            </td>
+
+                            <td>{row.area || "-"}</td>
+
+                            <td>
+                              <span className={`status ${row.status === "failed" ? "inactive" : "active"}`}>
+                                {activityActionLabel(row.status || "info")}
+                              </span>
+                            </td>
+
+                            <td>
+                              <strong>{row.target_label || row.target_id || "-"}</strong>
+                              {row.target_type ? <small>{row.target_type}</small> : null}
+                            </td>
+
+                            <td>
+                              <span>{row.description || "-"}</span>
+                              {row.request_path ? <small>{row.request_path}</small> : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <aside className="session-panel">
+                  <div className="section-head compact-head">
+                    <div>
+                      <p className="eyebrow">Session Watch</p>
+                      <h3>Recent Sessions</h3>
+                    </div>
+                  </div>
+
+                  <div className="session-list">
+                    {activitySessions.length === 0 ? (
+                      <div className="empty-box compact">No recent sessions.</div>
+                    ) : (
+                      activitySessions.slice(0, 12).map((item) => (
+                        <article className="session-card" key={item.id}>
+                          <div>
+                            <strong>{item.full_name || item.email}</strong>
+                            <span>{item.email}</span>
+                          </div>
+
+                          <span className={item.status === "active" ? "status active" : "status inactive"}>
+                            {activityActionLabel(item.status)}
+                          </span>
+
+                          <dl>
+                            <div>
+                              <dt>Role</dt>
+                              <dd>{roleLabel(item.role)}</dd>
+                            </div>
+                            <div>
+                              <dt>Started</dt>
+                              <dd>{formatDateTime(item.started_at)}</dd>
+                            </div>
+                            <div>
+                              <dt>Last Seen</dt>
+                              <dd>{formatDateTime(item.last_seen_at)}</dd>
+                            </div>
+                            <div>
+                              <dt>Duration</dt>
+                              <dd>{formatDuration(item.duration_seconds)}</dd>
+                            </div>
+                          </dl>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                </aside>
+              </div>
+            </section>
+          ) : null}
+
           <section className={canManageApiKeysNow ? "control-grid" : "control-grid single-column"}>
             <article className="panel prompt-panel" id="live-prompt">
               <div className="section-head">
@@ -4722,6 +5151,186 @@ const adminStyles = `
     color: #a9b4d0;
     line-height: 1.6;
   }
+
+
+  .activity-panel {
+    margin-bottom: 18px;
+    background:
+      radial-gradient(circle at 10% 0%, rgba(34, 211, 238, 0.08), transparent 30%),
+      radial-gradient(circle at 92% 12%, rgba(139, 92, 246, 0.14), transparent 34%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(5, 8, 20, 0.98));
+  }
+
+  .activity-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .activity-summary-grid article {
+    padding: 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(147, 197, 253, 0.11);
+    background:
+      radial-gradient(circle at top right, rgba(34, 211, 238, 0.07), transparent 36%),
+      rgba(255, 255, 255, 0.035);
+  }
+
+  .activity-summary-grid span,
+  .activity-summary-grid strong,
+  .activity-summary-grid small {
+    display: block;
+  }
+
+  .activity-summary-grid span {
+    margin-bottom: 8px;
+    color: #9fb4ff;
+    font-size: 11px;
+    font-weight: 950;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .activity-summary-grid strong {
+    color: #ffffff;
+    font-size: 25px;
+    letter-spacing: -0.04em;
+  }
+
+  .activity-summary-grid small {
+    margin-top: 6px;
+    color: #b8c4e5;
+    line-height: 1.5;
+  }
+
+  .activity-filter-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    margin-bottom: 16px;
+  }
+
+  .activity-search-field {
+    grid-column: span 2;
+  }
+
+  .activity-filter-actions {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+  }
+
+  .activity-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .activity-table-shell {
+    overflow: auto;
+    max-height: 640px;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(4, 8, 20, 0.74);
+  }
+
+  .activity-table-shell table {
+    min-width: 1180px;
+  }
+
+  .activity-table-shell td span {
+    display: block;
+    color: #e5ebff;
+    line-height: 1.5;
+  }
+
+  .activity-table-shell td em {
+    display: block;
+    margin-top: 6px;
+    color: #93c5fd;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 800;
+  }
+
+  .session-panel {
+    position: sticky;
+    top: 96px;
+    max-height: 640px;
+    overflow: hidden;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.12), transparent 34%),
+      rgba(255, 255, 255, 0.03);
+    padding: 16px;
+  }
+
+  .compact-head {
+    margin-bottom: 12px;
+  }
+
+  .compact-head h3 {
+    margin: 0;
+    font-size: 22px;
+  }
+
+  .session-list {
+    display: grid;
+    gap: 10px;
+    max-height: 548px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+
+  .session-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .session-card strong,
+  .session-card span {
+    display: block;
+  }
+
+  .session-card strong {
+    color: #ffffff;
+    font-size: 15px;
+  }
+
+  .session-card span {
+    color: #aebbe1;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .session-card dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    margin: 0;
+  }
+
+  .session-card dt {
+    color: #8ea0d6;
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .session-card dd {
+    margin: 3px 0 0;
+    color: #eef3ff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.45;
+  }
+
 
   .jump-top {
     position: fixed;
