@@ -257,6 +257,133 @@ async function saveProfile(adminClient, user, email, grantPayload, existingProfi
   return data;
 }
 
+
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+function getDurationSeconds(startedAt, endedAt = new Date()) {
+  const start = new Date(startedAt).getTime();
+  const end = new Date(endedAt).getTime();
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+
+  return Math.max(0, Math.round((end - start) / 1000));
+}
+
+async function writeSystemLog(adminClient, payload) {
+  const { error } = await adminClient.from("system_activity_logs").insert(payload);
+
+  if (error) {
+    throw new Error(error.message || "Could not write system activity log.");
+  }
+}
+
+async function findRecentActiveSession(adminClient, email) {
+  const activeSince = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+  const { data, error } = await adminClient
+    .from("user_activity_sessions")
+    .select("id, started_at, last_seen_at")
+    .eq("email", email)
+    .eq("status", "active")
+    .gte("last_seen_at", activeSince)
+    .order("last_seen_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || "Could not read activity session.");
+  }
+
+  return data || null;
+}
+
+async function touchActivitySession(adminClient, request, user, email, profile) {
+  try {
+    const nowIso = new Date().toISOString();
+    const meta = getRequestMeta(request);
+    const actorName =
+      normalizeText(profile?.full_name) ||
+      normalizeText(user?.user_metadata?.full_name) ||
+      normalizeText(user?.user_metadata?.name) ||
+      email;
+    const actorRole = email === MASTER_ADMIN_EMAIL ? "master_admin" : profile?.role || "viewer";
+    const recentSession = await findRecentActiveSession(adminClient, email);
+
+    if (recentSession?.id) {
+      const { error } = await adminClient
+        .from("user_activity_sessions")
+        .update({
+          user_id: user.id,
+          full_name: actorName,
+          role: actorRole,
+          last_seen_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq("id", recentSession.id);
+
+      if (error) {
+        throw new Error(error.message || "Could not update activity session.");
+      }
+
+      return recentSession.id;
+    }
+
+    const { data: newSession, error: sessionError } = await adminClient
+      .from("user_activity_sessions")
+      .insert({
+        user_id: user.id,
+        email,
+        full_name: actorName,
+        role: actorRole,
+        last_seen_at: nowIso,
+        status: "active",
+        ip_address: meta.ip_address,
+        user_agent: meta.user_agent,
+      })
+      .select("id")
+      .single();
+
+    if (sessionError) {
+      throw new Error(sessionError.message || "Could not create activity session.");
+    }
+
+    await writeSystemLog(adminClient, {
+      actor_user_id: user.id,
+      actor_email: email,
+      actor_name: actorName,
+      actor_role: actorRole,
+      action_type: "session_started",
+      action_label: "User Signed In",
+      area: "Authentication",
+      status: "info",
+      description: `${actorName} signed in.`,
+      metadata: {
+        source: "profile_sync",
+      },
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: newSession.id,
+    });
+
+    return newSession.id;
+  } catch (error) {
+    console.warn("[activity-log] profile session tracking failed", error);
+    return null;
+  }
+}
+
+
 export async function GET(request) {
   try {
     const auth = await getUserFromRequest(request);
@@ -277,11 +404,20 @@ export async function GET(request) {
       existingProfile
     );
 
+    const sessionId = await touchActivitySession(
+      auth.adminClient,
+      request,
+      auth.user,
+      auth.email,
+      savedProfile
+    );
+
     return json({
       ok: true,
       profile: safeProfile(savedProfile),
       grant_applied: Boolean(grant && grant.is_active !== false),
       source: grant && grant.is_active !== false ? "role_grant" : "default_profile",
+      activity_session_id: sessionId,
     });
   } catch (error) {
     return json(
