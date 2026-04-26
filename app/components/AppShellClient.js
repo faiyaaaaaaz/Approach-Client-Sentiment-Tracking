@@ -562,7 +562,7 @@ export default function AppShellClient({ children }) {
               </div>
 
               <div>
-                <h1 className="brand-title">AI Auditor & Dashboard Platform</h1>
+                <h1 className="brand-title">AI Auditor & Insights Platform</h1>
                 <p className="brand-subtitle">
                   Review Approach & Client Sentiment Tracking.
                 </p>
