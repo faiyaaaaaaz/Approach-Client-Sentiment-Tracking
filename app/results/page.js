@@ -20,7 +20,7 @@ const DATE_PRESET_OPTIONS = [
 const RESULT_TYPE_OPTIONS = [
   { value: "all", label: "All Results" },
   { value: "success_only", label: "Successful Only" },
-  { value: "errors_only", label: "Errors Only" },
+  { value: "Errors_only", label: "Errors Only" },
   { value: "opportunity_cases", label: "Missed Opportunities" },
   { value: "positive_signals", label: "Positive Signals" },
   { value: "negative_risk", label: "Negative Risk" },
@@ -57,7 +57,7 @@ const DUPLICATE_MODE_OPTIONS = [
   {
     value: "skip_existing",
     label: "Skip Existing",
-    helper: "Safest option. Existing conversation IDs will stay untouched.",
+    helper: "Safest Option. Existing Conversation IDs Will Stay Untouched.",
   },
   {
     value: "overwrite_existing",
@@ -305,7 +305,7 @@ function getMappingStatus(item) {
 function matchesResultType(item, value) {
   if (value === "all") return true;
   if (value === "success_only") return !item?.error;
-  if (value === "errors_only") return Boolean(item?.error);
+  if (value === "Errors_only") return Boolean(item?.error);
   if (value === "opportunity_cases") return getResultType(item) === "opportunity_case";
   if (value === "positive_signals") return getResultType(item) === "positive_signal";
   if (value === "negative_risk") return getResultType(item) === "negative_risk";
@@ -381,6 +381,181 @@ function getProblemSheets(summary) {
   );
 }
 
+
+function normalizeKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function asOptionList(options) {
+  return (options || []).map((option) =>
+    typeof option === "string"
+      ? { value: option, label: option }
+      : { value: option.value, label: option.label || option.value }
+  );
+}
+
+function matchesSelected(Selected, value) {
+  if (!Array.isArray(Selected) || Selected.length === 0) return true;
+  return Selected.includes(String(value || ""));
+}
+
+function buildSupervisorLookup(supervisorTeams) {
+  const lookup = new Map();
+
+  for (const team of supervisorTeams || []) {
+    const memberNames = new Set();
+    const memberEmails = new Set();
+
+    for (const member of team?.members || []) {
+      const name = normalizeKey(member?.employee_name);
+      const email = normalizeEmail(member?.employee_email);
+
+      if (name) memberNames.add(name);
+      if (email) memberEmails.add(email);
+    }
+
+    lookup.set(team.id, {
+      ...team,
+      memberNames,
+      memberEmails,
+    });
+  }
+
+  return lookup;
+}
+
+function itemMatchesSupervisorTeams(item, SelectedSupervisorTeamIds, supervisorLookup) {
+  if (!Array.isArray(SelectedSupervisorTeamIds) || SelectedSupervisorTeamIds.length === 0) return true;
+
+  const employeeName = normalizeKey(item?.employee_name);
+  const employeeEmail = normalizeEmail(item?.employee_email);
+
+  if (!employeeName && !employeeEmail) return false;
+
+  return SelectedSupervisorTeamIds.some((teamId) => {
+    const team = supervisorLookup.get(teamId);
+    if (!team) return false;
+
+    if (employeeEmail && team.memberEmails.has(employeeEmail)) return true;
+    if (employeeName && team.memberNames.has(employeeName)) return true;
+
+    return false;
+  });
+}
+
+function titleCaseStaticText(text) {
+  return String(text || "")
+    .split(" ")
+    .map((word) => {
+      if (!word) return word;
+      if (word === "&") return word;
+      if (word.toUpperCase() === word && word.length <= 4) return word;
+      return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    })
+    .join(" ");
+}
+
+function MultiSelectFilter({ label, allLabel, options, selected, setSelected, searchPlaceholder }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef(null);
+  const optionList = useMemo(() => asOptionList(options), [options]);
+  const selectedValues = Array.isArray(selected) ? selected : [];
+  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+  const filteredOptions = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return optionList;
+
+    return optionList.filter((option) =>
+      String(option.label || option.value || "").toLowerCase().includes(search)
+    );
+  }, [optionList, query]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleOutsideClick(event) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
+  const buttonLabel =
+    selectedValues.length === 0
+      ? allLabel
+      : selectedValues.length === 1
+      ? optionList.find((option) => option.value === selectedValues[0])?.label || selectedValues[0]
+      : `${selectedValues.length} Selected`;
+
+  function toggleValue(value) {
+    setSelected((prev) => {
+      const current = Array.isArray(prev) ? prev : [];
+      if (current.includes(value)) {
+        return current.filter((item) => item !== value);
+      }
+
+      return [...current, value];
+    });
+  }
+
+  return (
+    <label className="multi-filter" ref={wrapRef}>
+      <span>{label}</span>
+      <button type="button" className="multi-button" onClick={() => setOpen((prev) => !prev)}>
+        <strong>{buttonLabel}</strong>
+        <b>{open ? "Up" : "Down"}</b>
+      </button>
+
+      {open ? (
+        <div className="multi-menu">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchPlaceholder || `Search ${label.toLowerCase()}`}
+          />
+
+          <div className="multi-options">
+            <button
+              type="button"
+              className={selectedValues.length === 0 ? "multi-option active" : "multi-option"}
+              onClick={() => setSelected([])}
+            >
+              <span>{selectedValues.length === 0 ? "Selected" : "Select"}</span>
+              <strong>{allLabel}</strong>
+            </button>
+
+            {filteredOptions.length ? (
+              filteredOptions.map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={selectedSet.has(option.value) ? "multi-option active" : "multi-option"}
+                  onClick={() => toggleValue(option.value)}
+                >
+                  <span>{selectedSet.has(option.value) ? "Selected" : "Select"}</span>
+                  <strong>{option.label}</strong>
+                </button>
+              ))
+            ) : (
+              <div className="multi-empty">No Matching Options.</div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </label>
+  );
+}
+
+
 export default function ResultsPage() {
   const initialRange = getPresetRange("past_7_days");
 
@@ -395,6 +570,7 @@ export default function ResultsPage() {
 
   const [runs, setRuns] = useState([]);
   const [results, setResults] = useState([]);
+  const [supervisorTeams, setSupervisorTeams] = useState([]);
 
   const [selectedDatePreset, setSelectedDatePreset] = useState("past_7_days");
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -402,14 +578,15 @@ export default function ResultsPage() {
   const [endDate, setEndDate] = useState(initialRange.endDate);
 
   const [searchText, setSearchText] = useState("");
-  const [agentFilter, setAgentFilter] = useState("all");
-  const [employeeFilter, setEmployeeFilter] = useState("all");
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [mappingStatusFilter, setMappingStatusFilter] = useState("all");
-  const [reviewSentimentFilter, setReviewSentimentFilter] = useState("all");
-  const [clientSentimentFilter, setClientSentimentFilter] = useState("all");
-  const [resolutionStatusFilter, setResolutionStatusFilter] = useState("all");
-  const [resultTypeFilter, setResultTypeFilter] = useState("all");
+  const [agentFilter, setAgentFilter] = useState([]);
+  const [employeeFilter, setEmployeeFilter] = useState([]);
+  const [supervisorTeamFilter, setSupervisorTeamFilter] = useState([]);
+  const [mappingStatusFilter, setMappingStatusFilter] = useState([]);
+  const [reviewSentimentFilter, setReviewSentimentFilter] = useState([]);
+  const [clientSentimentFilter, setClientSentimentFilter] = useState([]);
+  const [resolutionStatusFilter, setResolutionStatusFilter] = useState([]);
+  const [resultTypeFilter, setResultTypeFilter] = useState([]);
+  const [cexOnly, setCexOnly] = useState(true);
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
@@ -460,6 +637,48 @@ export default function ResultsPage() {
     }
   }
 
+
+  async function loadSupervisorTeams() {
+    const { data: teamsData, error: teamsError } = await supabase
+      .from("supervisor_teams")
+      .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+      .eq("is_active", true)
+      .order("supervisor_name", { ascending: true });
+
+    if (teamsError) {
+      throw new Error(teamsError.message || "Could Not Load Supervisor Teams.");
+    }
+
+    const teams = Array.isArray(teamsData) ? teamsData : [];
+    const teamIds = teams.map((team) => team.id).filter(Boolean);
+
+    if (!teamIds.length) return [];
+
+    const { data: membersData, error: membersError } = await supabase
+      .from("supervisor_team_members")
+      .select("id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at")
+      .in("supervisor_team_id", teamIds)
+      .eq("is_active", true)
+      .order("employee_name", { ascending: true });
+
+    if (membersError) {
+      throw new Error(membersError.message || "Could Not Load Supervisor Team Members.");
+    }
+
+    const membersByTeam = new Map();
+
+    for (const member of Array.isArray(membersData) ? membersData : []) {
+      const current = membersByTeam.get(member.supervisor_team_id) || [];
+      current.push(member);
+      membersByTeam.set(member.supervisor_team_id, current);
+    }
+
+    return teams.map((team) => ({
+      ...team,
+      members: membersByTeam.get(team.id) || [],
+    }));
+  }
+
   async function loadStoredResults(activeSession = session) {
     setLoading(true);
     setPageError("");
@@ -469,6 +688,7 @@ export default function ResultsPage() {
       if (!activeSession?.access_token) {
         setRuns([]);
         setResults([]);
+        setSupervisorTeams([]);
         setSelectedIds([]);
         setLoading(false);
         return;
@@ -489,14 +709,18 @@ export default function ResultsPage() {
         throw new Error(data?.error || "Could not load stored results.");
       }
 
+      const loadedSupervisorTeams = await loadSupervisorTeams();
+
       setRuns(Array.isArray(data?.runs) ? data.runs : []);
       setResults(Array.isArray(data?.results) ? data.results : []);
+      setSupervisorTeams(loadedSupervisorTeams);
       setSelectedIds([]);
       setExpandedRows({});
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not load stored results.");
       setRuns([]);
       setResults([]);
+      setSupervisorTeams([]);
       setSelectedIds([]);
     } finally {
       setLoading(false);
@@ -659,14 +883,15 @@ export default function ResultsPage() {
     setStartDate(range.startDate);
     setEndDate(range.endDate);
     setSearchText("");
-    setAgentFilter("all");
-    setEmployeeFilter("all");
-    setTeamFilter("all");
-    setMappingStatusFilter("all");
-    setReviewSentimentFilter("all");
-    setClientSentimentFilter("all");
-    setResolutionStatusFilter("all");
-    setResultTypeFilter("all");
+    setAgentFilter([]);
+    setEmployeeFilter([]);
+    setSupervisorTeamFilter([]);
+    setMappingStatusFilter([]);
+    setReviewSentimentFilter([]);
+    setClientSentimentFilter([]);
+    setResolutionStatusFilter([]);
+    setResultTypeFilter([]);
+    setCexOnly(true);
     setSelectedIds([]);
     setShowAllRows(false);
   }
@@ -790,7 +1015,7 @@ export default function ResultsPage() {
 
       setImportResult({
         title: "Import Complete",
-        message: data?.message || "Historical Results were imported successfully.",
+        message: data?.message || "Historical Results were imported Successfully.",
         runId: data?.runId || null,
         summary: data?.summary || null,
       });
@@ -853,11 +1078,13 @@ export default function ResultsPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [decoratedResults]);
 
-  const teamOptions = useMemo(() => {
-    return Array.from(
-      new Set(decoratedResults.map((item) => safeText(item.team_name, "No Team")).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
-  }, [decoratedResults]);
+  const supervisorTeamOptions = useMemo(() => {
+    return (supervisorTeams || [])
+      .map((team) => ({ value: team.id, label: team.supervisor_name || team.supervisor_email || "Unnamed Supervisor" }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [supervisorTeams]);
+
+  const supervisorLookup = useMemo(() => buildSupervisorLookup(supervisorTeams), [supervisorTeams]);
 
   const filteredResults = useMemo(() => {
     return decoratedResults.filter((item) => {
@@ -866,31 +1093,35 @@ export default function ResultsPage() {
       if (startDate && sourceDateOnly && sourceDateOnly < startDate) return false;
       if (endDate && sourceDateOnly && sourceDateOnly > endDate) return false;
 
-      if (agentFilter !== "all" && safeText(item.agent_name, "Unassigned") !== agentFilter) return false;
+      if (cexOnly && safeText(item.team_name, "No Team") !== "CEx") return false;
+
+      if (!itemMatchesSupervisorTeams(item, supervisorTeamFilter, supervisorLookup)) return false;
+
+      if (!matchesSelected(agentFilter, safeText(item.agent_name, "Unassigned"))) return false;
 
       const employeeName = safeText(
         item.employee_name,
         getMappingStatus(item) === "mapped" ? "Mapped Employee" : "Unmapped"
       );
-      if (employeeFilter !== "all" && employeeName !== employeeFilter) return false;
+      if (!matchesSelected(employeeFilter, employeeName)) return false;
 
-      if (teamFilter !== "all" && safeText(item.team_name, "No Team") !== teamFilter) return false;
+      if (!matchesSelected(mappingStatusFilter, getMappingStatus(item))) return false;
 
-      if (mappingStatusFilter !== "all" && getMappingStatus(item) !== mappingStatusFilter) return false;
-
-      if (reviewSentimentFilter !== "all" && safeText(item.review_sentiment, "") !== reviewSentimentFilter) {
+      if (!matchesSelected(reviewSentimentFilter, safeText(item.review_sentiment, ""))) {
         return false;
       }
 
-      if (clientSentimentFilter !== "all" && safeText(item.client_sentiment, "") !== clientSentimentFilter) {
+      if (!matchesSelected(clientSentimentFilter, safeText(item.client_sentiment, ""))) {
         return false;
       }
 
-      if (resolutionStatusFilter !== "all" && safeText(item.resolution_status, "") !== resolutionStatusFilter) {
+      if (!matchesSelected(resolutionStatusFilter, safeText(item.resolution_status, ""))) {
         return false;
       }
 
-      if (!matchesResultType(item, resultTypeFilter)) return false;
+      if (Array.isArray(resultTypeFilter) && resultTypeFilter.length > 0 && !resultTypeFilter.some((value) => matchesResultType(item, value))) {
+        return false;
+      }
 
       const haystack = [
         item?.conversation_id,
@@ -920,19 +1151,21 @@ export default function ResultsPage() {
     endDate,
     agentFilter,
     employeeFilter,
-    teamFilter,
+    supervisorTeamFilter,
+    supervisorLookup,
     mappingStatusFilter,
     reviewSentimentFilter,
     clientSentimentFilter,
     resolutionStatusFilter,
     resultTypeFilter,
+    cexOnly,
     searchText,
   ]);
 
   const visibleResults = showAllRows ? filteredResults : filteredResults.slice(0, 25);
   const allVisibleIds = visibleResults.map((item) => item.id).filter(Boolean);
   const allFilteredIds = filteredResults.map((item) => item.id).filter(Boolean);
-  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const SelectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const totalStoredRuns = useMemo(() => {
     return new Set(filteredResults.map((item) => item.run_id).filter(Boolean)).size;
@@ -1001,7 +1234,7 @@ export default function ResultsPage() {
     }
 
     const confirmed = window.confirm(
-      `Delete ${selectedIds.length} selected stored result(s)? This cannot be undone.`
+      `Delete ${selectedIds.length} Selected stored result(s)? This cannot be undone.`
     );
 
     if (!confirmed) return;
@@ -1012,7 +1245,7 @@ export default function ResultsPage() {
 
     try {
       const targetRunIds = decoratedResults
-        .filter((item) => selectedIdSet.has(item.id))
+        .filter((item) => SelectedIdSet.has(item.id))
         .map((item) => item.run_id)
         .filter(Boolean);
 
@@ -1022,7 +1255,7 @@ export default function ResultsPage() {
         .in("id", selectedIds);
 
       if (deleteResultsError) {
-        throw new Error(deleteResultsError.message || "Could not delete selected results.");
+        throw new Error(deleteResultsError.message || "Could not delete Selected results.");
       }
 
       if (targetRunIds.length) {
@@ -1056,7 +1289,7 @@ export default function ResultsPage() {
       setPageSuccess(`${selectedIds.length} stored result(s) deleted.`);
       await loadStoredResults();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not delete selected results.");
+      setPageError(error instanceof Error ? error.message : "Could not delete Selected results.");
     } finally {
       setDeleting(false);
     }
@@ -1146,15 +1379,15 @@ export default function ResultsPage() {
 
       <section className="hero">
         <div>
-          <div className="hero-badge">Results archive</div>
-          <h1>Stored results command center</h1>
-          <p>Search saved audit records, import historical Excel workbooks, export filtered data, and manage the archive from one polished workspace.</p>
+          <div className="hero-badge">Results Archive</div>
+          <h1>Stored Results Command Center</h1>
+          <p>Search Saved Audit Records, Import Historical Excel Workbooks, Export Filtered Data, And Manage The Archive From One Polished Workspace.</p>
         </div>
 
         <div className="hero-panel">
           <span>Latest Save</span>
           <strong>{latestStoredAt}</strong>
-          <small>{formatNumber(results.length)} total stored row(s)</small>
+          <small>{formatNumber(results.length)} Total Stored Row(s)</small>
         </div>
       </section>
 
@@ -1168,10 +1401,10 @@ export default function ResultsPage() {
           ) : null}
         </div>
         <div className="mini-status">
-          <span>{formatNumber(totalSuccess)} successful</span>
-          <span>{formatNumber(totalErrors)} errors</span>
+          <span>{formatNumber(totalSuccess)} Successful</span>
+          <span>{formatNumber(totalErrors)} Errors</span>
           <span>{formatNumber(totalStoredRuns)} run(s)</span>
-          <span>{formatNumber(selectedIds.length)} selected</span>
+          <span>{formatNumber(selectedIds.length)} Selected</span>
         </div>
       </section>
 
@@ -1193,7 +1426,7 @@ export default function ResultsPage() {
               accept=".xlsx"
               onChange={(event) => setImportFile(event.target.files?.[0] || null)}
             />
-            <small>{importFile ? importFile.name : "Choose the historical .xlsx file"}</small>
+            <small>{importFile ? importFile.name : "Choose The Historical .xlsx File"}</small>
           </label>
 
           <label>
@@ -1299,67 +1532,78 @@ export default function ResultsPage() {
         </div>
 
         <div className="filters-grid">
-          <label>
-            <span>Agent</span>
-            <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}>
-              <option value="all">All Agents</option>
-              {agentOptions.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
-            </select>
+          <MultiSelectFilter
+            label="Agent"
+            allLabel="All Agents"
+            options={agentOptions}
+            selected={agentFilter}
+            setSelected={setAgentFilter}
+          />
+
+          <MultiSelectFilter
+            label="Employee"
+            allLabel="All Employees"
+            options={employeeOptions}
+            selected={employeeFilter}
+            setSelected={setEmployeeFilter}
+          />
+
+          <MultiSelectFilter
+            label="Supervisor Team"
+            allLabel="All Supervisors"
+            options={supervisorTeamOptions}
+            selected={supervisorTeamFilter}
+            setSelected={setSupervisorTeamFilter}
+          />
+
+          <label className="cex-check">
+            <input
+              type="checkbox"
+              checked={cexOnly}
+              onChange={(event) => setCexOnly(event.target.checked)}
+            />
+            <span>CEx Only</span>
           </label>
 
-          <label>
-            <span>Employee</span>
-            <select value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)}>
-              <option value="all">All Employees</option>
-              {employeeOptions.map((employee) => <option key={employee} value={employee}>{employee}</option>)}
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Mapping"
+            allLabel="All Mapping"
+            options={MAPPING_STATUS_OPTIONS}
+            selected={mappingStatusFilter}
+            setSelected={setMappingStatusFilter}
+          />
 
-          <label>
-            <span>Team</span>
-            <select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)}>
-              <option value="all">All Teams</option>
-              {teamOptions.map((team) => <option key={team} value={team}>{team}</option>)}
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Result Type"
+            allLabel="All Results"
+            options={RESULT_TYPE_OPTIONS}
+            selected={resultTypeFilter}
+            setSelected={setResultTypeFilter}
+          />
 
-          <label>
-            <span>Mapping</span>
-            <select value={mappingStatusFilter} onChange={(event) => setMappingStatusFilter(event.target.value)}>
-              {MAPPING_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Review"
+            allLabel="All Review Sentiments"
+            options={REVIEW_SENTIMENT_OPTIONS}
+            selected={reviewSentimentFilter}
+            setSelected={setReviewSentimentFilter}
+          />
 
-          <label>
-            <span>Result Type</span>
-            <select value={resultTypeFilter} onChange={(event) => setResultTypeFilter(event.target.value)}>
-              {RESULT_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Client"
+            allLabel="All Client Sentiments"
+            options={CLIENT_SENTIMENT_OPTIONS}
+            selected={clientSentimentFilter}
+            setSelected={setClientSentimentFilter}
+          />
 
-          <label>
-            <span>Review</span>
-            <select value={reviewSentimentFilter} onChange={(event) => setReviewSentimentFilter(event.target.value)}>
-              <option value="all">All Review Sentiments</option>
-              {REVIEW_SENTIMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-
-          <label>
-            <span>Client</span>
-            <select value={clientSentimentFilter} onChange={(event) => setClientSentimentFilter(event.target.value)}>
-              <option value="all">All Client Sentiments</option>
-              {CLIENT_SENTIMENT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
-
-          <label>
-            <span>Resolution</span>
-            <select value={resolutionStatusFilter} onChange={(event) => setResolutionStatusFilter(event.target.value)}>
-              <option value="all">All Resolution Statuses</option>
-              {RESOLUTION_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Resolution"
+            allLabel="All Resolution Statuses"
+            options={RESOLUTION_STATUS_OPTIONS}
+            selected={resolutionStatusFilter}
+            setSelected={setResolutionStatusFilter}
+          />
         </div>
 
         <div className="selection-row">
@@ -1388,9 +1632,9 @@ export default function ResultsPage() {
             <h2>Audit Results</h2>
           </div>
           <div className="table-summary">
-            <span>{formatNumber(totalSuccess)} successful</span>
-            <span>{formatNumber(totalErrors)} errors</span>
-            <span>{formatNumber(selectedIds.length)} selected</span>
+            <span>{formatNumber(totalSuccess)} Successful</span>
+            <span>{formatNumber(totalErrors)} Errors</span>
+            <span>{formatNumber(selectedIds.length)} Selected</span>
           </div>
         </div>
 
@@ -1409,7 +1653,7 @@ export default function ResultsPage() {
                     <th>
                       <input
                         type="checkbox"
-                        checked={allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIdSet.has(id))}
+                        checked={allVisibleIds.length > 0 && allVisibleIds.every((id) => SelectedIdSet.has(id))}
                         onChange={(event) => {
                           if (event.target.checked) {
                             selectAllVisible();
@@ -1447,7 +1691,7 @@ export default function ResultsPage() {
                           <td>
                             <input
                               type="checkbox"
-                              checked={selectedIdSet.has(item.id)}
+                              checked={SelectedIdSet.has(item.id)}
                               onChange={() => toggleSingle(item.id)}
                             />
                           </td>
@@ -2221,6 +2465,144 @@ const resultsStyles = `
     color: #f5f3ff;
     background: rgba(139, 92, 246, 0.16);
   }
+
+
+  .multi-filter {
+    position: relative;
+  }
+
+  .multi-button {
+    width: 100%;
+    min-height: 50px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 0 14px;
+    color: #e7ecff;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 16px;
+    outline: none;
+    background: rgba(5, 8, 18, 0.92);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .multi-button strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .multi-button b {
+    color: #8ea0d6;
+    font-size: 11px;
+  }
+
+  .multi-button:focus,
+  .multi-button:hover {
+    border-color: rgba(96, 165, 250, 0.38);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  .multi-menu {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 10px);
+    z-index: 5000;
+    width: min(360px, 86vw);
+    padding: 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(147, 197, 253, 0.22);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 34%),
+      #0b1122;
+    box-shadow:
+      0 28px 90px rgba(0, 0, 0, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .multi-menu input {
+    margin-bottom: 8px;
+  }
+
+  .multi-options {
+    display: grid;
+    gap: 6px;
+    max-height: 280px;
+    overflow: auto;
+  }
+
+  .multi-option {
+    width: 100%;
+    min-height: 38px;
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.015);
+    color: #e5ebff;
+    padding: 0 10px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .multi-option:hover,
+  .multi-option.active {
+    border-color: rgba(96, 165, 250, 0.22);
+    background: rgba(59, 130, 246, 0.16);
+  }
+
+  .multi-option span {
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .multi-option.active span {
+    color: #34d399;
+  }
+
+  .multi-option strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .multi-empty {
+    padding: 12px;
+    color: #a9b4d0;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+    font-size: 13px;
+  }
+
+  .cex-check {
+    min-height: 50px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: #dbe7ff;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .cex-check input {
+    width: auto;
+    min-height: auto;
+  }
+
+  .cex-check span {
+    margin: 0;
+    color: #dbe7ff;
+    letter-spacing: 0;
+    font-size: 14px;
+    text-transform: none;
+  }
+
 
   .selection-row {
     justify-content: space-between;
