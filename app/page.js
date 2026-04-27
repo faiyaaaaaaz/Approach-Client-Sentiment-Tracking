@@ -1688,6 +1688,51 @@ function downloadWeeklyCsv(tableRows, periods, metric, metricLabel) {
   URL.revokeObjectURL(url);
 }
 
+
+function DashboardLoadingScreen() {
+  return (
+    <main className="dashboard-page">
+      <style>{dashboardStyles}</style>
+
+      <div className="dashboard-loading-stage">
+        <div className="dashboard-loader-card">
+          <div className="dashboard-loader-logo" aria-hidden="true">
+            <span className="dashboard-loader-halo" />
+            <span className="dashboard-loader-orbit orbit-a" />
+            <span className="dashboard-loader-orbit orbit-b" />
+            <span className="dashboard-loader-dot dot-a" />
+            <span className="dashboard-loader-dot dot-b" />
+            <span className="dashboard-loader-dot dot-c" />
+            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#dashboardLoaderMain)" />
+              <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#dashboardLoaderAccent)" opacity="0.94" />
+              <defs>
+                <linearGradient id="dashboardLoaderMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#22D3EE" />
+                  <stop offset="0.48" stopColor="#8B5CF6" />
+                  <stop offset="1" stopColor="#EC4899" />
+                </linearGradient>
+                <linearGradient id="dashboardLoaderAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#FDE047" />
+                  <stop offset="1" stopColor="#F97316" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          <p>Dashboard Intelligence</p>
+          <h1>Preparing Insights...</h1>
+          <span>Syncing stored audit results, Supervisor Teams, and filtered analytics.</span>
+
+          <div className="dashboard-loader-bar">
+            <i />
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState([]);
@@ -1949,6 +1994,10 @@ export default function DashboardPage() {
   const previousResolutionRate = previousTotal ? (previousResolvedCount / previousTotal) * 100 : 0;
 
   const latestStoredAt = dedupedRows[0]?.created_at || "";
+
+  if (loading) {
+    return <DashboardLoadingScreen />;
+  }
 
   function openDetail(title, value, rows, initialFilters = globalFilters) {
     setDetailState({
@@ -2471,6 +2520,205 @@ const dashboardStyles = `
   .dashboard-shell {
     width: min(1440px, 100%);
     margin: 0 auto;
+  }
+
+
+  .dashboard-loading-stage {
+    min-height: calc(100vh - 80px);
+    display: grid;
+    place-items: center;
+    padding: 48px 18px;
+  }
+
+  .dashboard-loader-card {
+    position: relative;
+    overflow: hidden;
+    width: min(660px, 94vw);
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    padding: 46px;
+    text-align: center;
+    border-radius: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background:
+      radial-gradient(circle at 22% 0%, rgba(34, 211, 238, 0.1), transparent 34%),
+      radial-gradient(circle at 86% 8%, rgba(139, 92, 246, 0.18), transparent 36%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(5, 8, 20, 0.98));
+    box-shadow:
+      0 34px 110px rgba(0, 0, 0, 0.52),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .dashboard-loader-card::before {
+    content: "";
+    position: absolute;
+    inset: -180px auto auto -140px;
+    width: 420px;
+    height: 420px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.11);
+    filter: blur(66px);
+  }
+
+  .dashboard-loader-card::after {
+    content: "";
+    position: absolute;
+    inset: auto -150px -190px auto;
+    width: 460px;
+    height: 460px;
+    border-radius: 999px;
+    background: rgba(236, 72, 153, 0.12);
+    filter: blur(70px);
+  }
+
+  .dashboard-loader-logo,
+  .dashboard-loader-card p,
+  .dashboard-loader-card h1,
+  .dashboard-loader-card span,
+  .dashboard-loader-bar {
+    position: relative;
+    z-index: 1;
+  }
+
+  .dashboard-loader-logo {
+    width: 104px;
+    height: 104px;
+    display: grid;
+    place-items: center;
+    border-radius: 36px;
+    border: 1px solid rgba(125, 211, 252, 0.2);
+    background:
+      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.24), transparent 22%),
+      linear-gradient(145deg, rgba(5, 12, 31, 0.98), rgba(15, 23, 42, 0.94));
+    box-shadow:
+      0 24px 60px rgba(18, 31, 67, 0.44),
+      0 0 46px rgba(34, 211, 238, 0.16),
+      inset 0 1px 0 rgba(255,255,255,0.12);
+  }
+
+  .dashboard-loader-logo svg {
+    position: relative;
+    z-index: 2;
+    width: 56px;
+    height: 56px;
+    filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.46));
+  }
+
+  .dashboard-loader-halo,
+  .dashboard-loader-orbit,
+  .dashboard-loader-dot {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .dashboard-loader-halo {
+    inset: 11px;
+    border-radius: 30px;
+    background: radial-gradient(circle at center, rgba(34, 211, 238, 0.15), rgba(139, 92, 246, 0.11), transparent 70%);
+    filter: blur(8px);
+  }
+
+  .dashboard-loader-orbit {
+    border: 1px solid rgba(191, 219, 254, 0.32);
+    border-radius: 999px;
+  }
+
+  .dashboard-loader-orbit.orbit-a {
+    width: 78px;
+    height: 36px;
+    transform: rotate(-24deg);
+    animation: dashboardOrbitA 4.7s ease-in-out infinite;
+  }
+
+  .dashboard-loader-orbit.orbit-b {
+    width: 36px;
+    height: 78px;
+    transform: rotate(28deg);
+    animation: dashboardOrbitB 5.2s ease-in-out infinite;
+  }
+
+  .dashboard-loader-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #cffafe;
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.9);
+  }
+
+  .dashboard-loader-dot.dot-a {
+    top: 20px;
+    right: 24px;
+  }
+
+  .dashboard-loader-dot.dot-b {
+    left: 24px;
+    bottom: 28px;
+  }
+
+  .dashboard-loader-dot.dot-c {
+    right: 24px;
+    bottom: 24px;
+    background: #f0abfc;
+    box-shadow: 0 0 16px rgba(217, 70, 239, 0.8);
+  }
+
+  .dashboard-loader-card p {
+    margin: 14px 0 0;
+    color: #93b4ff;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .dashboard-loader-card h1 {
+    margin: 4px 0 0;
+    color: #ffffff;
+    font-size: clamp(34px, 5vw, 62px);
+    line-height: 0.95;
+    letter-spacing: -0.07em;
+  }
+
+  .dashboard-loader-card span {
+    max-width: 460px;
+    color: #aebbe1;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .dashboard-loader-bar {
+    width: min(360px, 80vw);
+    height: 7px;
+    margin-top: 14px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+  }
+
+  .dashboard-loader-bar i {
+    display: block;
+    width: 44%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #22d3ee, #8b5cf6, #ec4899);
+    animation: dashboardProgress 1.42s ease-in-out infinite;
+  }
+
+  @keyframes dashboardProgress {
+    0% { transform: translateX(-120%); }
+    55% { transform: translateX(94%); }
+    100% { transform: translateX(220%); }
+  }
+
+  @keyframes dashboardOrbitA {
+    0%, 100% { transform: rotate(-24deg) scale(1); opacity: 0.72; }
+    50% { transform: rotate(-14deg) scale(1.06); opacity: 1; }
+  }
+
+  @keyframes dashboardOrbitB {
+    0%, 100% { transform: rotate(28deg) scale(1); opacity: 0.72; }
+    50% { transform: rotate(42deg) scale(1.06); opacity: 1; }
   }
 
   .hero-panel,
