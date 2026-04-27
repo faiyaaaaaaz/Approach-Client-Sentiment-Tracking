@@ -276,6 +276,103 @@ function getLockReason(pathname, session, profile) {
   return null;
 }
 
+
+function PlatformLogo({ size = "normal" }) {
+  return (
+    <div className={`platform-logo ${size}`} aria-hidden="true">
+      <span className="platform-logo-halo" />
+      <span className="platform-logo-orbit orbit-a" />
+      <span className="platform-logo-orbit orbit-b" />
+      <span className="platform-logo-node node-a" />
+      <span className="platform-logo-node node-b" />
+      <span className="platform-logo-node node-c" />
+      <div className="platform-logo-core">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#platformLogoMain)" />
+          <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#platformLogoAccent)" opacity="0.94" />
+          <defs>
+            <linearGradient id="platformLogoMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#22D3EE" />
+              <stop offset="0.48" stopColor="#8B5CF6" />
+              <stop offset="1" stopColor="#EC4899" />
+            </linearGradient>
+            <linearGradient id="platformLogoAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#FDE047" />
+              <stop offset="1" stopColor="#F97316" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function LaunchScreen({ title = "Initializing Secure Workspace...", subtitle = "Checking Session And Preparing The Platform." }) {
+  return (
+    <div className="auth-stage">
+      <div className="auth-bg-grid" />
+      <div className="launch-card compact-launch">
+        <PlatformLogo size="large" />
+        <p>Next Ventures</p>
+        <h1>{title}</h1>
+        <span>{subtitle}</span>
+        <div className="launch-progress">
+          <i />
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: appShellStyles }} />
+    </div>
+  );
+}
+
+function LoginScreen({ authMessage, onGoogleLogin }) {
+  return (
+    <div className="auth-stage">
+      <div className="auth-bg-grid" />
+
+      <section className="login-card">
+        <div className="login-orb orb-a" />
+        <div className="login-orb orb-b" />
+
+        <div className="login-brand">
+          <PlatformLogo size="large" />
+          <div>
+            <p>Next Ventures</p>
+            <h1>AI Auditor & Insights Platform</h1>
+            <span>Secure Review Intelligence, Client Sentiment, And Resolution Tracking.</span>
+          </div>
+        </div>
+
+        <div className="login-copy">
+          <span>Secure Access Required</span>
+          <h2>Sign In To Enter The Command Center</h2>
+          <p>
+            Use your NEXT Ventures Google account to access the dashboard, results, audit workflow,
+            and Admin controls assigned to your role.
+          </p>
+
+          {authMessage ? <div className="login-warning">{authMessage}</div> : null}
+
+          <button type="button" className="login-google-btn" onClick={onGoogleLogin}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#4285F4" d="M21.6 12.23c0-.76-.07-1.49-.2-2.19H12v4.14h5.38c-.23 1.25-.94 2.31-2 3.02v2.51h3.24c1.9-1.75 2.98-4.32 2.98-7.48z" />
+              <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.62-2.43l-3.24-2.51c-.9.6-2.04.96-3.38.96-2.6 0-4.8-1.76-5.59-4.12H3.06v2.59C4.71 19.75 8.08 22 12 22z" />
+              <path fill="#FBBC05" d="M6.41 13.9c-.2-.6-.31-1.24-.31-1.9s.11-1.3.31-1.9V7.51H3.06A9.98 9.98 0 0 0 2 12c0 1.61.39 3.14 1.06 4.49l3.35-2.59z" />
+              <path fill="#EA4335" d="M12 5.98c1.47 0 2.79.51 3.82 1.5l2.87-2.87C16.95 2.99 14.69 2 12 2 8.08 2 4.71 4.25 3.06 7.51l3.35 2.59C7.2 7.74 9.4 5.98 12 5.98z" />
+            </svg>
+            Sign In With Google
+          </button>
+
+          <small>Only nextventures.io accounts can continue.</small>
+        </div>
+      </section>
+
+      <style dangerouslySetInnerHTML={{ __html: appShellStyles }} />
+    </div>
+  );
+}
+
 export default function AppShellClient({ children }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -320,15 +417,17 @@ export default function AppShellClient({ children }) {
     }
 
     const fallbackProfile = buildFallbackProfile(user);
+    let profileSyncError = "";
 
-    try {
-      if (nextSession?.access_token) {
+    if (nextSession?.access_token) {
+      try {
         const response = await withTimeout(
           fetch("/api/auth/profile", {
             method: "GET",
             headers: {
               Authorization: `Bearer ${nextSession.access_token}`,
             },
+            cache: "no-store",
           }),
           "Profile sync",
           PROFILE_TIMEOUT_MS
@@ -339,44 +438,33 @@ export default function AppShellClient({ children }) {
         if (response.ok && data?.ok && data?.profile) {
           return {
             profile: data.profile,
-            message:
-              data.source === "role_grant"
-                ? ""
-                : data.grant_applied
-                ? ""
-                : "",
+            message: "",
           };
         }
 
-        if (data?.error) {
-          throw new Error(data.error);
-        }
+        profileSyncError = data?.error || "Profile sync did not return a usable profile.";
+      } catch (error) {
+        profileSyncError =
+          error instanceof Error ? error.message : "Profile sync failed.";
       }
+    }
 
-      const { data, error } = await withTimeout(
+    try {
+      const byId = await withTimeout(
         supabase
           .from("profiles")
           .select("id, email, full_name, role, can_run_tests, is_active")
-          .or(`id.eq.${user.id},email.eq.${email}`)
+          .eq("id", user.id)
           .maybeSingle(),
-        "Profile check",
+        "Profile check by user ID",
         PROFILE_TIMEOUT_MS
       );
 
-      if (error) {
-        if (fallbackProfile) return { profile: fallbackProfile, message: "" };
-
-        return {
-          profile: null,
-          message: "Signed in, but profile loading failed.",
-        };
-      }
-
-      if (data) {
+      if (byId?.data) {
         if (email === MASTER_ADMIN_EMAIL) {
           return {
             profile: {
-              ...data,
+              ...byId.data,
               email,
               role: "master_admin",
               can_run_tests: true,
@@ -386,34 +474,60 @@ export default function AppShellClient({ children }) {
           };
         }
 
-        return { profile: data, message: "" };
+        return { profile: byId.data, message: profileSyncError };
       }
 
-      if (fallbackProfile) return { profile: fallbackProfile, message: "" };
+      const byEmail = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("id, email, full_name, role, can_run_tests, is_active")
+          .ilike("email", email)
+          .limit(1),
+        "Profile check by email",
+        PROFILE_TIMEOUT_MS
+      );
 
-      return {
-        profile: null,
-        message: "Signed in, but this account has not been granted access.",
-      };
-    } catch (error) {
-      if (fallbackProfile) {
-        return {
-          profile: fallbackProfile,
-          message:
-            email === MASTER_ADMIN_EMAIL
-              ? ""
-              : error instanceof Error
-              ? error.message
-              : "Signed in, but profile sync failed.",
-        };
+      const emailProfile = Array.isArray(byEmail?.data) ? byEmail.data[0] : null;
+
+      if (emailProfile) {
+        if (email === MASTER_ADMIN_EMAIL) {
+          return {
+            profile: {
+              ...emailProfile,
+              email,
+              role: "master_admin",
+              can_run_tests: true,
+              is_active: true,
+            },
+            message: "",
+          };
+        }
+
+        return { profile: emailProfile, message: profileSyncError };
+      }
+
+      if (fallbackProfile && email === MASTER_ADMIN_EMAIL) {
+        return { profile: fallbackProfile, message: "" };
       }
 
       return {
         profile: null,
         message:
-          error instanceof Error
+          profileSyncError ||
+          "Signed in, but this account has not been granted access yet.",
+      };
+    } catch (error) {
+      if (fallbackProfile && email === MASTER_ADMIN_EMAIL) {
+        return { profile: fallbackProfile, message: "" };
+      }
+
+      return {
+        profile: null,
+        message:
+          profileSyncError ||
+          (error instanceof Error
             ? error.message
-            : "Signed in, but profile loading failed.",
+            : "Signed in, but profile loading failed."),
       };
     }
   }
@@ -564,6 +678,19 @@ export default function AppShellClient({ children }) {
     router.push("/");
   }
 
+  if (authLoading) {
+    return (
+      <LaunchScreen
+        title="Initializing Secure Workspace..."
+        subtitle="Checking Session And Preparing Access."
+      />
+    );
+  }
+
+  if (!session?.user) {
+    return <LoginScreen authMessage={authMessage} onGoogleLogin={handleGoogleLogin} />;
+  }
+
   return (
     <div className="app-shell">
       <div className="app-bg">
@@ -607,7 +734,7 @@ export default function AppShellClient({ children }) {
               </div>
 
               <div>
-                <h1 className="brand-title">AI Auditor & Dashboard Platform</h1>
+                <h1 className="brand-title">AI Auditor & Insights Platform</h1>
                 <p className="brand-subtitle">
                   Review Approach & Client Sentiment Tracking.
                 </p>
@@ -771,6 +898,350 @@ export default function AppShellClient({ children }) {
 }
 
 const appShellStyles = `
+
+  .auth-stage {
+    position: relative;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 30px;
+    background:
+      radial-gradient(circle at 14% 16%, rgba(34, 211, 238, 0.13), transparent 26%),
+      radial-gradient(circle at 84% 18%, rgba(139, 92, 246, 0.2), transparent 28%),
+      radial-gradient(circle at 52% 82%, rgba(236, 72, 153, 0.12), transparent 22%),
+      linear-gradient(180deg, #030611 0%, #050918 48%, #02040b 100%);
+  }
+
+  .auth-bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(circle at center, rgba(255,255,255,0.44), transparent 72%);
+    opacity: 0.42;
+  }
+
+  .platform-logo {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    flex: 0 0 auto;
+    border-radius: 26px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.22), transparent 22%),
+      linear-gradient(145deg, rgba(5, 12, 31, 0.98), rgba(15, 23, 42, 0.94));
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    box-shadow:
+      0 24px 60px rgba(18, 31, 67, 0.42),
+      0 0 42px rgba(34, 211, 238, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 0 42px rgba(45, 212, 191, 0.06);
+  }
+
+  .platform-logo.large {
+    width: 96px;
+    height: 96px;
+    border-radius: 34px;
+  }
+
+  .platform-logo-halo {
+    position: absolute;
+    inset: 9px;
+    border-radius: 22px;
+    background: radial-gradient(circle at center, rgba(34, 211, 238, 0.14), rgba(139, 92, 246, 0.1), transparent 70%);
+    filter: blur(7px);
+  }
+
+  .platform-logo-orbit,
+  .platform-logo-node {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .platform-logo-orbit {
+    border: 1px solid rgba(191, 219, 254, 0.32);
+    border-radius: 999px;
+  }
+
+  .platform-logo .orbit-a {
+    width: 78%;
+    height: 38%;
+    transform: rotate(-24deg);
+    animation: orbitFloatA 4.8s ease-in-out infinite;
+  }
+
+  .platform-logo .orbit-b {
+    width: 38%;
+    height: 78%;
+    transform: rotate(28deg);
+    animation: orbitFloatB 5.4s ease-in-out infinite;
+  }
+
+  .platform-logo-node {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #cffafe;
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.88);
+  }
+
+  .platform-logo .node-a {
+    top: 19%;
+    right: 21%;
+  }
+
+  .platform-logo .node-b {
+    left: 22%;
+    bottom: 24%;
+  }
+
+  .platform-logo .node-c {
+    right: 22%;
+    bottom: 20%;
+    background: #f0abfc;
+    box-shadow: 0 0 16px rgba(217, 70, 239, 0.78);
+  }
+
+  .platform-logo-core {
+    position: relative;
+    z-index: 1;
+    width: 52%;
+    height: 52%;
+    display: grid;
+    place-items: center;
+    filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.44));
+  }
+
+  .platform-logo-core svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .launch-card,
+  .login-card {
+    position: relative;
+    z-index: 1;
+    border: 1px solid rgba(255,255,255,0.1);
+    background:
+      radial-gradient(circle at 20% 0%, rgba(34, 211, 238, 0.1), transparent 30%),
+      radial-gradient(circle at 90% 10%, rgba(139, 92, 246, 0.18), transparent 34%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(5, 8, 20, 0.98));
+    box-shadow:
+      0 34px 110px rgba(0,0,0,0.52),
+      inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(22px);
+  }
+
+  .launch-card {
+    display: grid;
+    justify-items: center;
+    gap: 15px;
+    width: min(620px, 92vw);
+    padding: 44px;
+    border-radius: 34px;
+    text-align: center;
+  }
+
+  .launch-card p,
+  .login-brand p,
+  .login-copy span {
+    margin: 0;
+    color: #93b4ff;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .launch-card h1 {
+    margin: 8px 0 0;
+    color: #ffffff;
+    font-size: clamp(26px, 4vw, 46px);
+    line-height: 0.98;
+    letter-spacing: -0.06em;
+  }
+
+  .launch-card span {
+    color: #aebbe1;
+    line-height: 1.6;
+  }
+
+  .launch-progress {
+    width: min(340px, 80vw);
+    height: 7px;
+    margin-top: 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+  }
+
+  .launch-progress i {
+    display: block;
+    width: 44%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #22d3ee, #8b5cf6, #ec4899);
+    animation: progressSweep 1.45s ease-in-out infinite;
+  }
+
+  .login-card {
+    width: min(1040px, 94vw);
+    min-height: 610px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.72fr);
+    gap: 30px;
+    align-items: stretch;
+    padding: 34px;
+    border-radius: 38px;
+    overflow: hidden;
+  }
+
+  .login-orb {
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(60px);
+    opacity: 0.72;
+  }
+
+  .login-orb.orb-a {
+    width: 320px;
+    height: 320px;
+    top: -110px;
+    right: -70px;
+    background: rgba(139, 92, 246, 0.26);
+  }
+
+  .login-orb.orb-b {
+    width: 300px;
+    height: 300px;
+    bottom: -120px;
+    left: -80px;
+    background: rgba(34, 211, 238, 0.12);
+  }
+
+  .login-brand,
+  .login-copy {
+    position: relative;
+    z-index: 1;
+  }
+
+  .login-brand {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 28px;
+    border-radius: 30px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .login-brand h1 {
+    margin: 12px 0 10px;
+    max-width: 560px;
+    color: #ffffff;
+    font-size: clamp(48px, 7vw, 84px);
+    line-height: 0.9;
+    letter-spacing: -0.08em;
+  }
+
+  .login-brand span {
+    display: block;
+    max-width: 520px;
+    color: #aebbe1;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  .login-copy {
+    align-self: center;
+    padding: 28px;
+    border-radius: 30px;
+    background:
+      radial-gradient(circle at top right, rgba(139, 92, 246, 0.16), transparent 36%),
+      rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .login-copy h2 {
+    margin: 14px 0 14px;
+    color: #ffffff;
+    font-size: clamp(32px, 3.6vw, 52px);
+    line-height: 0.98;
+    letter-spacing: -0.06em;
+  }
+
+  .login-copy p {
+    margin: 0 0 22px;
+    color: #aebbe1;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .login-google-btn {
+    width: 100%;
+    min-height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #ffffff;
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
+    box-shadow: 0 22px 42px rgba(91, 33, 182, 0.34);
+    font-weight: 950;
+    cursor: pointer;
+  }
+
+  .login-google-btn svg {
+    width: 22px;
+    height: 22px;
+    padding: 3px;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  .login-copy small {
+    display: block;
+    margin-top: 14px;
+    color: #8ea0c9;
+    text-align: center;
+  }
+
+  .login-warning {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  @keyframes progressSweep {
+    0% { transform: translateX(-120%); }
+    55% { transform: translateX(92%); }
+    100% { transform: translateX(220%); }
+  }
+
+  @keyframes orbitFloatA {
+    0%, 100% { transform: rotate(-24deg) scale(1); opacity: 0.72; }
+    50% { transform: rotate(-14deg) scale(1.05); opacity: 1; }
+  }
+
+  @keyframes orbitFloatB {
+    0%, 100% { transform: rotate(28deg) scale(1); opacity: 0.72; }
+    50% { transform: rotate(42deg) scale(1.05); opacity: 1; }
+  }
+
   :root {
     color-scheme: dark;
   }
@@ -1434,6 +1905,16 @@ const appShellStyles = `
   }
 
   @media (max-width: 1100px) {
+    .login-card {
+      grid-template-columns: 1fr;
+      min-height: auto;
+    }
+
+    .login-brand {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
     .shell-frame {
       grid-template-columns: 1fr;
     }
@@ -1460,6 +1941,26 @@ const appShellStyles = `
   }
 
   @media (max-width: 760px) {
+    .auth-stage {
+      padding: 14px;
+    }
+
+    .login-card,
+    .launch-card {
+      padding: 20px;
+      border-radius: 26px;
+    }
+
+    .login-brand,
+    .login-copy {
+      padding: 20px;
+      border-radius: 22px;
+    }
+
+    .login-brand h1 {
+      font-size: 44px;
+    }
+
     .content-shell,
     .sidebar {
       padding-left: 12px;
