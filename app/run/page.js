@@ -6,6 +6,8 @@ import { supabase } from "../../lib/supabase";
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
 const AUDIT_BATCH_SIZE = 8;
 const SESSION_REFRESH_BUFFER_MS = 2 * 60 * 1000;
+const RUN_PAGE_CACHE_KEY = "ai-auditor-run-page-state-v2";
+const RUN_PAGE_CACHE_VERSION = 2;
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -215,6 +217,49 @@ async function readJsonSafely(response) {
     throw new Error(
       `Server returned a non-JSON response. Status ${response.status}. ${trimmed.slice(0, 260)}`
     );
+  }
+}
+
+function readRunPageCache() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(RUN_PAGE_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== RUN_PAGE_CACHE_VERSION) return null;
+
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeRunPageCache(payload) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(
+      RUN_PAGE_CACHE_KEY,
+      JSON.stringify({
+        version: RUN_PAGE_CACHE_VERSION,
+        savedAt: new Date().toISOString(),
+        ...payload,
+      })
+    );
+  } catch (_error) {
+    // Ignore browser storage failures. The live run must not depend on this cache.
+  }
+}
+
+function clearRunPageCache() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.removeItem(RUN_PAGE_CACHE_KEY);
+  } catch (_error) {
+    // Ignore browser storage failures.
   }
 }
 
@@ -497,6 +542,7 @@ export default function RunPage() {
   const fetchAbortRef = useRef(null);
   const runAbortRef = useRef(null);
   const cancelRequestedRef = useRef(false);
+  const cacheHydratedRef = useRef(false);
 
   const canRunTests = canRunAudits(profile);
   const isBusy = fetchLoading || runLoading || duplicateDecisionLoading;
@@ -593,6 +639,7 @@ export default function RunPage() {
       label: "Ready",
       detail: "Audit has not started.",
     });
+    clearRunPageCache();
   }
 
   function openPicker(inputRef) {
@@ -735,6 +782,98 @@ export default function RunPage() {
   }, []);
 
   useEffect(() => {
+    if (cacheHydratedRef.current) return;
+
+    const cached = readRunPageCache();
+    cacheHydratedRef.current = true;
+
+    if (!cached) return;
+
+    if (cached.startDate) setStartDate(cached.startDate);
+    if (cached.endDate) setEndDate(cached.endDate);
+    if (cached.selectedDatePreset) setSelectedDatePreset(cached.selectedDatePreset);
+    if (typeof cached.limiterEnabled === "boolean") setLimiterEnabled(cached.limiterEnabled);
+    if (cached.limitCount) setLimitCount(cached.limitCount);
+    if (typeof cached.autoRunAfterFetch === "boolean") setAutoRunAfterFetch(cached.autoRunAfterFetch);
+
+    if (cached.fetchData) setFetchData(cached.fetchData);
+    if (cached.runData) setRunData(cached.runData);
+    if (cached.fetchSuccess) setFetchSuccess(cached.fetchSuccess);
+    if (cached.runSuccess) setRunSuccess(cached.runSuccess);
+    if (cached.operationStatus && cached.operationStatus !== "fetching" && cached.operationStatus !== "auditing") {
+      setOperationStatus(cached.operationStatus);
+    }
+
+    if (Array.isArray(cached.executionLog) && cached.executionLog.length > 0) {
+      setExecutionLog(cached.executionLog.slice(0, 60));
+    }
+
+    if (cached.auditProgress && typeof cached.auditProgress === "object") {
+      setAuditProgress((prev) => ({
+        ...prev,
+        ...cached.auditProgress,
+        label:
+          cached.operationStatus === "fetching" || cached.operationStatus === "auditing"
+            ? "Previous Run State Restored"
+            : cached.auditProgress.label || prev.label,
+        detail:
+          cached.operationStatus === "fetching" || cached.operationStatus === "auditing"
+            ? "This page restored the last saved UI state. Check Results and System Activity Logs before rerunning."
+            : cached.auditProgress.detail || prev.detail,
+      }));
+    }
+
+    if (cached.operationStatus === "fetching" || cached.operationStatus === "auditing") {
+      setOperationStatus("failed");
+      setFetchLoading(false);
+      setRunLoading(false);
+      setFetchError(
+        "The page was refreshed during an active workflow. Check Results and System Activity Logs before rerunning the same range."
+      );
+      addLog(
+        "Previous active workflow state was restored after refresh. Verify Results before rerunning.",
+        "warning"
+      );
+    } else if (cached.savedAt) {
+      addLog("Previous Run Audit page state restored from this browser session.", "notice");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cacheHydratedRef.current) return;
+
+    writeRunPageCache({
+      startDate,
+      endDate,
+      selectedDatePreset,
+      limiterEnabled,
+      limitCount,
+      autoRunAfterFetch,
+      fetchData,
+      runData,
+      fetchSuccess,
+      runSuccess,
+      operationStatus,
+      executionLog: executionLog.slice(0, 20),
+      auditProgress,
+    });
+  }, [
+    startDate,
+    endDate,
+    selectedDatePreset,
+    limiterEnabled,
+    limitCount,
+    autoRunAfterFetch,
+    fetchData,
+    runData,
+    fetchSuccess,
+    runSuccess,
+    operationStatus,
+    executionLog,
+    auditProgress,
+  ]);
+
+  useEffect(() => {
     if (!fetchLoading) return undefined;
 
     const interval = setInterval(() => {
@@ -753,6 +892,19 @@ export default function RunPage() {
 
     return () => clearInterval(interval);
   }, [fetchLoading, runLoading]);
+
+  useEffect(() => {
+    function handleBeforeUnload(event) {
+      if (!isBusy) return;
+
+      event.preventDefault();
+      event.returnValue =
+        "A fetch or audit is still running. Leaving now can interrupt the live workflow.";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isBusy]);
 
   useEffect(() => {
     function handleScroll() {
@@ -778,8 +930,9 @@ export default function RunPage() {
 
   useEffect(() => {
     return () => {
-      if (fetchAbortRef.current) fetchAbortRef.current.abort();
-      if (runAbortRef.current) runAbortRef.current.abort();
+      // Do not auto-abort in-flight requests on unmount.
+      // The explicit Cancel buttons are the only place that should abort a fetch or audit.
+      // This gives server routes the best chance to finish if the browser refreshes unexpectedly.
     };
   }, []);
 
