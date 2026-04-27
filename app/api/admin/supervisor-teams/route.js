@@ -84,6 +84,66 @@ async function runStep(stages, label, callback, timeoutMs = STEP_TIMEOUT_MS) {
   }
 }
 
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "admin_action",
+      action_label: normalizeText(payload.action_label) || "Admin Action",
+      area: normalizeText(payload.area) || "Supervisor Teams",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] supervisor team log failed", error);
+  }
+}
+
+function buildActorPayload(auth) {
+  const profile = auth?.profile || {};
+  const user = auth?.user || {};
+  const email = normalizeEmail(profile?.email || user?.email);
+
+  return {
+    actor_user_id: user?.id || profile?.id || null,
+    actor_email: email,
+    actor_name:
+      normalizeText(profile?.full_name) ||
+      normalizeText(user?.user_metadata?.full_name) ||
+      normalizeText(user?.user_metadata?.name) ||
+      email,
+    actor_role: email === MASTER_ADMIN_EMAIL ? "master_admin" : normalizeText(profile?.role) || "viewer",
+  };
+}
+
 function getSupabaseConfig() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -532,9 +592,14 @@ export async function GET(request) {
 
 export async function POST(request) {
   const stages = [];
+  let auth = null;
+  let teamPayload = null;
+  let membersPayload = [];
+  let existing = null;
+  let savedTeam = null;
 
   try {
-    const auth = await authenticateAdmin(request, stages);
+    auth = await authenticateAdmin(request, stages);
 
     if (auth.error) {
       return jsonResponse({ ok: false, error: auth.error, stages }, auth.status);
@@ -552,20 +617,48 @@ export async function POST(request) {
     const teamValidation = validateTeamPayload(body);
 
     if (teamValidation.error) {
+      await writeActivityLog(adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "supervisor_team_save_failed",
+        action_label: "Supervisor Team Save Failed",
+        area: "Supervisor Teams",
+        target_type: "supervisor_team",
+        status: "failed",
+        description: teamValidation.error,
+        safe_after: {
+          member_count: Array.isArray(body?.members) ? body.members.length : 0,
+        },
+      });
+
       return jsonResponse({ ok: false, error: teamValidation.error, stages }, 400);
     }
 
     const memberValidation = validateMembersPayload(body);
 
     if (memberValidation.error) {
+      await writeActivityLog(adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "supervisor_team_save_failed",
+        action_label: "Supervisor Team Save Failed",
+        area: "Supervisor Teams",
+        target_type: "supervisor_team",
+        status: "failed",
+        description: memberValidation.error,
+        safe_after: {
+          supervisor_name: teamValidation.value?.supervisor_name || null,
+          supervisor_email: teamValidation.value?.supervisor_email || null,
+          member_count: Array.isArray(body?.members) ? body.members.length : 0,
+        },
+      });
+
       return jsonResponse({ ok: false, error: memberValidation.error, stages }, 400);
     }
 
-    const teamPayload = teamValidation.value;
-    const membersPayload = memberValidation.value;
+    teamPayload = teamValidation.value;
+    membersPayload = memberValidation.value;
     const now = new Date().toISOString();
 
-    const existing = teamPayload.id
+    existing = teamPayload.id
       ? { id: teamPayload.id }
       : await findExistingSupervisorTeam(
           adminClient,
@@ -573,8 +666,6 @@ export async function POST(request) {
           teamPayload.supervisor_name,
           teamPayload.supervisor_email
         );
-
-    let savedTeam = null;
 
     if (existing?.id) {
       const updateResult = await runStep(
@@ -673,6 +764,33 @@ export async function POST(request) {
       }
     }
 
+    await writeActivityLog(adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: existing?.id ? "supervisor_team_updated" : "supervisor_team_created",
+      action_label: existing?.id ? "Supervisor Team Updated" : "Supervisor Team Created",
+      area: "Supervisor Teams",
+      target_type: "supervisor_team",
+      target_id: teamId,
+      target_label: savedTeam.supervisor_name,
+      status: "success",
+      description: existing?.id
+        ? "Supervisor Team was updated from Admin."
+        : "Supervisor Team was created from Admin.",
+      safe_after: {
+        supervisor_name: savedTeam.supervisor_name,
+        supervisor_email: savedTeam.supervisor_email,
+        is_active: savedTeam.is_active,
+        member_count: membersPayload.length,
+        member_names: membersPayload.map((member) => member.employee_name).slice(0, 50),
+        updated_by_email: profile?.email || null,
+        updated_at: now,
+      },
+      metadata: {
+        action: existing?.id ? "update" : "create",
+        stages,
+      },
+    });
+
     const payload = await loadFullPayload(adminClient, stages);
 
     return jsonResponse({
@@ -686,6 +804,29 @@ export async function POST(request) {
       stages,
     });
   } catch (error) {
+    if (auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "supervisor_team_save_failed",
+        action_label: "Supervisor Team Save Failed",
+        area: "Supervisor Teams",
+        target_type: "supervisor_team",
+        target_id: savedTeam?.id || teamPayload?.id || existing?.id || null,
+        target_label: savedTeam?.supervisor_name || teamPayload?.supervisor_name || null,
+        status: "failed",
+        description: getErrorMessage(error, "Could not save Supervisor Team."),
+        safe_after: {
+          supervisor_name: teamPayload?.supervisor_name || null,
+          supervisor_email: teamPayload?.supervisor_email || null,
+          member_count: membersPayload.length,
+        },
+        metadata: {
+          failed_stage: error?.stage || null,
+          stages,
+        },
+      });
+    }
+
     return jsonResponse(
       {
         ok: false,
@@ -700,9 +841,13 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   const stages = [];
+  let auth = null;
+  let id = "";
+  let currentTeam = null;
+  let updatedTeam = null;
 
   try {
-    const auth = await authenticateAdmin(request, stages);
+    auth = await authenticateAdmin(request, stages);
 
     if (auth.error) {
       return jsonResponse({ ok: false, error: auth.error, stages }, auth.status);
@@ -717,7 +862,7 @@ export async function PATCH(request) {
       STEP_TIMEOUT_MS
     );
 
-    const id = normalizeText(body?.id);
+    id = normalizeText(body?.id);
 
     if (!id) {
       return jsonResponse({ ok: false, error: "Supervisor Team ID is required.", stages }, 400);
@@ -729,7 +874,7 @@ export async function PATCH(request) {
       () =>
         adminClient
           .from("supervisor_teams")
-          .select("id, is_active")
+          .select("id, supervisor_name, supervisor_email, is_active")
           .eq("id", id)
           .maybeSingle(),
       STEP_TIMEOUT_MS
@@ -739,12 +884,16 @@ export async function PATCH(request) {
       throw new Error(currentResult.error.message || "Could not read Supervisor Team.");
     }
 
-    if (!currentResult?.data) {
+    currentTeam = currentResult?.data || null;
+
+    if (!currentTeam) {
       return jsonResponse({ ok: false, error: "Supervisor Team not found.", stages }, 404);
     }
 
     const nextActive =
-      typeof body?.is_active === "boolean" ? body.is_active : currentResult.data.is_active === false;
+      typeof body?.is_active === "boolean" ? body.is_active : currentTeam.is_active === false;
+
+    const now = new Date().toISOString();
 
     const updateResult = await runStep(
       stages,
@@ -754,7 +903,7 @@ export async function PATCH(request) {
           .from("supervisor_teams")
           .update({
             is_active: nextActive,
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           })
           .eq("id", id)
           .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
@@ -766,17 +915,67 @@ export async function PATCH(request) {
       throw new Error(updateResult.error.message || "Could not update Supervisor Team status.");
     }
 
+    updatedTeam = updateResult.data;
+
+    await writeActivityLog(adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: nextActive ? "supervisor_team_activated" : "supervisor_team_deactivated",
+      action_label: nextActive ? "Supervisor Team Activated" : "Supervisor Team Deactivated",
+      area: "Supervisor Teams",
+      target_type: "supervisor_team",
+      target_id: id,
+      target_label: updatedTeam.supervisor_name,
+      status: "success",
+      description: nextActive
+        ? "Supervisor Team was activated from Admin."
+        : "Supervisor Team was deactivated from Admin.",
+      safe_before: {
+        supervisor_name: currentTeam.supervisor_name,
+        supervisor_email: currentTeam.supervisor_email,
+        is_active: currentTeam.is_active,
+      },
+      safe_after: {
+        supervisor_name: updatedTeam.supervisor_name,
+        supervisor_email: updatedTeam.supervisor_email,
+        is_active: updatedTeam.is_active,
+        updated_by_email: profile?.email || null,
+        updated_at: now,
+      },
+      metadata: {
+        stages,
+      },
+    });
+
     const payload = await loadFullPayload(adminClient, stages);
 
     return jsonResponse({
       ok: true,
       message: nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated.",
-      team: updateResult.data,
+      team: updatedTeam,
       ...payload,
       changedBy: profile?.email || null,
       stages,
     });
   } catch (error) {
+    if (auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "supervisor_team_status_failed",
+        action_label: "Supervisor Team Status Update Failed",
+        area: "Supervisor Teams",
+        target_type: "supervisor_team",
+        target_id: id || null,
+        target_label: currentTeam?.supervisor_name || null,
+        status: "failed",
+        description: getErrorMessage(error, "Could not update Supervisor Team status."),
+        safe_before: currentTeam || {},
+        metadata: {
+          failed_stage: error?.stage || null,
+          stages,
+        },
+      });
+    }
+
     return jsonResponse(
       {
         ok: false,
