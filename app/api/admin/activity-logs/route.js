@@ -161,6 +161,45 @@ async function requireMasterAdmin(request) {
   return auth;
 }
 
+async function readActiveRoleGrant(adminClient, email) {
+  const normalizedEmail = normalizeEmail(email);
+
+  const { data, error } = await adminClient
+    .from("user_role_grants")
+    .select("email, full_name, role, can_run_tests, is_active")
+    .ilike("email", normalizedEmail)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[activity-log] role grant lookup failed", error);
+    return null;
+  }
+
+  return data || null;
+}
+
+function resolveActorContext(user, email, profile, grant) {
+  const actorRole =
+    email === MASTER_ADMIN_EMAIL
+      ? "master_admin"
+      : normalizeText(grant?.role) || normalizeText(profile?.role) || "viewer";
+
+  const actorName =
+    normalizeText(grant?.full_name) ||
+    normalizeText(profile?.full_name) ||
+    normalizeText(user?.user_metadata?.full_name) ||
+    normalizeText(user?.user_metadata?.name) ||
+    email;
+
+  return {
+    actorName,
+    actorRole,
+  };
+}
+
 async function findLatestActiveSession(adminClient, email) {
   const { data, error } = await adminClient
     .from("user_activity_sessions")
@@ -362,12 +401,8 @@ export async function POST(request) {
     const nowIso = now.toISOString();
     const meta = getRequestMeta(request);
     const profile = auth.profile || {};
-    const actorName =
-      normalizeText(profile.full_name) ||
-      normalizeText(auth.user?.user_metadata?.full_name) ||
-      normalizeText(auth.user?.user_metadata?.name) ||
-      auth.email;
-    const actorRole = auth.email === MASTER_ADMIN_EMAIL ? "master_admin" : profile.role || "viewer";
+    const grant = await readActiveRoleGrant(auth.adminClient, auth.email);
+    const { actorName, actorRole } = resolveActorContext(auth.user, auth.email, profile, grant);
     const latestSession = await findLatestActiveSession(auth.adminClient, auth.email);
 
     let sessionId = latestSession?.id || null;
