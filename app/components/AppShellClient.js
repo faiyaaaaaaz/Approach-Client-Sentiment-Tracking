@@ -313,7 +313,7 @@ function LaunchScreen({ title = "Initializing Secure Workspace...", subtitle = "
       <div className="auth-bg-grid" />
       <div className="launch-card compact-launch">
         <PlatformLogo size="large" />
-        <p>Next Ventures</p>
+        <p>NEXT Ventures</p>
         <h1>{title}</h1>
         <span>{subtitle}</span>
         <div className="launch-progress">
@@ -338,7 +338,7 @@ function LoginScreen({ authMessage, onGoogleLogin }) {
         <div className="login-brand">
           <PlatformLogo size="large" />
           <div>
-            <p>Next Ventures</p>
+            <p>NEXT Ventures</p>
             <h1>AI Auditor & Insights Platform</h1>
             <span>Secure Review Intelligence, Client Sentiment, And Resolution Tracking.</span>
           </div>
@@ -378,6 +378,7 @@ export default function AppShellClient({ children }) {
   const router = useRouter();
   const profileMenuRef = useRef(null);
   const authRunIdRef = useRef(0);
+  const lastAuthUserIdRef = useRef("");
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -536,6 +537,7 @@ export default function AppShellClient({ children }) {
     if (runId !== authRunIdRef.current) return;
 
     setSession(nextSession || null);
+    lastAuthUserIdRef.current = nextSession?.user?.id || "";
 
     if (!nextSession?.user) {
       setProfile(null);
@@ -593,8 +595,46 @@ export default function AppShellClient({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
+
+      const isSameSignedInUser =
+        event === "SIGNED_IN" &&
+        newSession?.user?.id &&
+        newSession.user.id === lastAuthUserIdRef.current;
+      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || isSameSignedInUser;
+
+      if (isBackgroundRefresh) {
+        setSession(newSession || null);
+        lastAuthUserIdRef.current = newSession?.user?.id || "";
+
+        if (!newSession?.user) {
+          setProfile(null);
+          setAuthMessage("");
+          setAuthLoading(false);
+          return;
+        }
+
+        loadProfile(newSession)
+          .then((result) => {
+            if (!active) return;
+            setProfile(result.profile);
+            setAuthMessage(result.message);
+            setAuthLoading(false);
+          })
+          .catch((error) => {
+            if (!active) return;
+            setProfile(buildFallbackProfile(newSession?.user) || null);
+            setAuthMessage(
+              error instanceof Error
+                ? error.message
+                : "Could not refresh profile quietly."
+            );
+            setAuthLoading(false);
+          });
+
+        return;
+      }
 
       const runId = authRunIdRef.current + 1;
       authRunIdRef.current = runId;
@@ -704,7 +744,7 @@ export default function AppShellClient({ children }) {
       <div className="shell-frame">
         <aside className="sidebar">
           <div className="brand-wrap">
-            <div className="brand-badge">Next Ventures</div>
+            <div className="brand-badge">NEXT Ventures</div>
 
             <div className="brand-block">
               <div className="brand-mark" aria-hidden="true">
@@ -770,7 +810,7 @@ export default function AppShellClient({ children }) {
 
           <div className="sidebar-mini">
             <span>Workspace</span>
-            <strong>Next Ventures</strong>
+            <strong>NEXT Ventures</strong>
           </div>
         </aside>
 
