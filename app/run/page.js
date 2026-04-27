@@ -1009,8 +1009,10 @@ export default function RunPage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
+
+      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
 
       setSession(newSession ?? null);
 
@@ -1028,7 +1030,7 @@ export default function RunPage() {
           setAuthMessage(result.message);
           setAuthLoading(false);
 
-          if (newSession?.access_token && result.profile?.can_run_tests) {
+          if (!isBackgroundRefresh && newSession?.access_token && result.profile?.can_run_tests) {
             loadLatestWorkflowSnapshot(newSession);
           }
         })
