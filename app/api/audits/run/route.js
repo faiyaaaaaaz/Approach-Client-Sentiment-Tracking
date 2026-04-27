@@ -313,6 +313,113 @@ function roleLabel(authorType) {
   return authorType === "bot" ? "BOT" : "SYSTEM";
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function readActiveRoleGrant(adminClient, email) {
+  const normalizedEmail = normalizeEmail(email);
+
+  const { data, error } = await adminClient
+    .from("user_role_grants")
+    .select("email, full_name, role, can_run_tests, is_active")
+    .ilike("email", normalizedEmail)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[activity-log] role grant lookup failed", error);
+    return null;
+  }
+
+  return data || null;
+}
+
+function resolveEffectiveProfile({ user, email, profileData, grant }) {
+  const fallbackProfile = buildFallbackProfile(user);
+  const baseProfile = profileData || fallbackProfile;
+
+  if (email === "faiyaz@nextventures.io") {
+    return {
+      ...(baseProfile || {}),
+      id: user.id,
+      email,
+      full_name: "Faiyaz Muhtasim Ahmed",
+      role: "master_admin",
+      can_run_tests: true,
+      is_active: true,
+    };
+  }
+
+  if (grant && grant.is_active !== false) {
+    return {
+      ...(baseProfile || {}),
+      id: baseProfile?.id || user.id,
+      email,
+      full_name:
+        normalizeText(grant.full_name) ||
+        normalizeText(baseProfile?.full_name) ||
+        normalizeText(user?.user_metadata?.full_name) ||
+        normalizeText(user?.user_metadata?.name) ||
+        email,
+      role: normalizeText(grant.role) || "viewer",
+      can_run_tests: Boolean(grant.can_run_tests),
+      is_active: true,
+    };
+  }
+
+  return baseProfile;
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "audit_action",
+      action_label: normalizeText(payload.action_label) || "Audit Action",
+      area: normalizeText(payload.area) || "Run Audit",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] audit run log failed", error);
+  }
+}
+
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
@@ -1001,7 +1108,7 @@ async function authenticateRequest(request) {
     };
   }
 
-  const email = String(user.email || "").toLowerCase();
+  const email = normalizeEmail(user.email);
   const domain = email.split("@")[1] || "";
 
   if (domain !== "nextventures.io") {
@@ -1019,7 +1126,8 @@ async function authenticateRequest(request) {
     .eq("id", user.id)
     .maybeSingle();
 
-  const profile = profileData || buildFallbackProfile(user);
+  const roleGrant = await readActiveRoleGrant(adminClient, email);
+  const profile = resolveEffectiveProfile({ user, email, profileData, grant: roleGrant });
 
   if (!canRunAudits(profile)) {
     return {
@@ -1047,6 +1155,7 @@ async function authenticateRequest(request) {
   return {
     user,
     email,
+    profile,
     adminClient,
     intercomApiKey: intercomKey.value,
     openAiApiKey: openAiKey.value,
@@ -1076,7 +1185,7 @@ export async function POST(request) {
 
     if (auth.response) return auth.response;
 
-    const { user, email, adminClient, intercomApiKey, openAiApiKey, apiKeySources } = auth;
+    const { user, email, profile, adminClient, intercomApiKey, openAiApiKey, apiKeySources } = auth;
     const body = await request.json();
 
     const rawConversations = Array.isArray(body?.conversations) ? body.conversations : [];
@@ -1144,6 +1253,28 @@ export async function POST(request) {
     };
 
     if (checkOnly) {
+      await writeActivityLog(adminClient, request, {
+        actor_user_id: user.id,
+        actor_email: email,
+        actor_name: profile?.full_name || email,
+        actor_role: profile?.role || "viewer",
+        action_type: "audit_duplicate_check",
+        action_label: "Duplicate Check Completed",
+        area: "Run Audit",
+        target_type: "Audit Payload",
+        target_label: `${conversationsToAuditInitial.length} conversation(s)`,
+        status: "info",
+        description: `${email} checked ${conversationsToAuditInitial.length} conversation(s) for duplicates before audit.`,
+        safe_after: {
+          received_count: normalizedConversations.length,
+          checked_count: conversationsToAuditInitial.length,
+          duplicate_count: duplicateConversationIds.length,
+          batch_mode: batchInfo.batchMode,
+          batch_index: batchInfo.batchIndex || null,
+          total_batches: batchInfo.totalBatches || null,
+        },
+      });
+
       return json({
         ok: true,
         checkOnly: true,
@@ -1226,6 +1357,26 @@ export async function POST(request) {
     }
 
     if (!conversationsToAudit.length) {
+      await writeActivityLog(adminClient, request, {
+        actor_user_id: user.id,
+        actor_email: email,
+        actor_name: profile?.full_name || email,
+        actor_role: profile?.role || "viewer",
+        action_type: "audit_run_skipped_duplicates",
+        action_label: "Audit Run Skipped Existing",
+        area: "Run Audit",
+        target_type: "Audit Run",
+        target_label: `${normalizedConversations.length} conversation(s)`,
+        status: "info",
+        description: `${email} skipped audit because all selected conversations already existed in Results.`,
+        safe_after: {
+          received_count: normalizedConversations.length,
+          duplicate_count: duplicateConversationIds.length,
+          skipped_count: duplicateActionMeta.skippedCount,
+          duplicate_mode: duplicateActionMeta.duplicateModeApplied,
+        },
+      });
+
       return json({
         ok: true,
         message: "All selected conversations already exist in Results, so nothing new was audited.",
@@ -1303,6 +1454,41 @@ export async function POST(request) {
       promptSource,
       results: mappedResults,
       batchInfo,
+    });
+
+    await writeActivityLog(adminClient, request, {
+      actor_user_id: user.id,
+      actor_email: email,
+      actor_name: profile?.full_name || email,
+      actor_role: profile?.role || "viewer",
+      action_type: "audit_run_completed",
+      action_label: "Audit Run Completed",
+      area: "Run Audit",
+      target_type: "Audit Run",
+      target_id: storedRunId,
+      target_label: `${mappedResults.length} audited conversation(s)`,
+      status: errorCount > 0 ? "warning" : "success",
+      description: `${email} completed an audit run with ${mappedResults.length} conversation(s), ${successCount} saved result(s), and ${errorCount} error(s).`,
+      safe_after: {
+        run_id: storedRunId,
+        start_date: startDate,
+        end_date: endDate,
+        received_count: normalizedConversations.length,
+        batch_received_count: conversationsToAuditInitial.length,
+        audited_count: mappedResults.length,
+        success_count: successCount,
+        error_count: errorCount,
+        mapped_count: mappedCount,
+        unmapped_count: unmappedCount,
+        prompt_source: promptSource,
+        limiter_enabled: limiterEnabled,
+        limit_count: limitCount,
+        batch_mode: batchInfo.batchMode,
+        batch_index: batchInfo.batchIndex || null,
+        total_batches: batchInfo.totalBatches || null,
+        duplicate_action: duplicateActionMeta,
+        api_key_sources: apiKeySources,
+      },
     });
 
     return json({
