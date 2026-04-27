@@ -80,14 +80,12 @@ function canManageResults(profile, email) {
       (email === MASTER_ADMIN_EMAIL ||
         role === "master_admin" ||
         role === "admin" ||
-        role === "co_admin" ||
-        profile?.can_run_tests === true)
+        role === "co_admin")
   );
 }
 
 function isSupervisorScoped(profile, email) {
-  const role = normalizeKey(profile?.role);
-  return email !== MASTER_ADMIN_EMAIL && role === "supervisor_admin";
+  return false;
 }
 
 function uniqueValues(values) {
@@ -453,20 +451,14 @@ export async function GET(request) {
     if (!auth.ok) return auth.response;
 
     const { adminClient, email, profile } = auth;
-    const scoped = isSupervisorScoped(profile, email);
 
-    const supervisorTeams = await loadSupervisorTeams(
-      adminClient,
-      scoped ? { scopedProfile: profile, scopedEmail: email } : {}
-    );
-
-    const [totalResultsCount, rawResults] = await Promise.all([
+    const [supervisorTeams, totalResultsCount, rawResults] = await Promise.all([
+      loadSupervisorTeams(adminClient),
       countTableRows(adminClient, "audit_results"),
       fetchAllAuditResults(adminClient),
     ]);
 
-    const scopedResults = scoped ? applySupervisorScope(rawResults, supervisorTeams) : rawResults;
-    const results = sortResultsForArchive(scopedResults);
+    const results = sortResultsForArchive(rawResults);
     const runs = await fetchRunsForResults(adminClient, results);
 
     const uniqueConversationCount = uniqueValues(
@@ -481,7 +473,7 @@ export async function GET(request) {
       meta: {
         requestedBy: email,
         role: profile?.role || "viewer",
-        scopedToSupervisorTeams: scoped,
+        scopedToSupervisorTeams: false,
         supervisorTeamCount: supervisorTeams.length,
         runsCount: runs.length,
         resultsCount: results.length,
@@ -492,7 +484,8 @@ export async function GET(request) {
           typeof totalResultsCount === "number"
             ? rawResults.length < totalResultsCount
             : rawResults.length >= MAX_RESULT_ROWS,
-        source: "server_api_results_route_scoped_paginated",
+        visibility: "all_results",
+        source: "server_api_results_route_all_results_paginated",
       },
     });
   } catch (error) {
