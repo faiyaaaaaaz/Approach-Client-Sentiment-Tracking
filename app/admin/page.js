@@ -1514,31 +1514,32 @@ export default function AdminPage() {
         updated_at: new Date().toISOString(),
       };
 
-      if (mappingForm.id || existingMatch?.id) {
-        const targetId = mappingForm.id || existingMatch.id;
+      const targetId = mappingForm.id || existingMatch?.id || "";
 
-        const { error } = await withTimeout(
-          supabase.from("agent_mappings").update(payload).eq("id", targetId),
-          "Updating agent mapping"
-        );
+      const freshSession = await getFreshSession();
 
-        if (error) throw new Error(error.message || "Could not update the mapping.");
-
-        setPageSuccess("Agent mapping updated successfully.");
-      } else {
-        const { error } = await withTimeout(
-          supabase.from("agent_mappings").insert({
-            ...payload,
-            created_at: new Date().toISOString(),
+      const response = await withTimeout(
+        fetch("/api/admin/agent-mappings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            id: targetId,
+            mapping: payload,
           }),
-          "Creating agent mapping"
-        );
+        }),
+        targetId ? "Updating agent mapping" : "Creating agent mapping"
+      );
 
-        if (error) throw new Error(error.message || "Could not create the mapping.");
+      const data = await readApiJson(response);
 
-        setPageSuccess("Agent mapping created successfully.");
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not save the mapping.");
       }
 
+      setPageSuccess(data.message || "Agent mapping saved successfully.");
       setMappingForm(createEmptyMappingForm());
       await loadMappingsData();
       await loadSupervisorTeamsData();
@@ -1557,20 +1558,30 @@ export default function AdminPage() {
     try {
       const nextActive = row?.is_active === false;
 
-      const { error } = await withTimeout(
-        supabase
-          .from("agent_mappings")
-          .update({
-            is_active: nextActive,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", row.id),
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/agent-mappings", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            id: row.id,
+            isActive: nextActive,
+          }),
+        }),
         "Updating mapping status"
       );
 
-      if (error) throw new Error(error.message || "Could not update mapping status.");
+      const data = await readApiJson(response);
 
-      setPageSuccess(nextActive ? "Mapping activated." : "Mapping deactivated.");
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not update mapping status.");
+      }
+
+      setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
       await loadMappingsData();
       await loadSupervisorTeamsData();
     } catch (error) {
@@ -1608,14 +1619,30 @@ export default function AdminPage() {
         updated_at: new Date().toISOString(),
       }));
 
-      const { error } = await withTimeout(
-        supabase.from("agent_mappings").insert(rows),
+      const freshSession = await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/agent-mappings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            action: "seed",
+            rows,
+          }),
+        }),
         "Prefilling detected agents"
       );
 
-      if (error) throw new Error(error.message || "Could not prefill mappings.");
+      const data = await readApiJson(response);
 
-      setPageSuccess(`${rows.length} mapping(s) added.`);
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not prefill mappings.");
+      }
+
+      setPageSuccess(data.message || `${rows.length} mapping(s) added.`);
       await loadMappingsData();
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not prefill mappings.");
