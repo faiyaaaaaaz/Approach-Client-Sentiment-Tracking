@@ -1990,9 +1990,9 @@ export default function DashboardPage() {
       <div className="dashboard-shell">
         <section className="hero-panel">
           <div className="hero-copy">
-            <p>Dashboard Intelligence</p>
-            <h1>Review Approach & Client Sentiment Tracking</h1>
-            <strong>QA Intelligence Command Center</strong>
+            <p>Insights Dashboard</p>
+            <h1>Review Approach, Client Sentiment, & Resolution Status Tracking</h1>
+            <strong>Interactive Dashboard for In Depth Analysis</strong>
             <span>Latest Stored Result: {formatDateTime(latestStoredAt)}</span>
           </div>
 
