@@ -8,6 +8,13 @@ const AUDIT_BATCH_SIZE = 8;
 const SESSION_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 const RUN_PAGE_CACHE_KEY = "ai-auditor-run-page-state-v2";
 const RUN_PAGE_CACHE_VERSION = 2;
+const ACTIVE_WORKFLOW_STATUSES = new Set([
+  "fetching",
+  "fetched",
+  "duplicate_checking",
+  "paused_duplicate_decision",
+  "auditing",
+]);
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -218,6 +225,65 @@ async function readJsonSafely(response) {
       `Server returned a non-JSON response. Status ${response.status}. ${trimmed.slice(0, 260)}`
     );
   }
+}
+
+function mapWorkflowStatusToOperation(status) {
+  if (status === "fetching") return "fetching";
+  if (status === "fetched") return "fetched";
+  if (status === "duplicate_checking") return "auditing";
+  if (status === "paused_duplicate_decision") return "paused";
+  if (status === "auditing") return "paused";
+  if (status === "completed") return "completed";
+  if (status === "failed") return "failed";
+  if (status === "cancelled") return "cancelled";
+
+  return "idle";
+}
+
+function workflowEventToLog(item) {
+  const createdAt = item?.created_at ? new Date(item.created_at) : new Date();
+  const time = createdAt.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const toneMap = {
+    success: "success",
+    warning: "warning",
+    failed: "danger",
+    cancelled: "warning",
+    info: "notice",
+  };
+
+  return {
+    id: item?.id || `${Date.now()}-${Math.random()}`,
+    time,
+    message: item?.details || item?.event_label || "Workflow event recorded.",
+    tone: toneMap[item?.status] || "notice",
+  };
+}
+
+function rebuildConversationsFromWorkflow(run, queue = []) {
+  const savedConversations = Array.isArray(run?.fetched_conversations)
+    ? run.fetched_conversations
+    : [];
+  const completedIds = new Set(
+    (Array.isArray(queue) ? queue : [])
+      .filter((item) => item.status === "completed" || item.status === "skipped")
+      .map((item) => String(item.conversation_id || ""))
+      .filter(Boolean)
+  );
+
+  if (!savedConversations.length) return [];
+
+  if (run?.status === "auditing" || run?.status === "failed" || run?.status === "cancelled") {
+    return savedConversations.filter(
+      (item) => !completedIds.has(String(item?.conversationId || item?.conversation_id || item?.id || ""))
+    );
+  }
+
+  return savedConversations;
 }
 
 function readRunPageCache() {
@@ -523,6 +589,10 @@ export default function RunPage() {
   const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
   const [pendingDuplicateConversations, setPendingDuplicateConversations] = useState([]);
 
+  const [workflowRunId, setWorkflowRunId] = useState("");
+  const [workflowRun, setWorkflowRun] = useState(null);
+  const [workflowLoaded, setWorkflowLoaded] = useState(false);
+
   const [auditProgress, setAuditProgress] = useState({
     handled: 0,
     total: 0,
@@ -614,6 +684,190 @@ export default function RunPage() {
     return activeSession.access_token;
   }
 
+  async function postWorkflowAction(action, payload = {}, options = {}) {
+    const quiet = Boolean(options.quiet);
+
+    try {
+      const accessToken = await getFreshAccessToken();
+
+      const response = await fetch("/api/audits/workflow", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action, ...payload }),
+        cache: "no-store",
+      });
+
+      const data = await readJsonSafely(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not update workflow state.");
+      }
+
+      if (data.run) {
+        setWorkflowRun(data.run);
+        setWorkflowRunId(data.run.id || payload.run_id || payload.runId || workflowRunId);
+      }
+
+      return data;
+    } catch (error) {
+      if (!quiet) {
+        addLog(
+          `Workflow state save failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+          "warning"
+        );
+      }
+
+      return null;
+    }
+  }
+
+  function applyWorkflowSnapshot(snapshot, options = {}) {
+    const run = snapshot?.run;
+    if (!run?.id) return;
+
+    const queue = Array.isArray(snapshot.queue) ? snapshot.queue : [];
+    const events = Array.isArray(snapshot.events) ? snapshot.events : [];
+    const restoredConversations = rebuildConversationsFromWorkflow(run, queue);
+    const operation = mapWorkflowStatusToOperation(run.status);
+    const fetchedCount = Number(run.fetched_count || restoredConversations.length || 0);
+    const handledCount = Number(run.handled_count || 0);
+    const savedCount = Number(run.saved_count || 0);
+    const skippedCount = Number(run.skipped_count || 0);
+    const errorCount = Number(run.error_count || 0);
+    const totalBatches = Number(run.total_batches || 0);
+    const currentBatchIndex = Number(run.current_batch_index || 0);
+
+    setWorkflowRun(run);
+    setWorkflowRunId(run.id);
+    setOperationStatus(operation);
+
+    if (run.start_date) setStartDate(run.start_date);
+    if (run.end_date) setEndDate(run.end_date);
+    if (typeof run.limiter_enabled === "boolean") setLimiterEnabled(run.limiter_enabled);
+    if (run.limit_count !== null && run.limit_count !== undefined) setLimitCount(String(run.limit_count));
+    if (typeof run.auto_run_enabled === "boolean") setAutoRunAfterFetch(run.auto_run_enabled);
+
+    if (restoredConversations.length) {
+      setFetchData({
+        ok: true,
+        message: "Restored from database-backed Run Audit workflow.",
+        meta: {
+          fetchedCount,
+          restoredCount: restoredConversations.length,
+          workflowRunId: run.id,
+          workflowStatus: run.status,
+        },
+        conversations: restoredConversations,
+      });
+
+      if (run.status !== "completed") {
+        setFetchSuccess(
+          `${formatNumber(restoredConversations.length)} remaining conversation(s) restored from the database workflow.`
+        );
+      }
+    }
+
+    if (run.status === "completed") {
+      setRunData({
+        ok: true,
+        message: run.status_message || "Database-backed workflow completed.",
+        meta: {
+          requestedBy: run.requested_by_email || "",
+          receivedCount: Number(run.queued_count || 0),
+          handledCount,
+          auditedCount: savedCount,
+          successCount: Math.max(0, savedCount - errorCount),
+          errorCount,
+          skippedCount,
+          mappedCount: Number(run.mapped_count || 0),
+          unmappedCount: Number(run.unmapped_count || 0),
+          duplicateModeApplied: run.duplicate_mode || "none",
+          storedRunIds: Array.isArray(run.latest_audit_run_ids) ? run.latest_audit_run_ids : [],
+          totalBatches,
+          workflowRunId: run.id,
+          auditMode: "database_backed_workflow_restore",
+          storageStatus: "restored_from_supabase_workflow",
+        },
+        results: [],
+      });
+      setRunSuccess(run.status_message || "Database-backed workflow completed.");
+    } else if (ACTIVE_WORKFLOW_STATUSES.has(run.status)) {
+      setRunError(
+        "A database-backed Run Audit workflow was restored. If it was interrupted, only remaining queued conversations are loaded. Press Run Audit to resume the remaining queue."
+      );
+    }
+
+    setAuditProgress((prev) => ({
+      ...prev,
+      handled: handledCount,
+      total: Number(run.queued_count || restoredConversations.length || prev.total || 0),
+      batchIndex: currentBatchIndex,
+      totalBatches,
+      percent: Math.min(100, Math.max(0, Math.round(Number(run.progress_percent || 0)))),
+      savedRows: savedCount,
+      skippedRows: skippedCount,
+      failedRows: errorCount,
+      label:
+        run.status === "completed"
+          ? "Workflow Completed"
+          : ACTIVE_WORKFLOW_STATUSES.has(run.status)
+            ? "Workflow Restored"
+            : run.status === "failed"
+              ? "Workflow Failed"
+              : run.status === "cancelled"
+                ? "Workflow Cancelled"
+                : prev.label,
+      detail: run.status_message || prev.detail,
+    }));
+
+    if (events.length && options.withEvents !== false) {
+      setExecutionLog((prev) => {
+        const restoredLogs = events.map(workflowEventToLog);
+        const existingIds = new Set(prev.map((item) => item.id));
+        const merged = [
+          ...restoredLogs.filter((item) => !existingIds.has(item.id)),
+          ...prev,
+        ];
+        return merged.slice(0, 60);
+      });
+    }
+  }
+
+  async function loadLatestWorkflowSnapshot(activeSession = session) {
+    if (!activeSession?.access_token) return;
+
+    try {
+      const response = await fetch("/api/audits/workflow", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${activeSession.access_token}`,
+        },
+        cache: "no-store",
+      });
+
+      const data = await readJsonSafely(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load latest workflow state.");
+      }
+
+      if (data.run?.id) {
+        applyWorkflowSnapshot(data);
+        addLog("Latest database-backed Run Audit workflow restored.", "notice");
+      }
+    } catch (error) {
+      addLog(
+        `Could not restore database workflow state: ${error instanceof Error ? error.message : "Unknown error"}`,
+        "warning"
+      );
+    } finally {
+      setWorkflowLoaded(true);
+    }
+  }
+
   function resetRunStateForInputChange() {
     setFetchData(null);
     setFetchError("");
@@ -627,6 +881,8 @@ export default function RunPage() {
     setDuplicateDecisionLoading(false);
     setPendingDuplicateConversations([]);
     setOperationStatus("idle");
+    setWorkflowRunId("");
+    setWorkflowRun(null);
     setAuditProgress({
       handled: 0,
       total: 0,
@@ -738,6 +994,10 @@ export default function RunPage() {
         setProfile(result.profile);
         setAuthMessage(result.message);
         setAuthLoading(false);
+
+        if (currentSession?.access_token && result.profile?.can_run_tests) {
+          loadLatestWorkflowSnapshot(currentSession);
+        }
       } catch (_error) {
         if (!active) return;
         setAuthMessage("Could not complete session check.");
@@ -767,6 +1027,10 @@ export default function RunPage() {
           setProfile(result.profile);
           setAuthMessage(result.message);
           setAuthLoading(false);
+
+          if (newSession?.access_token && result.profile?.can_run_tests) {
+            loadLatestWorkflowSnapshot(newSession);
+          }
         })
         .catch(() => {
           if (!active) return;
@@ -795,6 +1059,8 @@ export default function RunPage() {
     if (typeof cached.limiterEnabled === "boolean") setLimiterEnabled(cached.limiterEnabled);
     if (cached.limitCount) setLimitCount(cached.limitCount);
     if (typeof cached.autoRunAfterFetch === "boolean") setAutoRunAfterFetch(cached.autoRunAfterFetch);
+    if (cached.workflowRunId) setWorkflowRunId(cached.workflowRunId);
+    if (cached.workflowRun) setWorkflowRun(cached.workflowRun);
 
     if (cached.fetchData) setFetchData(cached.fetchData);
     if (cached.runData) setRunData(cached.runData);
@@ -849,6 +1115,8 @@ export default function RunPage() {
       limiterEnabled,
       limitCount,
       autoRunAfterFetch,
+      workflowRunId,
+      workflowRun,
       fetchData,
       runData,
       fetchSuccess,
@@ -864,6 +1132,8 @@ export default function RunPage() {
     limiterEnabled,
     limitCount,
     autoRunAfterFetch,
+    workflowRunId,
+    workflowRun,
     fetchData,
     runData,
     fetchSuccess,
@@ -953,6 +1223,14 @@ export default function RunPage() {
     setFetchError("Fetch cancelled.");
     setOperationStatus("cancelled");
     addLog("Fetch cancelled by user.", "warning");
+
+    if (workflowRunId) {
+      postWorkflowAction(
+        "workflow_cancelled",
+        { run_id: workflowRunId, message: "Fetch cancelled by user." },
+        { quiet: true }
+      );
+    }
   }
 
   function handleCancelAudit() {
@@ -966,6 +1244,14 @@ export default function RunPage() {
     setRunError("Audit cancelled. Already completed batches may still be saved in Results.");
     setOperationStatus("cancelled");
     addLog("Audit cancelled. Check Results before rerunning the same batch.", "warning");
+
+    if (workflowRunId) {
+      postWorkflowAction(
+        "workflow_cancelled",
+        { run_id: workflowRunId, message: "Audit cancelled by user." },
+        { quiet: true }
+      );
+    }
   }
 
   function getQueuedConversations(conversations) {
@@ -1108,6 +1394,7 @@ export default function RunPage() {
     conversationsOverride = null,
     duplicateMode = "",
     autoTriggered = false,
+    workflowRunIdOverride = "",
   } = {}) {
     setRunError("");
     setRunSuccess("");
@@ -1122,6 +1409,7 @@ export default function RunPage() {
       : fetchedConversations;
 
     const queuedConversations = getQueuedConversations(sourceConversations);
+    const activeWorkflowRunId = workflowRunIdOverride || workflowRunId || "";
 
     if (!queuedConversations.length) {
       setRunError("Please fetch conversations first.");
@@ -1175,6 +1463,19 @@ export default function RunPage() {
         const duplicateCheck = await checkDuplicates(queuedConversations);
         const duplicateCount = Number(duplicateCheck?.duplicateSummary?.duplicateCount || 0);
 
+        if (activeWorkflowRunId) {
+          await postWorkflowAction(
+            "duplicate_check_completed",
+            {
+              run_id: activeWorkflowRunId,
+              duplicateSummary: duplicateCheck.duplicateSummary || null,
+              duplicateCount,
+              paused: duplicateCount > 0 && !autoTriggered,
+            },
+            { quiet: true }
+          );
+        }
+
         if (duplicateCount > 0) {
           if (autoTriggered) {
             modeToUse =
@@ -1205,6 +1506,19 @@ export default function RunPage() {
       }
 
       batches = splitIntoBatches(queuedConversations, AUDIT_BATCH_SIZE);
+
+      if (activeWorkflowRunId) {
+        await postWorkflowAction(
+          "audit_started",
+          {
+            run_id: activeWorkflowRunId,
+            queuedCount: queuedConversations.length,
+            totalBatches: batches.length,
+            duplicateMode: modeToUse || "none",
+          },
+          { quiet: true }
+        );
+      }
 
       setAuditProgress({
         handled: 0,
@@ -1246,6 +1560,19 @@ export default function RunPage() {
           `Batch ${batchNumber}/${batches.length} started with ${formatNumber(batch.length)} conversation(s).`,
           "info"
         );
+
+        if (activeWorkflowRunId) {
+          await postWorkflowAction(
+            "batch_started",
+            {
+              run_id: activeWorkflowRunId,
+              batchIndex: batchNumber,
+              totalBatches: batches.length,
+              batchConversations: batch,
+            },
+            { quiet: true }
+          );
+        }
 
         const batchData = await runSingleBatch({
           batch,
@@ -1297,6 +1624,26 @@ export default function RunPage() {
           )}.${skippedText}`,
           "success"
         );
+
+        if (activeWorkflowRunId) {
+          await postWorkflowAction(
+            "batch_completed",
+            {
+              run_id: activeWorkflowRunId,
+              batchIndex: batchNumber,
+              totalBatches: batches.length,
+              batchConversations: batch,
+              handled,
+              savedRows: allResults.length,
+              skippedRows: totalSkipped,
+              failedRows: totalFailedRows,
+              mappedCount: totalMapped,
+              unmappedCount: totalUnmapped,
+              storedRunIds,
+            },
+            { quiet: true }
+          );
+        }
       }
 
       const finalData = {
@@ -1343,6 +1690,17 @@ export default function RunPage() {
         detail: "All batches finished. Completed batch results were saved to Results.",
       });
 
+      if (activeWorkflowRunId) {
+        await postWorkflowAction(
+          "audit_completed",
+          {
+            run_id: activeWorkflowRunId,
+            meta: finalData.meta,
+          },
+          { quiet: true }
+        );
+      }
+
       addLog("Batch audit completed successfully.", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Audit run failed.";
@@ -1377,6 +1735,26 @@ export default function RunPage() {
         setRunError(message);
         setOperationStatus(message.toLowerCase().includes("cancelled") ? "cancelled" : "failed");
         addLog(message, "danger");
+      }
+
+      if (activeWorkflowRunId) {
+        await postWorkflowAction(
+          message.toLowerCase().includes("cancelled") || error?.name === "AbortError"
+            ? "workflow_cancelled"
+            : "workflow_failed",
+          {
+            run_id: activeWorkflowRunId,
+            message,
+            error: message,
+            metadata: {
+              handled,
+              savedRows: allResults.length,
+              skippedRows: totalSkipped,
+              failedRows: totalFailedRows,
+            },
+          },
+          { quiet: true }
+        );
       }
 
       setAuditProgress((prev) => ({
@@ -1453,7 +1831,29 @@ export default function RunPage() {
 
     addLog(`Fetch started for ${startDate} to ${endDate}.`, "info");
 
+    let activeWorkflowRunId = "";
+
     try {
+      const workflowStart = await postWorkflowAction(
+        "start_workflow",
+        {
+          startDate,
+          endDate,
+          limiterEnabled,
+          limitCount: limiterEnabled ? limitCount : null,
+          autoRunAfterFetch,
+          batchSize: AUDIT_BATCH_SIZE,
+          selectedDatePreset,
+        },
+        { quiet: false }
+      );
+
+      activeWorkflowRunId = workflowStart?.run?.id || "";
+      if (activeWorkflowRunId) {
+        setWorkflowRunId(activeWorkflowRunId);
+        addLog("Database-backed workflow record created.", "success");
+      }
+
       const response = await fetch("/api/audits/fetch-conversations", {
         method: "POST",
         headers: {
@@ -1481,6 +1881,19 @@ export default function RunPage() {
 
       const fetchedCount = Number(data?.meta?.fetchedCount || 0);
 
+      if (activeWorkflowRunId) {
+        await postWorkflowAction(
+          "fetch_completed",
+          {
+            run_id: activeWorkflowRunId,
+            conversations: Array.isArray(data?.conversations) ? data.conversations : [],
+            fetchedCount,
+            meta: data?.meta || {},
+          },
+          { quiet: true }
+        );
+      }
+
       if (fetchedCount > 0) {
         setFetchSuccess(`${formatNumber(fetchedCount)} low-CSAT conversation(s) fetched.`);
         setOperationStatus("fetched");
@@ -1500,6 +1913,7 @@ export default function RunPage() {
           conversationsOverride: Array.isArray(data?.conversations) ? data.conversations : [],
           duplicateMode: "",
           autoTriggered: true,
+          workflowRunIdOverride: activeWorkflowRunId,
         });
       }
     } catch (error) {
@@ -1512,6 +1926,19 @@ export default function RunPage() {
         setFetchError(message);
         addLog(message, "danger");
         setOperationStatus("failed");
+      }
+
+      if (activeWorkflowRunId) {
+        await postWorkflowAction(
+          error?.name === "AbortError" ? "workflow_cancelled" : "workflow_failed",
+          {
+            run_id: activeWorkflowRunId,
+            message: error?.name === "AbortError" ? "Fetch cancelled." : error instanceof Error ? error.message : "Conversation fetch failed.",
+            error: error instanceof Error ? error.message : "Conversation fetch failed.",
+            metadata: { stage: "fetch" },
+          },
+          { quiet: true }
+        );
       }
     } finally {
       setFetchLoading(false);
