@@ -806,65 +806,34 @@ export default function AdminPage() {
     }
   }
 
-  async function loadSupervisorTeamsData() {
+  async function loadSupervisorTeamsData(activeSession = session) {
     setSupervisorLoading(true);
 
     try {
-      const teamsResult = await withTimeout(
-        supabase
-          .from("supervisor_teams")
-          .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-          .order("supervisor_name", { ascending: true })
-          .limit(1000),
+      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
+
+      const response = await withTimeout(
+        fetch("/api/admin/supervisor-teams", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${usableSession.access_token}`,
+          },
+          cache: "no-store",
+        }),
         "Loading Supervisor Teams"
       );
 
-      if (teamsResult.error) {
-        throw new Error(teamsResult.error.message || "Could not load Supervisor Teams.");
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not load Supervisor Teams.");
       }
 
-      const teams = Array.isArray(teamsResult.data) ? teamsResult.data : [];
-      const teamIds = teams.map((team) => team.id).filter(Boolean);
-      let members = [];
+      setSupervisorTeams(sortSupervisorTeams(Array.isArray(data.teams) ? data.teams : []));
 
-      if (teamIds.length) {
-        const membersResult = await withTimeout(
-          supabase
-            .from("supervisor_team_members")
-            .select(
-              "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
-            )
-            .in("supervisor_team_id", teamIds)
-            .order("employee_name", { ascending: true })
-            .limit(10000),
-          "Loading Supervisor Team Members"
-        );
-
-        if (membersResult.error) {
-          throw new Error(membersResult.error.message || "Could not load Supervisor Team Members.");
-        }
-
-        members = Array.isArray(membersResult.data) ? membersResult.data : [];
+      if (Array.isArray(data.employeeOptions) && data.employeeOptions.length > 0) {
+        setSupervisorEmployeeOptions(data.employeeOptions);
       }
-
-      const membersByTeam = new Map();
-
-      for (const member of members) {
-        if (member?.is_active === false) continue;
-
-        const current = membersByTeam.get(member.supervisor_team_id) || [];
-        current.push(member);
-        membersByTeam.set(member.supervisor_team_id, current);
-      }
-
-      setSupervisorTeams(
-        sortSupervisorTeams(
-          teams.map((team) => ({
-            ...team,
-            members: membersByTeam.get(team.id) || [],
-          }))
-        )
-      );
     } finally {
       setSupervisorLoading(false);
     }
@@ -1061,7 +1030,7 @@ export default function AdminPage() {
     const jobs = [
       loadPromptData(activeSession),
       loadMappingsData(),
-      loadSupervisorTeamsData(),
+      loadSupervisorTeamsData(activeSession),
       loadRoleAccessData(activeSession, canManageUsers(effectiveProfile)),
     ];
 
@@ -1142,8 +1111,10 @@ export default function AdminPage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
+
+      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
 
       setSession(nextSession || null);
 
@@ -1159,8 +1130,9 @@ export default function AdminPage() {
 
         setProfile(result.profile);
         setAuthMessage(result.message || "");
+        setAuthChecked(true);
 
-        if (result.profile && canManageAdmin(result.profile)) {
+        if (!isBackgroundRefresh && result.profile && canManageAdmin(result.profile)) {
           loadAll(nextSession, { silent: true, profile: result.profile });
         }
       });
@@ -1542,7 +1514,7 @@ export default function AdminPage() {
       setPageSuccess(data.message || "Agent mapping saved successfully.");
       setMappingForm(createEmptyMappingForm());
       await loadMappingsData();
-      await loadSupervisorTeamsData();
+      await loadSupervisorTeamsData(freshSession);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save mapping.");
     } finally {
@@ -1583,7 +1555,7 @@ export default function AdminPage() {
 
       setPageSuccess(data.message || (nextActive ? "Mapping activated." : "Mapping deactivated."));
       await loadMappingsData();
-      await loadSupervisorTeamsData();
+      await loadSupervisorTeamsData(freshSession);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not update mapping status.");
     } finally {
@@ -1741,142 +1713,53 @@ export default function AdminPage() {
     setSupervisorSaveLoading(true);
 
     try {
-      const now = new Date().toISOString();
+      const freshSession = await getFreshSession();
 
-      const existingByForm = supervisorForm.id
-        ? supervisorTeams.find((team) => team.id === supervisorForm.id)
-        : null;
-
-      const existingByEmail = supervisorEmail
-        ? supervisorTeams.find((team) => normalizeEmail(team?.supervisor_email) === supervisorEmail)
-        : null;
-
-      const existingByName = supervisorTeams.find(
-        (team) => normalizeKey(team?.supervisor_name) === normalizeKey(supervisorName)
-      );
-
-      const existingTeam = existingByForm || existingByEmail || existingByName;
-      let savedTeam;
-
-      if (existingTeam?.id) {
-        const { data, error } = await withTimeout(
-          supabase
-            .from("supervisor_teams")
-            .update({
+      const response = await withTimeout(
+        fetch("/api/admin/supervisor-teams", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            team: {
+              id: supervisorForm.id || "",
               supervisor_name: supervisorName,
               supervisor_email: supervisorEmail || null,
               notes: normalizeText(supervisorForm.notes) || null,
               is_active: supervisorForm.is_active !== false,
-              updated_at: now,
-            })
-            .eq("id", existingTeam.id)
-            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-            .single(),
-          "Updating Supervisor Team"
-        );
-
-        if (error) throw new Error(error.message || "Could not update Supervisor Team.");
-        savedTeam = data;
-      } else {
-        const { data, error } = await withTimeout(
-          supabase
-            .from("supervisor_teams")
-            .insert({
-              supervisor_name: supervisorName,
-              supervisor_email: supervisorEmail || null,
-              notes: normalizeText(supervisorForm.notes) || null,
-              is_active: supervisorForm.is_active !== false,
-              created_at: now,
-              updated_at: now,
-            })
-            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-            .single(),
-          "Creating Supervisor Team"
-        );
-
-        if (error) throw new Error(error.message || "Could not create Supervisor Team.");
-        savedTeam = data;
-      }
-
-      if (!savedTeam?.id) {
-        throw new Error("Supervisor Team saved without an ID. Check the supervisor_teams table.");
-      }
-
-      const uniqueMembers = new Map();
-
-      for (const member of supervisorForm.members || []) {
-        const employeeName = normalizeText(member?.employee_name);
-        if (!employeeName) continue;
-
-        const memberKey = normalizeKey(employeeName);
-
-        if (!uniqueMembers.has(memberKey)) {
-          uniqueMembers.set(memberKey, {
-            supervisor_team_id: savedTeam.id,
-            employee_name: employeeName,
-            employee_email: normalizeEmail(member?.employee_email) || null,
-            intercom_agent_name: normalizeText(member?.intercom_agent_name) || null,
-            team_name: normalizeText(member?.team_name) || null,
-            is_active: true,
-            created_at: now,
-            updated_at: now,
-          });
-        }
-      }
-
-      const desiredMembers = Array.from(uniqueMembers.values());
-
-      if (desiredMembers.length > 0) {
-        const { error: upsertError } = await withTimeout(
-          supabase
-            .from("supervisor_team_members")
-            .upsert(desiredMembers, {
-              onConflict: "supervisor_team_id,employee_name",
-            }),
-          "Saving Supervisor Team Members"
-        );
-
-        if (upsertError) {
-          throw new Error(upsertError.message || "Could not save Supervisor Team Members.");
-        }
-      }
-
-      const { data: currentMembers, error: currentMembersError } = await withTimeout(
-        supabase
-          .from("supervisor_team_members")
-          .select("id, employee_name")
-          .eq("supervisor_team_id", savedTeam.id),
-        "Checking current Supervisor Team Members"
+            },
+            members: supervisorForm.members || [],
+          }),
+        }),
+        supervisorForm.id ? "Updating Supervisor Team" : "Saving Supervisor Team"
       );
 
-      if (currentMembersError) {
-        throw new Error(currentMembersError.message || "Could not verify saved members.");
+      const data = await readApiJson(response);
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not save Supervisor Team.");
       }
 
-      const desiredNames = new Set(desiredMembers.map((member) => normalizeKey(member.employee_name)));
-      const obsoleteIds = (currentMembers || [])
-        .filter((member) => !desiredNames.has(normalizeKey(member.employee_name)))
-        .map((member) => member.id)
-        .filter(Boolean);
-
-      if (obsoleteIds.length > 0) {
-        const { error: deleteError } = await withTimeout(
-          supabase.from("supervisor_team_members").delete().in("id", obsoleteIds),
-          "Removing unselected Supervisor Team Members"
-        );
-
-        if (deleteError) {
-          throw new Error(deleteError.message || "Could not remove unselected members.");
-        }
-      }
+      const savedTeam = data.team || {};
+      const savedTeams = Array.isArray(data.teams) ? data.teams : [];
+      const savedMembers = savedTeams.find((team) => team.id === savedTeam.id)?.members || supervisorForm.members || [];
 
       setSupervisorForm(createEmptySupervisorForm());
       setSupervisorMemberSearch("");
       setPageSuccess(
-        `${savedTeam.supervisor_name} saved successfully with ${formatNumber(desiredMembers.length)} member(s).`
+        data.message ||
+          `${savedTeam.supervisor_name || supervisorName} saved successfully with ${formatNumber(savedMembers.length)} member(s).`
       );
 
-      await loadSupervisorTeamsData();
+      setSupervisorTeams(sortSupervisorTeams(savedTeams));
+
+      if (Array.isArray(data.employeeOptions) && data.employeeOptions.length > 0) {
+        setSupervisorEmployeeOptions(data.employeeOptions);
+      }
+
+      await loadActivityLogsData(freshSession, canViewActivityLogsNow);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save Supervisor Team.");
     } finally {
@@ -1897,22 +1780,37 @@ export default function AdminPage() {
 
     try {
       const nextActive = team?.is_active === false;
+      const freshSession = await getFreshSession();
 
-      const { error } = await withTimeout(
-        supabase
-          .from("supervisor_teams")
-          .update({
+      const response = await withTimeout(
+        fetch("/api/admin/supervisor-teams", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${freshSession.access_token}`,
+          },
+          body: JSON.stringify({
+            id: team.id,
             is_active: nextActive,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", team.id),
+          }),
+        }),
         "Updating Supervisor Team status"
       );
 
-      if (error) throw new Error(error.message || "Could not update Supervisor Team.");
+      const data = await readApiJson(response);
 
-      setPageSuccess(nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated.");
-      await loadSupervisorTeamsData();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not update Supervisor Team.");
+      }
+
+      setPageSuccess(data.message || (nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated."));
+      setSupervisorTeams(sortSupervisorTeams(Array.isArray(data.teams) ? data.teams : []));
+
+      if (Array.isArray(data.employeeOptions) && data.employeeOptions.length > 0) {
+        setSupervisorEmployeeOptions(data.employeeOptions);
+      }
+
+      await loadActivityLogsData(freshSession, canViewActivityLogsNow);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not update Supervisor Team.");
     } finally {
@@ -2444,7 +2342,7 @@ export default function AdminPage() {
         <section className="panel gate-panel">
           <p className="eyebrow">Sign In Required</p>
           <h2>Admin Is Ready, But You Are Not Signed In.</h2>
-          <p className="muted">Use Your Nextventures.io Google Account To Continue.</p>
+          <p className="muted">Use Your nextventures.io Google Account To Continue.</p>
           <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
             Sign In With Google
           </button>
@@ -3515,7 +3413,7 @@ export default function AdminPage() {
                 <p className="eyebrow">Access control</p>
                 <h2>User Roles</h2>
                 <p className="muted">
-                  Pre-Grant Access By Nextventures.io Email Before A User Signs In, Or Update Users Who Already Have Profiles.
+                  Pre-Grant Access By nextventures.io Email Before A User Signs In, Or Update Users Who Already Have Profiles.
                 </p>
               </div>
 
@@ -5008,6 +4906,16 @@ const adminStyles = `
     border-radius: 22px;
   }
 
+  .role-form-card {
+    position: relative;
+    overflow: visible;
+    z-index: 8;
+  }
+
+  #user-roles.panel {
+    overflow: visible;
+  }
+
   .profile-list {
     display: grid;
     gap: 12px;
@@ -5486,6 +5394,8 @@ const adminStyles = `
 
 
   .role-hover-guide {
+    position: relative;
+    z-index: 30;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -5515,11 +5425,11 @@ const adminStyles = `
 
   .role-hover-guide span em {
     position: absolute;
-    left: 50%;
+    left: 0;
     bottom: calc(100% + 10px);
-    z-index: 20;
-    width: min(280px, 78vw);
-    transform: translate(-50%, 6px);
+    z-index: 80;
+    width: min(340px, calc(100vw - 48px));
+    transform: translateY(6px);
     opacity: 0;
     pointer-events: none;
     padding: 12px;
@@ -5539,7 +5449,7 @@ const adminStyles = `
   .role-hover-guide span:hover em,
   .role-hover-guide span:focus-within em {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
 
 
