@@ -72,8 +72,7 @@ function canReadDashboard(profile) {
 }
 
 function isSupervisorScoped(profile, email) {
-  const role = normalizeKey(profile?.role);
-  return email !== MASTER_ADMIN_EMAIL && role === "supervisor_admin";
+  return false;
 }
 
 function createClients() {
@@ -336,15 +335,11 @@ export async function GET(request) {
     if (!auth.ok) return auth.response;
 
     const { adminClient, email, profile } = auth;
-    const scoped = isSupervisorScoped(profile, email);
 
-    const supervisorTeams = await loadSupervisorTeams(
-      adminClient,
-      scoped ? { scopedProfile: profile, scopedEmail: email } : {}
-    );
-
-    const rawRows = await fetchAllDashboardRows(adminClient);
-    const rows = scoped ? applySupervisorScope(rawRows, supervisorTeams) : rawRows;
+    const [supervisorTeams, rows] = await Promise.all([
+      loadSupervisorTeams(adminClient),
+      fetchAllDashboardRows(adminClient),
+    ]);
 
     return json({
       ok: true,
@@ -353,11 +348,11 @@ export async function GET(request) {
       meta: {
         requestedBy: email,
         role: profile?.role || "viewer",
-        scopedToSupervisorTeams: scoped,
+        scopedToSupervisorTeams: false,
         supervisorTeamCount: supervisorTeams.length,
-        rawRowsReturned: rawRows.length,
         rowsReturned: rows.length,
         rowCap: MAX_DASHBOARD_ROWS,
+        visibility: "all_results",
       },
     });
   } catch (error) {
