@@ -58,6 +58,59 @@ function canImportResults(profile) {
   );
 }
 
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function writeActivityLog(adminClient, request, auth, payload) {
+  try {
+    if (!adminClient || !auth) return;
+
+    const meta = getRequestMeta(request);
+    const profile = auth.profile || {};
+    const user = auth.user || {};
+    const email = String(auth.email || profile.email || user.email || "").toLowerCase();
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: user?.id || profile?.id || null,
+      actor_email: email || "unknown",
+      actor_name:
+        normalizeText(profile?.full_name) ||
+        normalizeText(user?.user_metadata?.full_name) ||
+        normalizeText(user?.user_metadata?.name) ||
+        email ||
+        null,
+      actor_role: email === "faiyaz@nextventures.io" ? "master_admin" : normalizeText(profile?.role) || "viewer",
+      action_type: normalizeText(payload.action_type) || "results_import_action",
+      action_label: normalizeText(payload.action_label) || "Results Import Action",
+      area: normalizeText(payload.area) || "Results",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] results import log failed", error);
+  }
+}
+
 function normalizeText(value) {
   return String(value ?? "").trim();
 }
@@ -808,6 +861,10 @@ async function createImportRun({
 }
 
 export async function POST(request) {
+  let adminClientForLog = null;
+  let authForLog = null;
+  let fileNameForLog = "";
+
   try {
     const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
     const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
@@ -840,6 +897,8 @@ export async function POST(request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    adminClientForLog = adminClient;
+
     const {
       data: { user },
       error: userError,
@@ -866,8 +925,18 @@ export async function POST(request) {
       .maybeSingle();
 
     const profile = profileData || buildFallbackProfile(user);
+    authForLog = { user, email, profile };
 
     if (!canImportResults(profile)) {
+      await writeActivityLog(adminClient, request, authForLog, {
+        action_type: "results_import_failed",
+        action_label: "Results Import Failed",
+        area: "Results",
+        target_type: "historical_excel_import",
+        status: "failed",
+        description: "Permission denied while importing historical Results.",
+      });
+
       return json(
         { ok: false, error: "This account does not have permission to import results." },
         { status: 403 }
@@ -883,6 +952,7 @@ export async function POST(request) {
     }
 
     const fileName = normalizeText(uploadedFile.name || "uploaded-workbook.xlsx");
+    fileNameForLog = fileName;
 
     if (!fileName.toLowerCase().endsWith(".xlsx")) {
       return json({ ok: false, error: "Only .xlsx files are supported." }, { status: 400 });
@@ -992,6 +1062,23 @@ export async function POST(request) {
     }
 
     if (!rowsToInsert.length) {
+      await writeActivityLog(adminClient, request, authForLog, {
+        action_type: "results_imported",
+        action_label: "Results Imported",
+        area: "Results",
+        target_type: "historical_excel_import",
+        target_label: fileName,
+        status: "success",
+        description: "Historical Results import finished with no new rows inserted.",
+        safe_after: {
+          file_name: fileName,
+          duplicate_mode: duplicateMode,
+          inserted_rows: 0,
+          skipped_existing_rows: existingConversationIds.size,
+          duplicate_in_file_rows: deduped.duplicateInFileCount,
+        },
+      });
+
       return json({
         ok: true,
         runId: null,
@@ -1044,6 +1131,30 @@ export async function POST(request) {
 
     const insertedCount = await insertAuditRows(adminClient, resultRows);
 
+    await writeActivityLog(adminClient, request, authForLog, {
+      action_type: "results_imported",
+      action_label: "Results Imported",
+      area: "Results",
+      target_type: "historical_excel_import",
+      target_id: importRun.runId,
+      target_label: fileName,
+      status: "success",
+      description: "Historical Results were imported from an Excel workbook.",
+      safe_after: {
+        file_name: fileName,
+        duplicate_mode: duplicateMode,
+        run_id: importRun.runId,
+        inserted_rows: insertedCount,
+        parsed_rows: allParsedRows.length,
+        unique_workbook_rows: deduped.rows.length,
+        skipped_existing_rows: duplicateMode === "skip_existing" ? existingConversationIds.size : 0,
+        duplicate_in_file_rows: deduped.duplicateInFileCount,
+        deleted_existing_rows: duplicateCleanup.deletedResults,
+        deleted_empty_runs: duplicateCleanup.deletedRuns,
+        date_range: importRun.range,
+      },
+    });
+
     return json({
       ok: true,
       runId: importRun.runId,
@@ -1067,6 +1178,21 @@ export async function POST(request) {
       },
     });
   } catch (error) {
+    if (adminClientForLog && authForLog) {
+      await writeActivityLog(adminClientForLog, request, authForLog, {
+        action_type: "results_import_failed",
+        action_label: "Results Import Failed",
+        area: "Results",
+        target_type: "historical_excel_import",
+        target_label: fileNameForLog || null,
+        status: "failed",
+        description: error instanceof Error ? error.message : "Unknown import server error.",
+        safe_after: {
+          file_name: fileNameForLog || null,
+        },
+      });
+    }
+
     return json(
       {
         ok: false,
