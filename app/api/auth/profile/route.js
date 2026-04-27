@@ -174,10 +174,15 @@ async function getUserFromRequest(request) {
 }
 
 async function readRoleGrant(adminClient, email) {
+  const normalizedEmail = normalizeEmail(email);
+
   const { data, error } = await adminClient
     .from("user_role_grants")
     .select("id, email, full_name, role, can_run_tests, is_active")
-    .eq("email", email)
+    .ilike("email", normalizedEmail)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -188,17 +193,33 @@ async function readRoleGrant(adminClient, email) {
 }
 
 async function readExistingProfile(adminClient, userId, email) {
-  const { data, error } = await adminClient
-    .from("profiles")
-    .select("id, email, full_name, role, can_run_tests, is_active")
-    .or(`id.eq.${userId},email.eq.${email}`)
-    .maybeSingle();
+  const normalizedEmail = normalizeEmail(email);
 
-  if (error) {
-    throw new Error(error.message || "Could not read profile.");
+  if (userId) {
+    const { data: profileById, error: idError } = await adminClient
+      .from("profiles")
+      .select("id, email, full_name, role, can_run_tests, is_active")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (idError) {
+      throw new Error(idError.message || "Could not read profile by user ID.");
+    }
+
+    if (profileById) return profileById;
   }
 
-  return data || null;
+  const { data: profilesByEmail, error: emailError } = await adminClient
+    .from("profiles")
+    .select("id, email, full_name, role, can_run_tests, is_active")
+    .ilike("email", normalizedEmail)
+    .limit(1);
+
+  if (emailError) {
+    throw new Error(emailError.message || "Could not read profile by email.");
+  }
+
+  return Array.isArray(profilesByEmail) && profilesByEmail.length ? profilesByEmail[0] : null;
 }
 
 async function saveProfile(adminClient, user, email, grantPayload, existingProfile) {
