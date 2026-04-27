@@ -183,20 +183,23 @@ async function updateExistingProfileIfPresent(adminClient, payload) {
   const { data: profileRows, error: profileReadError } = await adminClient
     .from("profiles")
     .select("id, email")
-    .eq("email", email)
-    .limit(1);
+    .ilike("email", email)
+    .limit(25);
 
   if (profileReadError) {
     throw new Error(profileReadError.message || "Could not check existing user profile.");
   }
 
-  const existingProfile = Array.isArray(profileRows) ? profileRows[0] : null;
+  const matchingProfiles = Array.isArray(profileRows)
+    ? profileRows.filter((row) => row?.id)
+    : [];
 
-  if (!existingProfile?.id) {
+  if (!matchingProfiles.length) {
     return null;
   }
 
   const nextProfilePayload = {
+    email,
     role: payload.role,
     can_run_tests: payload.can_run_tests,
     is_active: payload.is_active,
@@ -210,20 +213,25 @@ async function updateExistingProfileIfPresent(adminClient, payload) {
     nextProfilePayload.role = "master_admin";
     nextProfilePayload.can_run_tests = true;
     nextProfilePayload.is_active = true;
+    nextProfilePayload.full_name = "Faiyaz Muhtasim Ahmed";
   }
 
-  const { data: updatedProfile, error: profileUpdateError } = await adminClient
+  const { data: updatedProfiles, error: profileUpdateError } = await adminClient
     .from("profiles")
     .update(nextProfilePayload)
-    .eq("id", existingProfile.id)
-    .select("id, email, full_name, role, can_run_tests, is_active")
-    .single();
+    .in(
+      "id",
+      matchingProfiles.map((row) => row.id)
+    )
+    .select("id, email, full_name, role, can_run_tests, is_active");
 
   if (profileUpdateError) {
     throw new Error(profileUpdateError.message || "Could not update existing user profile.");
   }
 
-  return safeProfile(updatedProfile);
+  return Array.isArray(updatedProfiles) && updatedProfiles.length
+    ? safeProfile(updatedProfiles[0])
+    : null;
 }
 
 function validateRolePayload(body) {
