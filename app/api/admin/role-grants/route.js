@@ -82,6 +82,77 @@ function safeProfile(row) {
   };
 }
 
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "admin_action",
+      action_label: normalizeText(payload.action_label) || "Admin Action",
+      area: normalizeText(payload.area) || "Admin",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] role grant log failed", error);
+  }
+}
+
+async function syncActiveSessionsForEmail(adminClient, payload) {
+  const email = normalizeEmail(payload.email);
+
+  if (!email) return;
+
+  try {
+    await adminClient
+      .from("user_activity_sessions")
+      .update({
+        full_name: payload.full_name || null,
+        role: payload.role,
+        updated_at: new Date().toISOString(),
+      })
+      .ilike("email", email)
+      .eq("status", "active");
+  } catch (error) {
+    console.warn("[activity-log] active session role sync failed", error);
+  }
+}
+
+function actorNameFor(user, email) {
+  return (
+    normalizeText(user?.user_metadata?.full_name) ||
+    normalizeText(user?.user_metadata?.name) ||
+    email
+  );
+}
+
 async function requireMasterAdmin(request) {
   const authHeader = request.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ")
@@ -182,7 +253,7 @@ async function updateExistingProfileIfPresent(adminClient, payload) {
 
   const { data: profileRows, error: profileReadError } = await adminClient
     .from("profiles")
-    .select("id, email")
+    .select("id, email, full_name, role, can_run_tests, is_active")
     .ilike("email", email)
     .limit(25);
 
@@ -228,6 +299,8 @@ async function updateExistingProfileIfPresent(adminClient, payload) {
   if (profileUpdateError) {
     throw new Error(profileUpdateError.message || "Could not update existing user profile.");
   }
+
+  await syncActiveSessionsForEmail(adminClient, nextProfilePayload);
 
   return Array.isArray(updatedProfiles) && updatedProfiles.length
     ? safeProfile(updatedProfiles[0])
@@ -347,6 +420,30 @@ export async function POST(request) {
     }
 
     const updatedProfile = await updateExistingProfileIfPresent(auth.adminClient, payload);
+
+    await writeActivityLog(auth.adminClient, request, {
+      actor_user_id: auth.user.id,
+      actor_email: auth.email,
+      actor_name: actorNameFor(auth.user, auth.email),
+      actor_role: "master_admin",
+      action_type: "role_grant_saved",
+      action_label: "Role Grant Saved",
+      area: "Admin",
+      target_type: "User Role",
+      target_id: savedGrant.id,
+      target_label: payload.email,
+      status: "success",
+      description: `${auth.email} saved ${payload.email} as ${payload.role}.`,
+      safe_after: {
+        email: payload.email,
+        full_name: payload.full_name,
+        role: payload.role,
+        can_run_tests: payload.can_run_tests,
+        is_active: payload.is_active,
+        existing_profile_updated: Boolean(updatedProfile),
+      },
+    });
+
     const data = await listRoleData(auth.adminClient);
 
     return json({
@@ -432,6 +529,37 @@ export async function PATCH(request) {
     }
 
     const updatedProfile = await updateExistingProfileIfPresent(auth.adminClient, payload);
+
+    await writeActivityLog(auth.adminClient, request, {
+      actor_user_id: auth.user.id,
+      actor_email: auth.email,
+      actor_name: actorNameFor(auth.user, auth.email),
+      actor_role: "master_admin",
+      action_type: "role_grant_updated",
+      action_label: "Role Grant Updated",
+      area: "Admin",
+      target_type: "User Role",
+      target_id: updatedGrant.id,
+      target_label: payload.email,
+      status: "success",
+      description: `${auth.email} updated ${payload.email} to ${payload.role}.`,
+      safe_before: {
+        email: existingGrant.email,
+        full_name: existingGrant.full_name,
+        role: existingGrant.role,
+        can_run_tests: existingGrant.can_run_tests,
+        is_active: existingGrant.is_active,
+      },
+      safe_after: {
+        email: payload.email,
+        full_name: payload.full_name,
+        role: payload.role,
+        can_run_tests: payload.can_run_tests,
+        is_active: payload.is_active,
+        existing_profile_updated: Boolean(updatedProfile),
+      },
+    });
+
     const data = await listRoleData(auth.adminClient);
 
     return json({
@@ -504,6 +632,26 @@ export async function DELETE(request) {
       can_run_tests: false,
       is_active: false,
       full_name: "",
+    });
+
+    await writeActivityLog(auth.adminClient, request, {
+      actor_user_id: auth.user.id,
+      actor_email: auth.email,
+      actor_name: actorNameFor(auth.user, auth.email),
+      actor_role: "master_admin",
+      action_type: "role_grant_deactivated",
+      action_label: "Role Grant Deactivated",
+      area: "Admin",
+      target_type: "User Role",
+      target_label: email,
+      status: "warning",
+      description: `${auth.email} deactivated role access for ${email}.`,
+      safe_after: {
+        email,
+        role: "viewer",
+        can_run_tests: false,
+        is_active: false,
+      },
     });
 
     const data = await listRoleData(auth.adminClient);
