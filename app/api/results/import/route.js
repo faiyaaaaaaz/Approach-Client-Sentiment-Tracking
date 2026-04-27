@@ -50,11 +50,11 @@ function buildFallbackProfile(user) {
 }
 
 function canImportResults(profile) {
+  const role = normalizeText(profile?.role).toLowerCase();
+
   return Boolean(
     profile?.is_active === true &&
-      (profile?.role === "master_admin" ||
-        profile?.role === "admin" ||
-        profile?.can_run_tests === true)
+      (role === "master_admin" || role === "admin" || role === "co_admin")
   );
 }
 
