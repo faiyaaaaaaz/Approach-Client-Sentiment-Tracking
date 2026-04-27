@@ -30,6 +30,62 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "admin_action",
+      action_label: normalizeText(payload.action_label) || "Admin Action",
+      area: normalizeText(payload.area) || "API Key Vault",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] api key log failed", error);
+  }
+}
+
+function buildActorPayload(auth) {
+  return {
+    actor_user_id: auth?.user?.id || null,
+    actor_email: auth?.email || "",
+    actor_name:
+      normalizeText(auth?.user?.user_metadata?.full_name) ||
+      normalizeText(auth?.user?.user_metadata?.name) ||
+      auth?.email ||
+      "",
+    actor_role: "master_admin",
+  };
+}
+
 function getFingerprint(secretValue) {
   return createHash("sha256").update(String(secretValue || "").trim()).digest("hex");
 }
@@ -202,19 +258,40 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  let auth = null;
+  let keyType = "";
+  let keyLabel = "";
+
   try {
-    const auth = await requireMasterAdmin(request);
+    auth = await requireMasterAdmin(request);
 
     if (!auth.ok) return auth.response;
 
     const body = await request.json();
 
-    const keyType = normalizeText(body?.keyType || body?.key_type).toLowerCase();
-    const keyLabel = normalizeText(body?.keyLabel || body?.key_label) || "Primary key";
+    keyType = normalizeText(body?.keyType || body?.key_type).toLowerCase();
+    keyLabel = normalizeText(body?.keyLabel || body?.key_label) || "Primary key";
     const secretValue = normalizeText(body?.secretValue || body?.secret_value);
     const makeActive = body?.makeActive !== false;
 
     if (!ALLOWED_KEY_TYPES.includes(keyType)) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "api_key_save_failed",
+        action_label: "API Key Save Failed",
+        area: "API Key Vault",
+        target_type: "api_key",
+        target_label: keyType || "Unknown API Key",
+        status: "failed",
+        description: "API key save failed because the key type was invalid.",
+        is_sensitive: true,
+        safe_after: {
+          key_type: keyType,
+          key_label: keyLabel,
+          make_active: makeActive,
+        },
+      });
+
       return json(
         {
           ok: false,
@@ -225,6 +302,23 @@ export async function POST(request) {
     }
 
     if (!secretValue) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "api_key_save_failed",
+        action_label: "API Key Save Failed",
+        area: "API Key Vault",
+        target_type: "api_key",
+        target_label: `${keyType} API Key`,
+        status: "failed",
+        description: "API key save failed because no key value was provided.",
+        is_sensitive: true,
+        safe_after: {
+          key_type: keyType,
+          key_label: keyLabel,
+          make_active: makeActive,
+        },
+      });
+
       return json(
         {
           ok: false,
@@ -276,6 +370,31 @@ export async function POST(request) {
       throw new Error(upsertError.message || "Could not save API key.");
     }
 
+    await writeActivityLog(auth.adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: "api_key_saved",
+      action_label: "API Key Saved",
+      area: "API Key Vault",
+      target_type: "api_key",
+      target_id: fingerprint,
+      target_label: `${keyType === "intercom" ? "Intercom" : "OpenAI"} API Key`,
+      status: "success",
+      description: `${keyType === "intercom" ? "Intercom" : "OpenAI"} API key was saved from Admin.`,
+      is_sensitive: true,
+      safe_after: {
+        key_type: keyType,
+        key_label: keyLabel,
+        masked_value: maskedValue,
+        fingerprint,
+        is_active: makeActive,
+        updated_by_email: auth.email,
+        updated_at: now,
+      },
+      metadata: {
+        made_active: makeActive,
+      },
+    });
+
     const keys = await listKeys(auth.adminClient);
 
     return json({
@@ -284,6 +403,24 @@ export async function POST(request) {
       keys,
     });
   } catch (error) {
+    if (auth?.ok && auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "api_key_save_failed",
+        action_label: "API Key Save Failed",
+        area: "API Key Vault",
+        target_type: "api_key",
+        target_label: `${keyType || "Unknown"} API Key`,
+        status: "failed",
+        description: error instanceof Error ? error.message : "Unknown server error.",
+        is_sensitive: true,
+        safe_after: {
+          key_type: keyType,
+          key_label: keyLabel,
+        },
+      });
+    }
+
     return json(
       {
         ok: false,
@@ -295,14 +432,18 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  let auth = null;
+  let id = "";
+  let existingKey = null;
+
   try {
-    const auth = await requireMasterAdmin(request);
+    auth = await requireMasterAdmin(request);
 
     if (!auth.ok) return auth.response;
 
     const body = await request.json();
 
-    const id = normalizeText(body?.id);
+    id = normalizeText(body?.id);
     const keyLabel = normalizeText(body?.keyLabel || body?.key_label);
     const isActive =
       typeof body?.isActive === "boolean"
@@ -321,15 +462,17 @@ export async function PATCH(request) {
       );
     }
 
-    const { data: existingKey, error: existingError } = await auth.adminClient
+    const { data: existingData, error: existingError } = await auth.adminClient
       .from("api_keys")
-      .select("id, key_type")
+      .select("id, key_type, key_label, masked_value, fingerprint, is_active")
       .eq("id", id)
       .maybeSingle();
 
     if (existingError) {
       throw new Error(existingError.message || "Could not read API key.");
     }
+
+    existingKey = existingData;
 
     if (!existingKey) {
       return json(
@@ -376,6 +519,32 @@ export async function PATCH(request) {
       throw new Error(updateError.message || "Could not update API key.");
     }
 
+    await writeActivityLog(auth.adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: "api_key_updated",
+      action_label: "API Key Updated",
+      area: "API Key Vault",
+      target_type: "api_key",
+      target_id: id,
+      target_label: `${existingKey.key_type === "intercom" ? "Intercom" : "OpenAI"} API Key`,
+      status: "success",
+      description: "API key metadata/status was updated from Admin.",
+      is_sensitive: true,
+      safe_before: {
+        key_type: existingKey.key_type,
+        key_label: existingKey.key_label,
+        masked_value: existingKey.masked_value,
+        fingerprint: existingKey.fingerprint,
+        is_active: existingKey.is_active,
+      },
+      safe_after: {
+        key_label: keyLabel || existingKey.key_label,
+        is_active: isActive === null ? existingKey.is_active : isActive,
+        updated_by_email: auth.email,
+        updated_at: now,
+      },
+    });
+
     const keys = await listKeys(auth.adminClient);
 
     return json({
@@ -384,6 +553,21 @@ export async function PATCH(request) {
       keys,
     });
   } catch (error) {
+    if (auth?.ok && auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "api_key_update_failed",
+        action_label: "API Key Update Failed",
+        area: "API Key Vault",
+        target_type: "api_key",
+        target_id: id || null,
+        target_label: existingKey?.key_type ? `${existingKey.key_type} API Key` : "API Key",
+        status: "failed",
+        description: error instanceof Error ? error.message : "Unknown server error.",
+        is_sensitive: true,
+      });
+    }
+
     return json(
       {
         ok: false,
@@ -395,13 +579,17 @@ export async function PATCH(request) {
 }
 
 export async function DELETE(request) {
+  let auth = null;
+  let id = "";
+  let existingKey = null;
+
   try {
-    const auth = await requireMasterAdmin(request);
+    auth = await requireMasterAdmin(request);
 
     if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(request.url);
-    const id = normalizeText(searchParams.get("id"));
+    id = normalizeText(searchParams.get("id"));
 
     if (!id) {
       return json(
@@ -412,6 +600,18 @@ export async function DELETE(request) {
         { status: 400 }
       );
     }
+
+    const { data: existingData, error: existingError } = await auth.adminClient
+      .from("api_keys")
+      .select("id, key_type, key_label, masked_value, fingerprint, is_active")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (existingError) {
+      throw new Error(existingError.message || "Could not read API key.");
+    }
+
+    existingKey = existingData;
 
     const now = new Date().toISOString();
 
@@ -428,6 +628,35 @@ export async function DELETE(request) {
       throw new Error(error.message || "Could not deactivate API key.");
     }
 
+    await writeActivityLog(auth.adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: "api_key_deactivated",
+      action_label: "API Key Deactivated",
+      area: "API Key Vault",
+      target_type: "api_key",
+      target_id: id,
+      target_label: existingKey?.key_type
+        ? `${existingKey.key_type === "intercom" ? "Intercom" : "OpenAI"} API Key`
+        : "API Key",
+      status: "success",
+      description: "API key was deactivated from Admin.",
+      is_sensitive: true,
+      safe_before: existingKey
+        ? {
+            key_type: existingKey.key_type,
+            key_label: existingKey.key_label,
+            masked_value: existingKey.masked_value,
+            fingerprint: existingKey.fingerprint,
+            is_active: existingKey.is_active,
+          }
+        : {},
+      safe_after: {
+        is_active: false,
+        updated_by_email: auth.email,
+        updated_at: now,
+      },
+    });
+
     const keys = await listKeys(auth.adminClient);
 
     return json({
@@ -436,6 +665,21 @@ export async function DELETE(request) {
       keys,
     });
   } catch (error) {
+    if (auth?.ok && auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "api_key_deactivate_failed",
+        action_label: "API Key Deactivate Failed",
+        area: "API Key Vault",
+        target_type: "api_key",
+        target_id: id || null,
+        target_label: existingKey?.key_type ? `${existingKey.key_type} API Key` : "API Key",
+        status: "failed",
+        description: error instanceof Error ? error.message : "Unknown server error.",
+        is_sensitive: true,
+      });
+    }
+
     return json(
       {
         ok: false,
