@@ -9,7 +9,7 @@ const INTERCOM_BASE_URL =
 
 const PAGE_SIZE = 1000;
 const MAX_DASHBOARD_ROWS = 50000;
-const DASHBOARD_CACHE_KEY = "cx-insights-dashboard-cache-v1";
+const DASHBOARD_CACHE_PREFIX = "cx-insights-dashboard-cache-v2";
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const REVIEW_SENTIMENT_ORDER = [
@@ -83,6 +83,11 @@ function writeClientCache(key, value) {
   } catch (_error) {
     // Ignore quota or serialization failures.
   }
+}
+
+function getDashboardCacheKey(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  return `${DASHBOARD_CACHE_PREFIX}:${normalized || "anonymous"}`;
 }
 
 function normalizeText(value, fallback = "-") {
@@ -1756,54 +1761,18 @@ export default function DashboardPage() {
   useEffect(() => {
     let active = true;
 
-    async function loadSupervisorTeams() {
-      const { data: teamsData, error: teamsError } = await supabase
-        .from("supervisor_teams")
-        .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-        .eq("is_active", true)
-        .order("supervisor_name", { ascending: true });
-
-      if (teamsError) {
-        throw new Error(teamsError.message || "Could not load Supervisor Teams.");
-      }
-
-      const teams = Array.isArray(teamsData) ? teamsData : [];
-      const teamIds = teams.map((team) => team.id).filter(Boolean);
-
-      if (!teamIds.length) {
-        return [];
-      }
-
-      const { data: membersData, error: membersError } = await supabase
-        .from("supervisor_team_members")
-        .select(
-          "id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at"
-        )
-        .in("supervisor_team_id", teamIds)
-        .eq("is_active", true)
-        .order("employee_name", { ascending: true });
-
-      if (membersError) {
-        throw new Error(membersError.message || "Could not load Supervisor Team members.");
-      }
-
-      const members = Array.isArray(membersData) ? membersData : [];
-      const membersByTeam = new Map();
-
-      for (const member of members) {
-        const current = membersByTeam.get(member.supervisor_team_id) || [];
-        current.push(member);
-        membersByTeam.set(member.supervisor_team_id, current);
-      }
-
-      return teams.map((team) => ({
-        ...team,
-        members: membersByTeam.get(team.id) || [],
-      }));
-    }
-
     async function loadRows() {
-      const cached = readClientCache(DASHBOARD_CACHE_KEY);
+      let activeSession = null;
+
+      try {
+        const sessionResult = await supabase.auth.getSession();
+        activeSession = sessionResult?.data?.session || null;
+      } catch (_error) {
+        activeSession = null;
+      }
+
+      const cacheKey = getDashboardCacheKey(activeSession?.user?.email);
+      const cached = readClientCache(cacheKey);
       const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
       const hasCachedRows = Array.isArray(cached?.rows) && cached.rows.length > 0;
       const hasCachedTeams = Array.isArray(cached?.supervisorTeams);
@@ -1820,62 +1789,48 @@ export default function DashboardPage() {
 
       setError("");
 
+      if (!activeSession?.access_token) {
+        if (!shouldHydrateFromCache && active) {
+          setRawRows([]);
+          setSupervisorTeams([]);
+          setError("Please sign in with your NEXT Ventures account to load dashboard data.");
+          setLoading(false);
+        }
+        return;
+      }
+
       if (shouldSkipNetwork) {
         return;
       }
 
       try {
-        const [loadedSupervisorTeams] = await Promise.all([loadSupervisorTeams()]);
-        const allRows = [];
-        let from = 0;
+        const response = await fetch("/api/dashboard", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+          cache: "no-store",
+        });
 
-        while (from < MAX_DASHBOARD_ROWS) {
-          const to = from + PAGE_SIZE - 1;
+        const data = await response.json().catch(() => null);
 
-          const { data, error: fetchError } = await supabase
-            .from("audit_results")
-            .select(`
-              id,
-              run_id,
-              conversation_id,
-              replied_at,
-              csat_score,
-              client_email,
-              agent_name,
-              employee_name,
-              employee_email,
-              team_name,
-              employee_match_status,
-              ai_verdict,
-              review_sentiment,
-              client_sentiment,
-              resolution_status,
-              error,
-              created_at
-            `)
-            .order("created_at", { ascending: false })
-            .range(from, to);
-
-          if (fetchError) {
-            throw new Error(fetchError.message || "Could not load dashboard data.");
-          }
-
-          const rows = Array.isArray(data) ? data : [];
-          allRows.push(...rows);
-
-          if (rows.length < PAGE_SIZE) break;
-
-          from += PAGE_SIZE;
+        if (!response.ok || !data?.ok) {
+          throw new Error(data?.error || "Could not load dashboard data.");
         }
+
+        const allRows = Array.isArray(data.rows) ? data.rows : [];
+        const loadedSupervisorTeams = Array.isArray(data.supervisorTeams) ? data.supervisorTeams : [];
 
         if (!active) return;
 
         setSupervisorTeams(loadedSupervisorTeams);
         setRawRows(allRows);
-        writeClientCache(DASHBOARD_CACHE_KEY, {
+        writeClientCache(cacheKey, {
           savedAt: Date.now(),
           rows: allRows,
           supervisorTeams: loadedSupervisorTeams,
+          meta: data.meta || null,
         });
       } catch (loadError) {
         if (!active) return;
