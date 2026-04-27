@@ -759,9 +759,11 @@ export default function ResultsPage() {
         throw new Error(data?.error || "Could not load stored results.");
       }
 
-      const loadedSupervisorTeams = await loadSupervisorTeams();
       const nextRuns = Array.isArray(data?.runs) ? data.runs : [];
       const nextResults = Array.isArray(data?.results) ? data.results : [];
+      const loadedSupervisorTeams = Array.isArray(data?.supervisorTeams)
+        ? data.supervisorTeams
+        : await loadSupervisorTeams();
 
       setRuns(nextRuns);
       setResults(nextResults);
@@ -829,8 +831,10 @@ export default function ResultsPage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!active) return;
+
+      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
 
       setSession(newSession ?? null);
       setPageError("");
@@ -854,7 +858,9 @@ export default function ResultsPage() {
       setAuthMessage(profileResult.message);
       setAuthLoading(false);
 
-      await loadStoredResults(newSession);
+      if (!isBackgroundRefresh) {
+        await loadStoredResults(newSession);
+      }
     });
 
     return () => {
@@ -1288,6 +1294,12 @@ export default function ResultsPage() {
       return;
     }
 
+    if (!session?.access_token) {
+      setPageError("Please sign in before deleting stored results.");
+      setPageSuccess("");
+      return;
+    }
+
     if (!canManageResults(profile)) {
       setPageError("This account does not have permission to delete stored results.");
       setPageSuccess("");
@@ -1305,50 +1317,24 @@ export default function ResultsPage() {
     setPageSuccess("");
 
     try {
-      const targetRunIds = decoratedResults
-        .filter((item) => SelectedIdSet.has(item.id))
-        .map((item) => item.run_id)
-        .filter(Boolean);
+      const response = await fetch("/api/results", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
 
-      const { error: deleteResultsError } = await supabase
-        .from("audit_results")
-        .delete()
-        .in("id", selectedIds);
+      const data = await response.json().catch(() => null);
 
-      if (deleteResultsError) {
-        throw new Error(deleteResultsError.message || "Could not delete Selected results.");
-      }
-
-      if (targetRunIds.length) {
-        const uniqueRunIds = Array.from(new Set(targetRunIds));
-
-        const { data: remainingRows, error: remainingError } = await supabase
-          .from("audit_results")
-          .select("run_id")
-          .in("run_id", uniqueRunIds);
-
-        if (remainingError) {
-          throw new Error(remainingError.message || "Could not verify remaining run records.");
-        }
-
-        const remainingRunSet = new Set((remainingRows || []).map((item) => item.run_id).filter(Boolean));
-        const emptyRunIds = uniqueRunIds.filter((id) => !remainingRunSet.has(id));
-
-        if (emptyRunIds.length) {
-          const { error: deleteRunsError } = await supabase
-            .from("audit_runs")
-            .delete()
-            .in("id", emptyRunIds);
-
-          if (deleteRunsError) {
-            throw new Error(deleteRunsError.message || "Could not clean up empty runs.");
-          }
-        }
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Could not delete Selected results.");
       }
 
       setSelectedIds([]);
-      setPageSuccess(`${selectedIds.length} stored result(s) deleted.`);
-      await loadStoredResults();
+      setPageSuccess(data.message || `${selectedIds.length} stored result(s) deleted.`);
+      await loadStoredResults(session);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not delete Selected results.");
     } finally {
@@ -1409,6 +1395,36 @@ export default function ResultsPage() {
     ];
 
     downloadCsv(`stored-results-${startDate || "start"}-to-${endDate || "end"}.csv`, rows);
+
+    if (session?.access_token) {
+      fetch("/api/results", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: "export_filtered",
+          exportedCount: filteredResults.length,
+          filterSummary: {
+            startDate: startDate || null,
+            endDate: endDate || null,
+            agentFilter,
+            employeeFilter,
+            supervisorTeamFilter,
+            mappingStatusFilter,
+            reviewSentimentFilter,
+            clientSentimentFilter,
+            resolutionStatusFilter,
+            resultTypeFilter,
+            cexOnly,
+            searchText: searchText || "",
+          },
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+
     setPageSuccess("Filtered results exported.");
     setPageError("");
   }
