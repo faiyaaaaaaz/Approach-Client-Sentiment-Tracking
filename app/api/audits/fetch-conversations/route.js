@@ -67,6 +67,113 @@ async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) 
   );
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function readActiveRoleGrant(adminClient, email) {
+  const normalizedEmail = normalizeEmail(email);
+
+  const { data, error } = await adminClient
+    .from("user_role_grants")
+    .select("email, full_name, role, can_run_tests, is_active")
+    .ilike("email", normalizedEmail)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[activity-log] role grant lookup failed", error);
+    return null;
+  }
+
+  return data || null;
+}
+
+function resolveEffectiveProfile({ user, email, profileData, grant }) {
+  const fallbackProfile = buildFallbackProfile(user);
+  const baseProfile = profileData || fallbackProfile;
+
+  if (email === "faiyaz@nextventures.io") {
+    return {
+      ...(baseProfile || {}),
+      id: user.id,
+      email,
+      full_name: "Faiyaz Muhtasim Ahmed",
+      role: "master_admin",
+      can_run_tests: true,
+      is_active: true,
+    };
+  }
+
+  if (grant && grant.is_active !== false) {
+    return {
+      ...(baseProfile || {}),
+      id: baseProfile?.id || user.id,
+      email,
+      full_name:
+        normalizeText(grant.full_name) ||
+        normalizeText(baseProfile?.full_name) ||
+        normalizeText(user?.user_metadata?.full_name) ||
+        normalizeText(user?.user_metadata?.name) ||
+        email,
+      role: normalizeText(grant.role) || "viewer",
+      can_run_tests: Boolean(grant.can_run_tests),
+      is_active: true,
+    };
+  }
+
+  return baseProfile;
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "system_action",
+      action_label: normalizeText(payload.action_label) || "System Action",
+      area: normalizeText(payload.area) || "Audit Workflow",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] audit fetch log failed", error);
+  }
+}
+
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
@@ -460,7 +567,7 @@ export async function POST(request) {
       );
     }
 
-    const email = String(user.email || "").toLowerCase();
+    const email = normalizeEmail(user.email);
     const domain = email.split("@")[1] || "";
 
     if (domain !== "nextventures.io") {
@@ -479,7 +586,8 @@ export async function POST(request) {
       .eq("id", user.id)
       .maybeSingle();
 
-    const profile = profileData || buildFallbackProfile(user);
+    const roleGrant = await readActiveRoleGrant(adminClient, email);
+    const profile = resolveEffectiveProfile({ user, email, profileData, grant: roleGrant });
 
     if (!canRunAudits(profile)) {
       return json(
@@ -553,6 +661,29 @@ export async function POST(request) {
     const limitedConversations = limiterEnabled
       ? fetchedConversations.slice(0, desiredCount)
       : fetchedConversations;
+
+    await writeActivityLog(adminClient, request, {
+      actor_user_id: user.id,
+      actor_email: email,
+      actor_name: profile?.full_name || email,
+      actor_role: profile?.role || "viewer",
+      action_type: "audit_conversations_fetched",
+      action_label: "Conversations Fetched",
+      area: "Run Audit",
+      target_type: "Intercom Conversations",
+      target_label: `${startDate} to ${endDate}`,
+      status: "success",
+      description: `${email} fetched ${limitedConversations.length} conversation(s) from Intercom for ${startDate} to ${endDate}.`,
+      safe_after: {
+        start_date: startDate,
+        end_date: endDate,
+        limiter_enabled: limiterEnabled,
+        limit_count: limiterEnabled ? desiredCount : null,
+        fetched_count: limitedConversations.length,
+        searched_dates: searchedDates,
+        key_source: intercomKey.source,
+      },
+    });
 
     return json({
       ok: true,
