@@ -251,11 +251,11 @@ function buildFallbackProfile(user) {
 }
 
 function canManageResults(profile) {
+  const role = String(profile?.role || "").toLowerCase();
+
   return Boolean(
     profile?.is_active === true &&
-      (profile?.role === "master_admin" ||
-        profile?.role === "admin" ||
-        profile?.can_run_tests === true)
+      (role === "master_admin" || role === "admin" || role === "co_admin")
   );
 }
 
@@ -1485,50 +1485,65 @@ export default function ResultsPage() {
         </div>
       </section>
 
-      <section className="import-panel">
-        <div className="import-head">
-          <div>
-            <p className="eyebrow">Manual Import</p>
-            <h2>Historical Excel Import</h2>
-          </div>
-          <span className="import-pill">Date-wise tabs</span>
-        </div>
-
-        <div className="import-grid">
-          <label className="file-box">
-            <span>Excel Workbook</span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx"
-              onChange={(event) => setImportFile(event.target.files?.[0] || null)}
-            />
-            <small>{importFile ? importFile.name : "Choose The Historical .xlsx File"}</small>
-          </label>
-
-          <label>
-            <span>Duplicate Handling</span>
-            <select value={duplicateMode} onChange={(event) => setDuplicateMode(event.target.value)}>
-              {DUPLICATE_MODE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className="duplicate-help">
-            {DUPLICATE_MODE_OPTIONS.find((option) => option.value === duplicateMode)?.helper}
+      {canManageResults(profile) ? (
+        <section className="import-panel">
+          <div className="import-head">
+            <div>
+              <p className="eyebrow">Manual Import</p>
+              <h2>Historical Excel Import</h2>
+            </div>
+            <span className="import-pill">Master Admin & Co-Admin Only</span>
           </div>
 
-          <button
-            type="button"
-            className="primary-btn import-btn"
-            onClick={handleHistoricalImport}
-            disabled={importing || !session?.user || !canManageResults(profile)}
-          >
-            {importing ? "Importing..." : "Import to Results"}
-          </button>
-        </div>
-      </section>
+          <div className="import-grid">
+            <label className="file-box">
+              <span>Excel Workbook</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+              />
+              <small>{importFile ? importFile.name : "Choose The Historical .xlsx File"}</small>
+            </label>
+
+            <label>
+              <span>Duplicate Handling</span>
+              <select value={duplicateMode} onChange={(event) => setDuplicateMode(event.target.value)}>
+                {DUPLICATE_MODE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="duplicate-help">
+              {DUPLICATE_MODE_OPTIONS.find((option) => option.value === duplicateMode)?.helper}
+            </div>
+
+            <button
+              type="button"
+              className="primary-btn import-btn"
+              onClick={handleHistoricalImport}
+              disabled={importing || !session?.user}
+            >
+              {importing ? "Importing..." : "Import to Results"}
+            </button>
+          </div>
+        </section>
+      ) : (
+        <section className="import-panel locked-import-panel">
+          <div className="import-head">
+            <div>
+              <p className="eyebrow">View-Only Access</p>
+              <h2>Historical Excel Import Locked</h2>
+            </div>
+            <span className="import-pill">Master Admin & Co-Admin Only</span>
+          </div>
+          <p className="locked-import-copy">
+            You can view and export the Results archive, but importing new historical data is limited to Master Admin and Co-Admin users.
+          </p>
+        </section>
+      )}
 
       {(authMessage || pageError || pageSuccess) ? (
         <section className="message-stack">
