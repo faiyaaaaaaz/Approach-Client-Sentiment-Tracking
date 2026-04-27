@@ -350,6 +350,71 @@ function getEnv(name) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeEmail(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function getRequestMeta(request) {
+  const forwardedFor = request.headers.get("x-forwarded-for") || "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "";
+  const userAgent = request.headers.get("user-agent") || "";
+
+  return {
+    ip_address: ipAddress || null,
+    user_agent: userAgent || null,
+    request_path: new URL(request.url).pathname,
+  };
+}
+
+async function writeActivityLog(adminClient, request, payload) {
+  try {
+    const meta = getRequestMeta(request);
+
+    await adminClient.from("system_activity_logs").insert({
+      actor_user_id: payload.actor_user_id || null,
+      actor_email: normalizeEmail(payload.actor_email) || "unknown",
+      actor_name: normalizeText(payload.actor_name) || null,
+      actor_role: normalizeText(payload.actor_role) || null,
+      action_type: normalizeText(payload.action_type) || "admin_action",
+      action_label: normalizeText(payload.action_label) || "Admin Action",
+      area: normalizeText(payload.area) || "Admin",
+      target_type: normalizeText(payload.target_type) || null,
+      target_id: normalizeText(payload.target_id) || null,
+      target_label: normalizeText(payload.target_label) || null,
+      status: normalizeText(payload.status) || "success",
+      description: normalizeText(payload.description) || null,
+      is_sensitive: Boolean(payload.is_sensitive),
+      safe_before: payload.safe_before || {},
+      safe_after: payload.safe_after || {},
+      metadata: payload.metadata || {},
+      request_path: meta.request_path,
+      ip_address: meta.ip_address,
+      user_agent: meta.user_agent,
+      session_id: payload.session_id || null,
+    });
+  } catch (error) {
+    console.warn("[activity-log] prompt log failed", error);
+  }
+}
+
+function buildActorPayload(auth) {
+  return {
+    actor_user_id: auth?.user?.id || null,
+    actor_email: auth?.email || auth?.profile?.email || "",
+    actor_name:
+      normalizeText(auth?.profile?.full_name) ||
+      normalizeText(auth?.user?.user_metadata?.full_name) ||
+      normalizeText(auth?.user?.user_metadata?.name) ||
+      auth?.email ||
+      "",
+    actor_role: auth?.email === "faiyaz@nextventures.io" ? "master_admin" : auth?.profile?.role || "viewer",
+  };
+}
+
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
@@ -368,9 +433,11 @@ function buildFallbackProfile(user) {
 }
 
 function canManageAdmin(profile) {
+  const role = normalizeText(profile?.role).toLowerCase();
+
   return Boolean(
     profile?.is_active === true &&
-      (profile?.role === "master_admin" || profile?.role === "admin")
+      (role === "master_admin" || role === "admin" || role === "co_admin")
   );
 }
 
@@ -552,8 +619,12 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  let auth = null;
+  let attemptedPromptLength = 0;
+  let attemptedChangeNote = "";
+
   try {
-    const auth = await getAuthenticatedAdmin(request);
+    auth = await getAuthenticatedAdmin(request);
 
     if (!auth.ok) {
       return json(
@@ -568,8 +639,27 @@ export async function POST(request) {
     const body = await request.json();
     const livePrompt = String(body?.livePrompt || "").trim();
     const changeNote = String(body?.changeNote || "").trim();
+    attemptedPromptLength = livePrompt.length;
+    attemptedChangeNote = changeNote;
 
     if (!livePrompt) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "prompt_save_failed",
+        action_label: "Prompt Save Failed",
+        area: "Admin Prompt",
+        target_type: "admin_prompt_config",
+        target_id: PROMPT_KEY,
+        target_label: "Live Audit Prompt",
+        status: "failed",
+        description: "Live prompt save failed because the prompt was empty.",
+        is_sensitive: true,
+        safe_after: {
+          attempted_prompt_length: attemptedPromptLength,
+          change_note_present: Boolean(attemptedChangeNote),
+        },
+      });
+
       return json(
         {
           ok: false,
@@ -582,6 +672,23 @@ export async function POST(request) {
     const bundle = await loadPromptBundle(auth.adminClient);
 
     if (!bundle.dbReady) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "prompt_save_failed",
+        action_label: "Prompt Save Failed",
+        area: "Admin Prompt",
+        target_type: "admin_prompt_config",
+        target_id: PROMPT_KEY,
+        target_label: "Live Audit Prompt",
+        status: "failed",
+        description: "Prompt tables are not ready in Supabase.",
+        is_sensitive: true,
+        safe_after: {
+          attempted_prompt_length: attemptedPromptLength,
+          change_note_present: Boolean(attemptedChangeNote),
+        },
+      });
+
       return json(
         {
           ok: false,
@@ -601,6 +708,26 @@ export async function POST(request) {
     const nowIso = new Date().toISOString();
 
     if (livePrompt === currentLivePrompt) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "prompt_save_no_change",
+        action_label: "Prompt Save No Change",
+        area: "Admin Prompt",
+        target_type: "admin_prompt_config",
+        target_id: PROMPT_KEY,
+        target_label: "Live Audit Prompt",
+        status: "info",
+        description: "Prompt save was submitted, but no prompt change was detected.",
+        is_sensitive: true,
+        safe_before: {
+          live_prompt_length: currentLivePrompt.length,
+        },
+        safe_after: {
+          live_prompt_length: livePrompt.length,
+          change_note_present: Boolean(changeNote),
+        },
+      });
+
       return json({
         ok: true,
         message: "No prompt change was detected.",
@@ -649,6 +776,33 @@ export async function POST(request) {
       throw new Error(historyError.message || "Could not save prompt history.");
     }
 
+    await writeActivityLog(auth.adminClient, request, {
+      ...buildActorPayload(auth),
+      action_type: "prompt_saved",
+      action_label: "Prompt Saved",
+      area: "Admin Prompt",
+      target_type: "admin_prompt_config",
+      target_id: PROMPT_KEY,
+      target_label: "Live Audit Prompt",
+      status: "success",
+      description: "Live audit prompt was updated from Admin.",
+      is_sensitive: true,
+      safe_before: {
+        live_prompt_length: currentLivePrompt.length,
+        updated_at: existingConfig?.updated_at || null,
+        updated_by_email: existingConfig?.updated_by_email || null,
+      },
+      safe_after: {
+        live_prompt_length: livePrompt.length,
+        updated_at: nowIso,
+        updated_by_email: auth.email,
+        change_note_present: Boolean(changeNote),
+      },
+      metadata: {
+        prompt_key: PROMPT_KEY,
+      },
+    });
+
     const refreshedBundle = await loadPromptBundle(auth.adminClient);
 
     return json({
@@ -657,6 +811,25 @@ export async function POST(request) {
       ...buildResponsePayload(refreshedBundle),
     });
   } catch (error) {
+    if (auth?.ok && auth?.adminClient) {
+      await writeActivityLog(auth.adminClient, request, {
+        ...buildActorPayload(auth),
+        action_type: "prompt_save_failed",
+        action_label: "Prompt Save Failed",
+        area: "Admin Prompt",
+        target_type: "admin_prompt_config",
+        target_id: PROMPT_KEY,
+        target_label: "Live Audit Prompt",
+        status: "failed",
+        description: error instanceof Error ? error.message : "Unknown server error.",
+        is_sensitive: true,
+        safe_after: {
+          attempted_prompt_length: attemptedPromptLength,
+          change_note_present: Boolean(attemptedChangeNote),
+        },
+      });
+    }
+
     return json(
       {
         ok: false,
