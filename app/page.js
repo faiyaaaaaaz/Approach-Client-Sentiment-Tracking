@@ -9,8 +9,8 @@ const INTERCOM_BASE_URL =
 
 const PAGE_SIZE = 1000;
 const MAX_DASHBOARD_ROWS = 50000;
-const DASHBOARD_CACHE_PREFIX = "cx-insights-dashboard-cache-v2";
-const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000;
+const DASHBOARD_CACHE_PREFIX = "cx-insights-dashboard-cache-v4";
+const DASHBOARD_CACHE_TTL_MS = 0;
 
 const REVIEW_SENTIMENT_ORDER = [
   "Highly Likely Positive Review",
@@ -1777,7 +1777,7 @@ export default function DashboardPage() {
       const hasCachedRows = Array.isArray(cached?.rows) && cached.rows.length > 0;
       const hasCachedTeams = Array.isArray(cached?.supervisorTeams);
       const shouldHydrateFromCache = hasCachedRows || hasCachedTeams;
-      const shouldSkipNetwork = shouldHydrateFromCache && cacheAge <= DASHBOARD_CACHE_TTL_MS;
+      const shouldSkipNetwork = false;
 
       if (shouldHydrateFromCache && active) {
         setRawRows(Array.isArray(cached?.rows) ? cached.rows : []);
@@ -1804,7 +1804,7 @@ export default function DashboardPage() {
       }
 
       try {
-        const response = await fetch("/api/dashboard", {
+        const response = await fetch(`/api/dashboard?refresh=${Date.now()}`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -1862,27 +1862,28 @@ export default function DashboardPage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const dedupedRows = useMemo(() => dedupeLatestByConversation(rawRows), [rawRows]);
+  const dashboardRows = useMemo(() => (Array.isArray(rawRows) ? rawRows : []), [rawRows]);
+  const dedupedRows = useMemo(() => dedupeLatestByConversation(dashboardRows), [dashboardRows]);
 
   const supervisorLookup = useMemo(
     () => buildSupervisorLookup(supervisorTeams),
     [supervisorTeams]
   );
 
-  const employees = useMemo(() => uniqueValues(dedupedRows, "employee_name"), [dedupedRows]);
+  const employees = useMemo(() => uniqueValues(dashboardRows, "employee_name"), [dashboardRows]);
 
   const reviewOptions = REVIEW_SENTIMENT_ORDER;
   const clientOptions = CLIENT_SENTIMENT_ORDER;
   const resolutionOptions = RESOLUTION_ORDER;
 
   const filteredRows = useMemo(
-    () => filterRows(dedupedRows, globalFilters, supervisorLookup),
-    [dedupedRows, globalFilters, supervisorLookup]
+    () => dedupeLatestByConversation(filterRows(dashboardRows, globalFilters, supervisorLookup)),
+    [dashboardRows, globalFilters, supervisorLookup]
   );
 
   const leaderboardFilteredRows = useMemo(
-    () => filterRows(dedupedRows, leaderboardFilters, supervisorLookup),
-    [dedupedRows, leaderboardFilters, supervisorLookup]
+    () => dedupeLatestByConversation(filterRows(dashboardRows, leaderboardFilters, supervisorLookup)),
+    [dashboardRows, leaderboardFilters, supervisorLookup]
   );
 
   const clientEntries = useMemo(
@@ -1918,8 +1919,10 @@ export default function DashboardPage() {
   );
 
   const previousRows = useMemo(
-    () => previousGlobalFilters ? filterRows(dedupedRows, previousGlobalFilters, supervisorLookup) : [],
-    [dedupedRows, previousGlobalFilters, supervisorLookup]
+    () => previousGlobalFilters
+      ? dedupeLatestByConversation(filterRows(dashboardRows, previousGlobalFilters, supervisorLookup))
+      : [],
+    [dashboardRows, previousGlobalFilters, supervisorLookup]
   );
 
   const total = filteredRows.length;
@@ -1948,7 +1951,7 @@ export default function DashboardPage() {
   const currentResolutionRate = total ? (resolvedCount / total) * 100 : 0;
   const previousResolutionRate = previousTotal ? (previousResolvedCount / previousTotal) * 100 : 0;
 
-  const latestStoredAt = dedupedRows[0]?.created_at || "";
+  const latestStoredAt = dashboardRows[0]?.created_at || dedupedRows[0]?.created_at || "";
 
   if (loading) {
     return <DashboardLoadingScreen />;
