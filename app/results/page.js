@@ -7,7 +7,7 @@ import { supabase } from "../../lib/supabase";
 const INTERCOM_CONVERSATION_URL_PREFIX =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
 const RESULTS_CACHE_PREFIX = "cx-insights-results-cache";
-const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const RESULTS_CACHE_TTL_MS = 0;
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -709,12 +709,13 @@ export default function ResultsPage() {
     }));
   }
 
-  async function loadStoredResults(activeSession = session) {
+  async function loadStoredResults(activeSession = session, options = {}) {
+    const forceRefresh = Boolean(options?.forceRefresh);
     const cacheKey = getResultsCacheKey(activeSession?.user?.email);
     const cached = readClientCache(cacheKey);
     const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
     const hasCachedData = Array.isArray(cached?.results) || Array.isArray(cached?.runs);
-    const shouldSkipNetwork = hasCachedData && cacheAge <= RESULTS_CACHE_TTL_MS;
+    const shouldSkipNetwork = !forceRefresh && hasCachedData && cacheAge <= RESULTS_CACHE_TTL_MS;
 
     if (hasCachedData) {
       setRuns(Array.isArray(cached?.runs) ? cached.runs : []);
@@ -722,7 +723,7 @@ export default function ResultsPage() {
       setSupervisorTeams(Array.isArray(cached?.supervisorTeams) ? cached.supervisorTeams : []);
       setSelectedIds([]);
       setExpandedRows({});
-      setLoading(false);
+      setLoading(forceRefresh);
     } else {
       setLoading(true);
     }
@@ -1092,7 +1093,7 @@ export default function ResultsPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       setImportFile(null);
 
-      await loadStoredResults(session);
+      await loadStoredResults(session, { forceRefresh: true });
     } catch (error) {
       finishImportProgress();
 
@@ -1334,7 +1335,7 @@ export default function ResultsPage() {
 
       setSelectedIds([]);
       setPageSuccess(data.message || `${selectedIds.length} stored result(s) deleted.`);
-      await loadStoredResults(session);
+      await loadStoredResults(session, { forceRefresh: true });
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not delete Selected results.");
     } finally {
@@ -1472,7 +1473,7 @@ export default function ResultsPage() {
         <div className="action-row">
           <Link href="/run" className="primary-btn">Run New Audit</Link>
           <button type="button" className="secondary-btn" onClick={handleExportFiltered}>Export CSV</button>
-          <button type="button" className="secondary-btn" onClick={() => loadStoredResults()}>Reload</button>
+          <button type="button" className="secondary-btn" onClick={() => loadStoredResults(session, { forceRefresh: true })}>Reload</button>
           {!session?.user ? (
             <button type="button" className="secondary-btn" onClick={handleGoogleLogin}>Sign in</button>
           ) : null}
