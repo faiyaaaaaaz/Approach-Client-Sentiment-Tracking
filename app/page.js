@@ -1792,7 +1792,7 @@ export default function DashboardPage() {
       setError("");
 
       try {
-        const response = await fetch(`/api/dashboard?refresh=${Date.now()}`, {
+        const response = await fetch(`/api/results?dashboardRefresh=${Date.now()}`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -1807,7 +1807,11 @@ export default function DashboardPage() {
           throw new Error(data?.error || "Could not load dashboard data.");
         }
 
-        const allRows = Array.isArray(data.rows) ? data.rows : [];
+        const allRows = Array.isArray(data.results)
+          ? data.results
+          : Array.isArray(data.rows)
+          ? data.rows
+          : [];
         const loadedSupervisorTeams = Array.isArray(data.supervisorTeams) ? data.supervisorTeams : [];
 
         if (!active || currentRequestId !== requestId) return;
