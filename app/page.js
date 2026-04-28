@@ -1766,48 +1766,30 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let active = true;
+    let requestId = 0;
+    let hasLoadedFreshRows = false;
 
-    async function loadRows() {
-      let activeSession = null;
+    async function loadRowsForSession(activeSession, options = {}) {
+      const showLoader = options.showLoader !== false;
 
-      try {
-        const sessionResult = await supabase.auth.getSession();
-        activeSession = sessionResult?.data?.session || null;
-      } catch (_error) {
-        activeSession = null;
+      if (!active) return;
+
+      if (!activeSession?.access_token) {
+        setRawRows([]);
+        setSupervisorTeams([]);
+        setError("Please sign in with your NEXT Ventures account to load dashboard data.");
+        setLoading(false);
+        return;
       }
 
-      const cacheKey = getDashboardCacheKey(activeSession?.user?.email);
-      const cached = readClientCache(cacheKey);
-      const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
-      const hasCachedRows = Array.isArray(cached?.rows) && cached.rows.length > 0;
-      const hasCachedTeams = Array.isArray(cached?.supervisorTeams);
-      const shouldHydrateFromCache = hasCachedRows || hasCachedTeams;
-      const shouldSkipNetwork = false;
+      const currentRequestId = requestId + 1;
+      requestId = currentRequestId;
 
-      if (shouldHydrateFromCache && active) {
-        setRawRows(Array.isArray(cached?.rows) ? cached.rows : []);
-        setSupervisorTeams(Array.isArray(cached?.supervisorTeams) ? cached.supervisorTeams : []);
-        setLoading(false);
-      } else {
+      if (showLoader || !hasLoadedFreshRows) {
         setLoading(true);
       }
 
       setError("");
-
-      if (!activeSession?.access_token) {
-        if (!shouldHydrateFromCache && active) {
-          setRawRows([]);
-          setSupervisorTeams([]);
-          setError("Please sign in with your NEXT Ventures account to load dashboard data.");
-          setLoading(false);
-        }
-        return;
-      }
-
-      if (shouldSkipNetwork) {
-        return;
-      }
 
       try {
         const response = await fetch(`/api/dashboard?refresh=${Date.now()}`, {
@@ -1828,33 +1810,59 @@ export default function DashboardPage() {
         const allRows = Array.isArray(data.rows) ? data.rows : [];
         const loadedSupervisorTeams = Array.isArray(data.supervisorTeams) ? data.supervisorTeams : [];
 
-        if (!active) return;
+        if (!active || currentRequestId !== requestId) return;
 
+        hasLoadedFreshRows = true;
         setSupervisorTeams(loadedSupervisorTeams);
         setRawRows(allRows);
-        writeClientCache(cacheKey, {
-          savedAt: Date.now(),
-          rows: allRows,
-          supervisorTeams: loadedSupervisorTeams,
-          meta: data.meta || null,
-        });
       } catch (loadError) {
-        if (!active) return;
-        setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
+        if (!active || currentRequestId !== requestId) return;
 
-        if (!shouldHydrateFromCache) {
-          setRawRows([]);
-          setSupervisorTeams([]);
-        }
+        setRawRows([]);
+        setSupervisorTeams([]);
+        setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
       } finally {
-        if (active) setLoading(false);
+        if (active && currentRequestId === requestId) setLoading(false);
       }
     }
 
-    loadRows();
+    async function initializeDashboard() {
+      try {
+        const sessionResult = await supabase.auth.getSession();
+        await loadRowsForSession(sessionResult?.data?.session || null, { showLoader: true });
+      } catch (_error) {
+        if (!active) return;
+        setRawRows([]);
+        setSupervisorTeams([]);
+        setError("Could not complete Dashboard session check.");
+        setLoading(false);
+      }
+    }
+
+    initializeDashboard();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!active) return;
+
+      if (!newSession?.access_token) {
+        if (event === "SIGNED_OUT") {
+          setRawRows([]);
+          setSupervisorTeams([]);
+          setError("Please sign in with your NEXT Ventures account to load dashboard data.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const isQuietRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
+      loadRowsForSession(newSession, { showLoader: !isQuietRefresh && !hasLoadedFreshRows });
+    });
 
     return () => {
       active = false;
+      subscription?.unsubscribe?.();
     };
   }, []);
 
