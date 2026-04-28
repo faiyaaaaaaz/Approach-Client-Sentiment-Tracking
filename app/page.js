@@ -309,8 +309,12 @@ function buildMetricTrend(currentValue, previousValue, options = {}) {
   };
 }
 
+function sameText(value, expected) {
+  return normalizeText(value, "") === expected;
+}
+
 function deriveResultType(reviewSentiment) {
-  const value = String(reviewSentiment || "");
+  const value = normalizeText(reviewSentiment, "");
 
   if (value === "Missed Opportunity") return "Opportunity";
 
@@ -334,20 +338,20 @@ function deriveResultType(reviewSentiment) {
 
 function isLikelyPositiveReview(row) {
   return (
-    row?.review_sentiment === "Likely Positive Review" ||
-    row?.review_sentiment === "Highly Likely Positive Review"
+    sameText(row?.review_sentiment, "Likely Positive Review") ||
+    sameText(row?.review_sentiment, "Highly Likely Positive Review")
   );
 }
 
 function isLikelyNegativeReview(row) {
   return (
-    row?.review_sentiment === "Likely Negative Review" ||
-    row?.review_sentiment === "Highly Likely Negative Review"
+    sameText(row?.review_sentiment, "Likely Negative Review") ||
+    sameText(row?.review_sentiment, "Highly Likely Negative Review")
   );
 }
 
 function isMapped(row) {
-  return Boolean(row?.employee_name || row?.employee_match_status === "mapped");
+  return Boolean(normalizeText(row?.employee_name, "") || normalizeKey(row?.employee_match_status) === "mapped");
 }
 
 function conversationUrl(conversationId) {
@@ -390,7 +394,9 @@ function uniqueValues(rows, key) {
 
 function matchesMulti(selected, value) {
   if (!Array.isArray(selected) || selected.length === 0) return true;
-  return selected.includes(String(value || ""));
+
+  const normalizedValue = normalizeText(value, "");
+  return selected.some((item) => normalizeText(item, "") === normalizedValue);
 }
 
 function buildSupervisorLookup(supervisorTeams) {
@@ -463,7 +469,7 @@ function filterRows(rows, filters, supervisorLookup = new Map()) {
       if (!filters.mappingStatuses.includes(status)) return false;
     }
 
-    if (filters.cexOnly && row?.team_name !== "CEx") return false;
+    if (filters.cexOnly && normalizeText(row?.team_name, "") !== "CEx") return false;
 
     return true;
   });
@@ -747,11 +753,11 @@ function rowsInPeriod(rows, period) {
 
 function metricRows(rows, metric) {
   if (metric === "likelyPositive") return rows.filter(isLikelyPositiveReview);
-  if (metric === "missed") return rows.filter((row) => row.review_sentiment === "Missed Opportunity");
-  if (metric === "veryPositive") return rows.filter((row) => row.client_sentiment === "Very Positive");
+  if (metric === "missed") return rows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity"));
+  if (metric === "veryPositive") return rows.filter((row) => sameText(row.client_sentiment, "Very Positive"));
   if (metric === "likelyNegative") return rows.filter(isLikelyNegativeReview);
-  if (metric === "unresolved") return rows.filter((row) => row.resolution_status === "Unresolved");
-  if (metric === "resolutionRate") return rows.filter((row) => row.resolution_status === "Resolved");
+  if (metric === "unresolved") return rows.filter((row) => sameText(row.resolution_status, "Unresolved"));
+  if (metric === "resolutionRate") return rows.filter((row) => sameText(row.resolution_status, "Resolved"));
   return rows;
 }
 
@@ -834,10 +840,10 @@ function buildLeaderboard(rows) {
     current.handled += 1;
 
     if (isLikelyPositiveReview(row)) current.likelyPositive += 1;
-    if (row?.review_sentiment === "Missed Opportunity") current.missed += 1;
-    if (row?.client_sentiment === "Very Positive") current.veryPositive += 1;
+    if (sameText(row?.review_sentiment, "Missed Opportunity")) current.missed += 1;
+    if (sameText(row?.client_sentiment, "Very Positive")) current.veryPositive += 1;
     if (isLikelyNegativeReview(row)) current.likelyNegative += 1;
-    if (row?.resolution_status === "Unresolved") current.unresolved += 1;
+    if (sameText(row?.resolution_status, "Unresolved")) current.unresolved += 1;
 
     current.rows.push(row);
 
@@ -1897,7 +1903,7 @@ export default function DashboardPage() {
   );
 
   const missedRows = useMemo(
-    () => filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity"),
+    () => filteredRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")),
     [filteredRows]
   );
 
@@ -1928,26 +1934,26 @@ export default function DashboardPage() {
   const total = filteredRows.length;
 
   const missedCount = filteredRows.filter(
-    (row) => row.review_sentiment === "Missed Opportunity"
+    (row) => sameText(row.review_sentiment, "Missed Opportunity")
   ).length;
 
   const veryPositiveCount = filteredRows.filter(
-    (row) => row.client_sentiment === "Very Positive"
+    (row) => sameText(row.client_sentiment, "Very Positive")
   ).length;
 
   const resolvedCount = filteredRows.filter(
-    (row) => row.resolution_status === "Resolved"
+    (row) => sameText(row.resolution_status, "Resolved")
   ).length;
 
   const unresolvedCount = filteredRows.filter(
-    (row) => row.resolution_status === "Unresolved"
+    (row) => sameText(row.resolution_status, "Unresolved")
   ).length;
 
   const previousTotal = previousRows.length;
-  const previousMissedCount = previousRows.filter((row) => row.review_sentiment === "Missed Opportunity").length;
-  const previousVeryPositiveCount = previousRows.filter((row) => row.client_sentiment === "Very Positive").length;
-  const previousResolvedCount = previousRows.filter((row) => row.resolution_status === "Resolved").length;
-  const previousUnresolvedCount = previousRows.filter((row) => row.resolution_status === "Unresolved").length;
+  const previousMissedCount = previousRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")).length;
+  const previousVeryPositiveCount = previousRows.filter((row) => sameText(row.client_sentiment, "Very Positive")).length;
+  const previousResolvedCount = previousRows.filter((row) => sameText(row.resolution_status, "Resolved")).length;
+  const previousUnresolvedCount = previousRows.filter((row) => sameText(row.resolution_status, "Unresolved")).length;
   const currentResolutionRate = total ? (resolvedCount / total) * 100 : 0;
   const previousResolutionRate = previousTotal ? (previousResolvedCount / previousTotal) * 100 : 0;
 
@@ -2064,7 +2070,7 @@ export default function DashboardPage() {
               openDetail(
                 "KPI Drill In",
                 "Missed Opportunities",
-                filteredRows.filter((row) => row.review_sentiment === "Missed Opportunity"),
+                filteredRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")),
                 detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
               )
             }
@@ -2078,7 +2084,7 @@ export default function DashboardPage() {
               openDetail(
                 "KPI Drill In",
                 "Very Positive",
-                filteredRows.filter((row) => row.client_sentiment === "Very Positive"),
+                filteredRows.filter((row) => sameText(row.client_sentiment, "Very Positive")),
                 detailFiltersWith(globalFilters, { clientSentiments: ["Very Positive"] })
               )
             }
@@ -2092,7 +2098,7 @@ export default function DashboardPage() {
               openDetail(
                 "KPI Drill In",
                 "Resolved",
-                filteredRows.filter((row) => row.resolution_status === "Resolved"),
+                filteredRows.filter((row) => sameText(row.resolution_status, "Resolved")),
                 detailFiltersWith(globalFilters, { resolutionStatuses: ["Resolved"] })
               )
             }
@@ -2106,7 +2112,7 @@ export default function DashboardPage() {
               openDetail(
                 "KPI Drill In",
                 "Unresolved",
-                filteredRows.filter((row) => row.resolution_status === "Unresolved"),
+                filteredRows.filter((row) => sameText(row.resolution_status, "Unresolved")),
                 detailFiltersWith(globalFilters, { resolutionStatuses: ["Unresolved"] })
               )
             }
