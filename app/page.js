@@ -1215,9 +1215,10 @@ function DashboardFilterBar({
   );
 }
 
-function KPIStat({ label, value, accent, onClick, trend }) {
+function KPIStat({ label, value, accent, onClick, trend, help }) {
   return (
     <button type="button" className="kpi-card" onClick={onClick} style={{ "--accent": accent }}>
+      {help ? <InfoTip text={help} /> : null}
       <span>{label}</span>
       <strong>{value}</strong>
       <div className="kpi-footer">
@@ -1237,12 +1238,15 @@ function InfoTip({ text }) {
   );
 }
 
-function ChartCard({ title, subtitle, onDrill, children, larger = false }) {
+function ChartCard({ title, subtitle, onDrill, children, larger = false, help }) {
   return (
     <article className={larger ? "chart-card large" : "chart-card"}>
       <div className="chart-head">
         <div>
-          <h3>{title}</h3>
+          <div className="title-with-help">
+            <h3>{title}</h3>
+            {help ? <InfoTip text={help} /> : null}
+          </div>
           {subtitle ? <p>{subtitle}</p> : null}
         </div>
 
@@ -1914,7 +1918,12 @@ export default function DashboardPage() {
     [filteredRows]
   );
 
-  const missedRows = useMemo(
+  const reviewEntries = useMemo(
+    () => countRowsBy(filteredRows, (row) => row.review_sentiment, REVIEW_SENTIMENT_ORDER).filter((entry) => REVIEW_SENTIMENT_ORDER.includes(entry.label)),
+    [filteredRows]
+  );
+
+  const missedRows = useMemo
     () => filteredRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")),
     [filteredRows]
   );
@@ -2013,10 +2022,9 @@ export default function DashboardPage() {
       />
 
       <div className="dashboard-shell">
-        <section className="hero-panel">
+        <section className="hero-panel compact-hero">
           <div className="hero-copy">
             <p>Insights Dashboard</p>
-            <h1>Review Approach, Client Sentiment, & Resolution Status Tracking</h1>
             <strong>Interactive Dashboard for In Depth Analysis</strong>
             <span>Latest Stored Result: {formatDateTime(latestStoredAt)}</span>
           </div>
@@ -2040,15 +2048,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="hero-actions">
-              <Link href="/run" className="primary-link">
-                Run Audit
-              </Link>
-              <Link href="/results" className="secondary-link">
-                Results
-              </Link>
-              <Link href="/admin" className="secondary-link">
-                Admin
-              </Link>
+              <Link href="/run" className="primary-link">Run Audit</Link>
+              <Link href="/results" className="secondary-link">Results</Link>
+              <Link href="/admin" className="secondary-link">Admin</Link>
             </div>
           </div>
         </section>
@@ -2068,6 +2070,7 @@ export default function DashboardPage() {
         <section className="kpi-grid">
           <KPIStat
             label="Unique Conversations"
+            help="Total unique conversations in the selected date range and filters. Clicking opens the underlying records."
             value={formatNumber(total)}
             trend={previousGlobalFilters ? buildMetricTrend(total, previousTotal) : null}
             accent="linear-gradient(135deg, rgba(37,99,235,0.26), rgba(99,102,241,0.12))"
@@ -2075,6 +2078,7 @@ export default function DashboardPage() {
           />
           <KPIStat
             label="Missed Opportunities"
+            help="Conversations where the AI found a missed chance to create or request a positive review outcome."
             value={formatNumber(missedCount)}
             trend={previousGlobalFilters ? buildMetricTrend(missedCount, previousMissedCount, { inverse: true }) : null}
             accent="linear-gradient(135deg, rgba(239,68,68,0.25), rgba(249,115,22,0.12))"
@@ -2089,6 +2093,7 @@ export default function DashboardPage() {
           />
           <KPIStat
             label="Very Positive"
+            help="Conversations where the client sentiment was identified as Very Positive."
             value={formatNumber(veryPositiveCount)}
             trend={previousGlobalFilters ? buildMetricTrend(veryPositiveCount, previousVeryPositiveCount) : null}
             accent="linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
@@ -2103,6 +2108,7 @@ export default function DashboardPage() {
           />
           <KPIStat
             label="Resolution Rate"
+            help="The percentage of filtered conversations marked as Resolved."
             value={formatPercent(currentResolutionRate)}
             trend={previousGlobalFilters ? buildMetricTrend(currentResolutionRate, previousResolutionRate, { type: "percent" }) : null}
             accent="linear-gradient(135deg, rgba(14,165,233,0.22), rgba(34,197,94,0.12))"
@@ -2117,6 +2123,7 @@ export default function DashboardPage() {
           />
           <KPIStat
             label="Unresolved"
+            help="Filtered conversations that still appear unresolved and may need follow-up."
             value={formatNumber(unresolvedCount)}
             trend={previousGlobalFilters ? buildMetricTrend(unresolvedCount, previousUnresolvedCount, { inverse: true }) : null}
             accent="linear-gradient(135deg, rgba(244,63,94,0.24), rgba(168,85,247,0.12))"
@@ -2163,10 +2170,79 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section className="chart-grid">
+            <section className="overview-grid">
               <ChartCard
-                title="Missed Opportunities"
-                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Client Sentiment`}
+                title="Review Approach Breakdown"
+                subtitle="Distribution By Review Approach"
+                larger
+                help="Shows how the filtered conversations are distributed across review approach outcomes, including positive review signals, missed opportunities, and negative review risks."
+                onDrill={() => openDetail("Review Approach Drill In", "All Review Approaches", filteredRows, globalFilters)}
+              >
+                <DonutChart
+                  entries={reviewEntries}
+                  total={filteredRows.length}
+                  kind="result"
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Review Approach Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, { reviewSentiments: [entry.label] })
+                    )
+                  }
+                />
+              </ChartCard>
+
+              <ChartCard
+                title="Client Sentiment Distribution"
+                subtitle="Overall Client Emotional Outcome"
+                larger
+                help="Shows the emotional tone of clients in the selected conversations, from Very Positive to Very Negative."
+                onDrill={() => openDetail("Client Sentiment Drill In", "All Client Sentiments", filteredRows, globalFilters)}
+              >
+                <DonutChart
+                  entries={clientEntries}
+                  total={filteredRows.length}
+                  kind="client"
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Client Sentiment Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, { clientSentiments: [entry.label] })
+                    )
+                  }
+                />
+              </ChartCard>
+
+              <ChartCard
+                title="Resolution Status"
+                subtitle="Status Of Conversations"
+                larger
+                help="Shows whether the selected conversations were Resolved, Pending, Unclear, or Unresolved."
+                onDrill={() => openDetail("Resolution Drill In", "All Resolution Statuses", filteredRows, globalFilters)}
+              >
+                <DonutChart
+                  entries={resolutionEntries}
+                  total={filteredRows.length}
+                  kind="resolution"
+                  onSelect={(entry) =>
+                    openDetail(
+                      "Resolution Drill In",
+                      entry.label,
+                      entry.rows,
+                      detailFiltersWith(globalFilters, { resolutionStatuses: [entry.label] })
+                    )
+                  }
+                />
+              </ChartCard>
+            </section>
+
+            <section className="chart-grid breakdown-grid">
+              <ChartCard
+                title="Missed Opportunities By Client Sentiment"
+                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities Grouped By Client Sentiment`}
+                help="Shows which client sentiment groups contain missed opportunities, so supervisors can see where stronger review handling is needed."
                 onDrill={() =>
                   openDetail(
                     "Missed Opportunities Drill In",
@@ -2195,8 +2271,9 @@ export default function DashboardPage() {
               </ChartCard>
 
               <ChartCard
-                title="Missed Opportunities"
-                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities By Resolution Status`}
+                title="Missed Opportunities By Resolution Status"
+                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities Grouped By Resolution Status`}
+                help="Shows whether missed opportunities happened mostly in Resolved, Pending, Unclear, or Unresolved conversations."
                 onDrill={() =>
                   openDetail(
                     "Missed Opportunities Drill In",
@@ -2223,60 +2300,20 @@ export default function DashboardPage() {
                   }
                 />
               </ChartCard>
-
-              <ChartCard
-                title="Client Sentiments"
-                subtitle="Client Emotional Outcome"
-                larger
-                onDrill={() => openDetail("Client Sentiment Drill In", "All Client Sentiments", filteredRows, globalFilters)}
-              >
-                <DonutChart
-                  entries={clientEntries}
-                  total={filteredRows.length}
-                  kind="client"
-                  onSelect={(entry) =>
-                    openDetail(
-                      "Client Sentiment Drill In",
-                      entry.label,
-                      entry.rows,
-                      detailFiltersWith(globalFilters, { clientSentiments: [entry.label] })
-                    )
-                  }
-                />
-              </ChartCard>
-
-              <ChartCard
-                title="Resolution Statuses"
-                subtitle="Resolved, Pending, Unclear, And Unresolved"
-                larger
-                onDrill={() => openDetail("Resolution Drill In", "All Resolution Statuses", filteredRows, globalFilters)}
-              >
-                <DonutChart
-                  entries={resolutionEntries}
-                  total={filteredRows.length}
-                  kind="resolution"
-                  onSelect={(entry) =>
-                    openDetail(
-                      "Resolution Drill In",
-                      entry.label,
-                      entry.rows,
-                      detailFiltersWith(globalFilters, { resolutionStatuses: [entry.label] })
-                    )
-                  }
-                />
-              </ChartCard>
             </section>
-
             <section className="panel leaderboard-panel">
               <div className="section-title-row">
                 <div>
                   <p>Performance Command</p>
-                  <h2>Agent Leaderboard</h2>
-                  <span>Use Date, Supervisor, Employee, and Outcome Filters To Rank Agents For The Selected Period.</span>
+                  <div className="title-with-help">
+                    <h2>Top Employees Overview</h2>
+                    <InfoTip text="This section ranks employees based on the current leaderboard filters. It helps supervisors quickly find high performers, missed opportunity concentration, and conversations that may need coaching." />
+                  </div>
+                  <span>Performance snapshot by key review, sentiment, and resolution metrics. Use the filters below to change the ranking scope.</span>
                 </div>
 
                 <button type="button" className="secondary-btn" onClick={() => downloadCsv(leaderboardFilteredRows, "leaderboard-filtered-results.csv")}>
-                  Export Filtered CSV
+                  Export Leaderboard CSV
                 </button>
               </div>
 
@@ -2494,7 +2531,7 @@ const dashboardStyles = `
   }
 
   .dashboard-shell {
-    width: min(1440px, 100%);
+    width: min(1540px, 100%);
     margin: 0 auto;
   }
 
@@ -3391,7 +3428,7 @@ const dashboardStyles = `
   }
 
   .chart-card.large {
-    min-height: 430px;
+    min-height: 390px;
   }
 
   .chart-head,
@@ -4174,6 +4211,95 @@ const dashboardStyles = `
     .primary-btn,
     .secondary-btn {
       width: 100%;
+    }
+  }
+
+
+  .compact-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 410px);
+    padding: 22px 24px;
+    margin-bottom: 14px;
+  }
+
+  .compact-hero .hero-copy {
+    display: grid;
+    align-content: center;
+    gap: 8px;
+  }
+
+  .compact-hero .hero-copy p,
+  .compact-hero .hero-copy strong,
+  .compact-hero .hero-copy span {
+    margin: 0;
+  }
+
+  .compact-hero .hero-copy strong {
+    font-size: clamp(24px, 2.4vw, 38px);
+    line-height: 1.05;
+  }
+
+  .compact-hero .hero-command-card {
+    padding: 18px;
+  }
+
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .breakdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-card .info-tip,
+  .chart-head .info-tip,
+  .section-title-row .info-tip {
+    position: relative;
+    z-index: 5;
+  }
+
+  .kpi-card > .info-tip {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+  }
+
+  .kpi-card > .info-tip .info-tip-bubble {
+    left: auto;
+    right: 0;
+    transform: translateY(6px);
+  }
+
+  .kpi-card > .info-tip:hover .info-tip-bubble,
+  .kpi-card > .info-tip:focus .info-tip-bubble {
+    transform: translateY(0);
+  }
+
+  .chart-head .title-with-help h3,
+  .section-title-row .title-with-help h2 {
+    margin: 0;
+  }
+
+  .leaderboard-panel {
+    margin-bottom: 18px;
+  }
+
+  .leaderboard-table-wrap {
+    max-height: 520px;
+  }
+
+  @media (min-width: 1500px) {
+    .dashboard-shell {
+      width: min(1580px, 100%);
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .overview-grid,
+    .breakdown-grid {
+      grid-template-columns: 1fr;
     }
   }
 `;
