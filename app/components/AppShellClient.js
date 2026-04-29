@@ -818,7 +818,7 @@ export default function AppShellClient({ children }) {
           <header className="topbar">
             <div>
               <div className="topbar-kicker">Internal quality platform</div>
-              <div className="topbar-title">Review Approach & Client Sentiment Tracking</div>
+              <div className="topbar-title">Review Approach, Client Sentiment & Resolution Status Tracking</div>
             </div>
 
             <div ref={profileMenuRef} className="profile-wrap">
@@ -1667,6 +1667,9 @@ const appShellStyles = `
     letter-spacing: -0.04em;
     font-weight: 900;
     color: #ffffff;
+    max-width: min(980px, 64vw);
+    white-space: normal;
+    line-height: 1.15;
   }
 
   .profile-wrap {
