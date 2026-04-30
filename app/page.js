@@ -2216,8 +2216,8 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section className="overview-grid current-view-overview-grid">
-              <article className="current-view-card">
+            <section className="overview-feature-grid">
+              <article className="current-view-card current-view-compact-card">
                 <div className="current-view-head">
                   <div>
                     <p>Current View</p>
@@ -2227,7 +2227,7 @@ export default function DashboardPage() {
                   <InfoTip text="A quick summary of the currently selected date range and filters. The numbers update whenever filters change." />
                 </div>
 
-                <div className="current-view-stats">
+                <div className="current-view-stats compact-current-stats">
                   <div>
                     <span>Missed Opportunities</span>
                     <strong>{formatNumber(missedCount)}</strong>
@@ -2268,7 +2268,9 @@ export default function DashboardPage() {
                   }
                 />
               </ChartCard>
+            </section>
 
+            <section className="sentiment-resolution-grid">
               <ChartCard
                 title="Client Sentiment Distribution"
                 subtitle="Overall Client Emotional Outcome"
@@ -4685,6 +4687,136 @@ const dashboardStyles = `
 
   @media (max-width: 760px) {
     .current-view-stats {
+      grid-template-columns: 1fr;
+    }
+  }
+
+
+  /* Premium dashboard layout repair: prevent cramped pie rows and reduce empty space */
+  .overview-feature-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: stretch;
+    margin-bottom: 18px;
+  }
+
+  .overview-feature-grid .chart-card.large {
+    min-height: 430px;
+  }
+
+  .overview-feature-grid .donut-layout {
+    grid-template-columns: minmax(250px, 330px) minmax(420px, 1fr);
+    gap: 28px;
+    align-items: center;
+  }
+
+  .current-view-compact-card {
+    min-height: 430px;
+    padding: 18px;
+  }
+
+  .current-view-compact-card .current-view-head strong {
+    font-size: clamp(28px, 2vw, 36px);
+    line-height: 0.98;
+  }
+
+  .current-view-compact-card .current-view-head span {
+    font-size: 12px;
+  }
+
+  .compact-current-stats {
+    gap: 9px;
+  }
+
+  .compact-current-stats div {
+    padding: 11px 12px;
+  }
+
+  .compact-current-stats strong {
+    font-size: 23px;
+  }
+
+  .sentiment-resolution-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .sentiment-resolution-grid .chart-card.large {
+    min-height: 420px;
+  }
+
+  .sentiment-resolution-grid .donut-layout {
+    grid-template-columns: minmax(230px, 300px) minmax(320px, 1fr);
+    gap: 24px;
+    align-items: center;
+  }
+
+  .overview-feature-grid .donut,
+  .sentiment-resolution-grid .donut {
+    justify-self: center;
+  }
+
+  .overview-feature-grid .donut-legend,
+  .sentiment-resolution-grid .donut-legend {
+    min-width: 0;
+    align-content: center;
+  }
+
+  .overview-feature-grid .donut-legend button,
+  .sentiment-resolution-grid .donut-legend button {
+    grid-template-columns: 12px minmax(0, 1fr) max-content;
+    min-width: 0;
+  }
+
+  .overview-feature-grid .donut-legend strong,
+  .sentiment-resolution-grid .donut-legend strong {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .overview-feature-grid .donut-legend span,
+  .sentiment-resolution-grid .donut-legend span {
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1380px) {
+    .overview-feature-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .current-view-compact-card {
+      min-height: 0;
+    }
+
+    .compact-current-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 1240px) {
+    .sentiment-resolution-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 920px) {
+    .overview-feature-grid .donut-layout,
+    .sentiment-resolution-grid .donut-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .compact-current-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .compact-current-stats {
       grid-template-columns: 1fr;
     }
   }
