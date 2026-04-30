@@ -1923,8 +1923,8 @@ export default function DashboardPage() {
     [filteredRows]
   );
 
-  const missedRows = useMemo
-    () => filteredRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")),
+  const missedRows = useMemo(
+    () => filteredRows.filter((row) => sameText(row?.review_sentiment, "Missed Opportunity")),
     [filteredRows]
   );
 
