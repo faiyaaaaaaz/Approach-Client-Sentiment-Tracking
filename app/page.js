@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { supabase } from "../lib/supabase";
 
@@ -1236,8 +1237,10 @@ function DashboardFilterBar({
 function KPIStat({ label, value, accent, onClick, trend, help }) {
   return (
     <button type="button" className="kpi-card" onClick={onClick} style={{ "--accent": accent }}>
-      {help ? <InfoTip text={help} /> : null}
-      <span>{label}</span>
+      <div className="kpi-head-row">
+        <span>{label}</span>
+        {help ? <InfoTip text={help} /> : null}
+      </div>
       <strong>{value}</strong>
       <div className="kpi-footer">
         <small>Drill In</small>
@@ -1248,11 +1251,62 @@ function KPIStat({ label, value, accent, onClick, trend, help }) {
 }
 
 function InfoTip({ text }) {
+  const [tooltipState, setTooltipState] = useState(null);
+
+  function openTooltip(event) {
+    if (typeof window === "undefined") return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const preferredWidth = 340;
+    const sidePadding = 20;
+    const centeredLeft = rect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(centeredLeft, preferredWidth / 2 + sidePadding),
+      window.innerWidth - preferredWidth / 2 - sidePadding
+    );
+    const showBelow = rect.top < 140;
+
+    setTooltipState({
+      left,
+      top: showBelow ? rect.bottom + 12 : rect.top - 12,
+      placement: showBelow ? "below" : "above",
+    });
+  }
+
+  function closeTooltip() {
+    setTooltipState(null);
+  }
+
   return (
-    <span className="info-tip" tabIndex={0} aria-label={text}>
-      ?
-      <span className="info-tip-bubble">{text}</span>
-    </span>
+    <>
+      <span
+        className="info-tip"
+        tabIndex={0}
+        aria-label={text}
+        onMouseEnter={openTooltip}
+        onMouseLeave={closeTooltip}
+        onFocus={openTooltip}
+        onBlur={closeTooltip}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        ?
+      </span>
+
+      {tooltipState && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              className={`info-tip-bubble info-tip-bubble-floating ${tooltipState.placement}`}
+              style={{ left: tooltipState.left, top: tooltipState.top }}
+            >
+              {text}
+            </span>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 
@@ -4348,4 +4402,66 @@ const dashboardStyles = `
       grid-template-columns: 1fr;
     }
   }
+
+  /* Tooltip and KPI alignment stability fix */
+  .kpi-head-row {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .kpi-card .kpi-head-row > span {
+    min-width: 0;
+    padding-right: 6px;
+  }
+
+  .kpi-card .info-tip,
+  .chart-head .info-tip,
+  .section-title-row .info-tip {
+    position: relative;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    color: #dff7ff;
+    border: 1px solid rgba(125, 211, 252, 0.62);
+    background: rgba(14, 165, 233, 0.22);
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.26);
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0;
+    line-height: 1;
+    text-transform: none;
+  }
+
+  .kpi-card > .info-tip {
+    position: relative;
+    top: auto;
+    right: auto;
+  }
+
+  .info-tip-bubble-floating {
+    position: fixed !important;
+    left: 50%;
+    bottom: auto;
+    z-index: 2147483647;
+    width: min(340px, calc(100vw - 40px));
+    max-width: calc(100vw - 40px);
+    opacity: 1;
+    pointer-events: none;
+    white-space: normal;
+  }
+
+  .info-tip-bubble-floating.above {
+    transform: translate(-50%, -100%);
+  }
+
+  .info-tip-bubble-floating.below {
+    transform: translate(-50%, 0);
+  }
+
 `;
