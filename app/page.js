@@ -61,6 +61,13 @@ const WEEKLY_METRIC_OPTIONS = [
   { key: "resolutionRate", label: "Resolution Rate" },
 ];
 
+const TIMEFRAME_OPTIONS = [
+  { key: "daily", label: "Daily" },
+  { key: "weekly", label: "Weekly" },
+  { key: "monthly", label: "Monthly" },
+  { key: "yearly", label: "Yearly" },
+];
+
 
 function readClientCache(key) {
   if (typeof window === "undefined") return null;
@@ -694,7 +701,26 @@ function downloadCsv(rows, filename = "dashboard-drilldown.csv") {
   URL.revokeObjectURL(url);
 }
 
-function buildPeriodsForRange(rows, filters) {
+function startOfWeek(date) {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  next.setDate(next.getDate() - day);
+  return next;
+}
+
+function endOfMonth(date) {
+  return endOfDay(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+function startOfYearPeriod(date) {
+  return startOfDay(new Date(date.getFullYear(), 0, 1));
+}
+
+function endOfYearPeriod(date) {
+  return endOfDay(new Date(date.getFullYear(), 11, 31));
+}
+
+function buildPeriodsForRange(rows, filters, timeframe = "weekly") {
   const range = buildDateRange(filters);
   let start = range.start;
   let end = range.end;
@@ -714,7 +740,18 @@ function buildPeriodsForRange(rows, filters) {
     start = startOfDay(addDays(end, -83));
   }
 
-  const maxDays = 120;
+  const safeTimeframe = ["daily", "weekly", "monthly", "yearly"].includes(timeframe)
+    ? timeframe
+    : "weekly";
+
+  const maxDaysByTimeframe = {
+    daily: 120,
+    weekly: 120,
+    monthly: 760,
+    yearly: 3650,
+  };
+
+  const maxDays = maxDaysByTimeframe[safeTimeframe] || 120;
   const minStart = startOfDay(addDays(end, -maxDays + 1));
   if (start < minStart) start = minStart;
 
@@ -723,25 +760,68 @@ function buildPeriodsForRange(rows, filters) {
   const finalEnd = endOfDay(end);
 
   while (cursor <= finalEnd) {
-    const periodStart = startOfDay(cursor);
-    const periodEnd = endOfDay(addDays(cursor, 6));
+    let periodStart = startOfDay(cursor);
+    let periodEnd = endOfDay(cursor);
+
+    if (safeTimeframe === "weekly") {
+      periodEnd = endOfDay(addDays(cursor, 6));
+    }
+
+    if (safeTimeframe === "monthly") {
+      periodStart = startOfDay(new Date(cursor.getFullYear(), cursor.getMonth(), 1));
+      if (periodStart < start) periodStart = startOfDay(start);
+      periodEnd = endOfMonth(cursor);
+    }
+
+    if (safeTimeframe === "yearly") {
+      periodStart = startOfYearPeriod(cursor);
+      if (periodStart < start) periodStart = startOfDay(start);
+      periodEnd = endOfYearPeriod(cursor);
+    }
+
     const safeEnd = periodEnd > finalEnd ? finalEnd : periodEnd;
 
     periods.push({
-      key: `${formatInputDate(periodStart)}_${formatInputDate(safeEnd)}`,
+      key: `${safeTimeframe}_${formatInputDate(periodStart)}_${formatInputDate(safeEnd)}`,
       start: periodStart,
       end: safeEnd,
-      label: formatPeriodLabel(periodStart, safeEnd),
+      label: formatPeriodLabel(periodStart, safeEnd, safeTimeframe),
     });
 
-    cursor = addDays(cursor, 7);
+    if (safeTimeframe === "daily") {
+      cursor = addDays(cursor, 1);
+    } else if (safeTimeframe === "weekly") {
+      cursor = addDays(cursor, 7);
+    } else if (safeTimeframe === "monthly") {
+      cursor = startOfDay(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
+    } else {
+      cursor = startOfDay(new Date(cursor.getFullYear() + 1, 0, 1));
+    }
   }
 
   return periods;
 }
 
-function formatPeriodLabel(start, end) {
+function formatPeriodLabel(start, end, timeframe = "weekly") {
   if (!start || !end) return "-";
+
+  if (timeframe === "daily") {
+    return start.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  if (timeframe === "monthly") {
+    return start.toLocaleDateString(undefined, {
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  if (timeframe === "yearly") {
+    return String(start.getFullYear());
+  }
 
   const sameMonth =
     start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
@@ -797,8 +877,8 @@ function formatMetricValue(rows, metric) {
   return value ? formatNumber(value) : "-";
 }
 
-function buildAgentWeeklyRows(rows, filters, metric) {
-  const periods = buildPeriodsForRange(rows, filters);
+function buildAgentWeeklyRows(rows, filters, metric, timeframe = "weekly") {
+  const periods = buildPeriodsForRange(rows, filters, timeframe);
   const employees = new Map();
 
   for (const row of rows || []) {
@@ -990,6 +1070,13 @@ function MultiSelect({ label, options, selected, onChange, placeholder = "All" }
 
 function DateRangePicker({ filters, setFilters }) {
   const [open, setOpen] = useState(false);
+  const [activeField, setActiveField] = useState("start");
+  const [draftStartDate, setDraftStartDate] = useState(filters.startDate || "");
+  const [draftEndDate, setDraftEndDate] = useState(filters.endDate || "");
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const base = parseInputDate(filters.startDate, false) || new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
   const boxRef = useRef(null);
 
   useEffect(() => {
@@ -1002,9 +1089,22 @@ function DateRangePicker({ filters, setFilters }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const nextStart = filters.startDate || "";
+    const nextEnd = filters.endDate || "";
+    setDraftStartDate(nextStart);
+    setDraftEndDate(nextEnd);
+
+    const base = parseInputDate(nextStart, false) || parseInputDate(nextEnd, false) || new Date();
+    setVisibleMonth(new Date(base.getFullYear(), base.getMonth(), 1));
+  }, [open, filters.startDate, filters.endDate]);
+
   function applyPreset(key) {
     if (key === "custom") {
       setFilters((prev) => ({ ...prev, rangePreset: "custom" }));
+      setActiveField("start");
       return;
     }
 
@@ -1035,8 +1135,109 @@ function DateRangePicker({ filters, setFilters }) {
     setFilters((prev) => ({
       ...prev,
       rangePreset: "custom",
+      startDate: draftStartDate,
+      endDate: draftEndDate,
     }));
     setOpen(false);
+  }
+
+  function normalizeInputDate(value) {
+    return parseInputDate(value, false);
+  }
+
+  function isSameCalendarDate(a, b) {
+    if (!a || !b) return false;
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    );
+  }
+
+  function isInsideDraftRange(date) {
+    const start = normalizeInputDate(draftStartDate);
+    const end = normalizeInputDate(draftEndDate);
+    if (!date || !start || !end) return false;
+    return date >= startOfDay(start) && date <= endOfDay(end);
+  }
+
+  function selectCalendarDate(date) {
+    const value = formatInputDate(date);
+    const start = normalizeInputDate(draftStartDate);
+
+    if (activeField === "start") {
+      setDraftStartDate(value);
+      if (draftEndDate) {
+        const currentEnd = normalizeInputDate(draftEndDate);
+        if (currentEnd && date > currentEnd) setDraftEndDate(value);
+      } else {
+        setDraftEndDate(value);
+      }
+      setActiveField("end");
+      return;
+    }
+
+    if (start && date < start) {
+      setDraftStartDate(value);
+      setDraftEndDate(formatInputDate(start));
+    } else {
+      setDraftEndDate(value);
+    }
+    setActiveField("start");
+  }
+
+  function renderCalendarMonth(monthDate) {
+    const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const monthLabel = firstDay.toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+    const daysInMonth = new Date(firstDay.getFullYear(), firstDay.getMonth() + 1, 0).getDate();
+    const leadingDays = firstDay.getDay();
+    const cells = [];
+    const selectedStart = normalizeInputDate(draftStartDate);
+    const selectedEnd = normalizeInputDate(draftEndDate);
+
+    for (let i = 0; i < leadingDays; i += 1) {
+      cells.push(<span key={`blank-${monthLabel}-${i}`} className="calendar-day blank" />);
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(firstDay.getFullYear(), firstDay.getMonth(), day);
+      const isStart = isSameCalendarDate(date, selectedStart);
+      const isEnd = isSameCalendarDate(date, selectedEnd);
+      const inRange = isInsideDraftRange(date);
+
+      cells.push(
+        <button
+          key={`${monthLabel}-${day}`}
+          type="button"
+          className={[
+            "calendar-day",
+            inRange ? "in-range" : "",
+            isStart ? "range-start" : "",
+            isEnd ? "range-end" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => selectCalendarDate(date)}
+        >
+          {day}
+        </button>
+      );
+    }
+
+    return (
+      <div className="calendar-month" key={monthLabel}>
+        <h4>{monthLabel}</h4>
+        <div className="calendar-weekdays">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
+            <span key={day}>{day}</span>
+          ))}
+        </div>
+        <div className="calendar-grid-days">{cells}</div>
+      </div>
+    );
   }
 
   return (
@@ -1050,7 +1251,7 @@ function DateRangePicker({ filters, setFilters }) {
       </label>
 
       {open ? (
-        <div className="date-picker-popover">
+        <div className="date-picker-popover upgraded-date-popover">
           <div className="date-preset-list">
             {RANGE_OPTIONS.map((option) => (
               <button
@@ -1065,45 +1266,50 @@ function DateRangePicker({ filters, setFilters }) {
             ))}
           </div>
 
-          <div className="custom-range-panel">
-            <div>
-              <small>Custom Date Range</small>
-              <strong>{getRangeDisplay({ ...filters, rangePreset: "custom" })}</strong>
+          <div className="premium-calendar-panel">
+            <div className="calendar-panel-head">
+              <div>
+                <small>Custom Date Range</small>
+                <strong>{draftStartDate && draftEndDate ? `${formatDateShort(parseInputDate(draftStartDate))} - ${formatDateShort(parseInputDate(draftEndDate))}` : "Choose A Date Range"}</strong>
+              </div>
+              <div className="range-field-tabs">
+                <button
+                  type="button"
+                  className={activeField === "start" ? "active" : ""}
+                  onClick={() => setActiveField("start")}
+                >
+                  <span>From</span>
+                  <strong>{draftStartDate || "Start Date"}</strong>
+                </button>
+                <button
+                  type="button"
+                  className={activeField === "end" ? "active" : ""}
+                  onClick={() => setActiveField("end")}
+                >
+                  <span>To</span>
+                  <strong>{draftEndDate || "End Date"}</strong>
+                </button>
+              </div>
             </div>
 
-            <div className="custom-range-grid">
-              <label>
-                <span>From</span>
-                <input
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(event) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      startDate: event.target.value,
-                      rangePreset: "custom",
-                    }))
-                  }
-                />
-              </label>
-
-              <label>
-                <span>To</span>
-                <input
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(event) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      endDate: event.target.value,
-                      rangePreset: "custom",
-                    }))
-                  }
-                />
-              </label>
+            <div className="calendar-toolbar">
+              <button type="button" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))}>
+                ‹
+              </button>
+              <span>
+                {visibleMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })} - {addMonths(visibleMonth, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+              </span>
+              <button type="button" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))}>
+                ›
+              </button>
             </div>
 
-            <div className="custom-actions">
+            <div className="calendar-months-grid">
+              {renderCalendarMonth(visibleMonth)}
+              {renderCalendarMonth(addMonths(visibleMonth, 1))}
+            </div>
+
+            <div className="custom-actions premium-calendar-actions">
               <button type="button" className="secondary-btn" onClick={() => setOpen(false)}>
                 Cancel
               </button>
@@ -1623,6 +1829,8 @@ function WeeklyAgentTable({
   setFilters,
   metric,
   setMetric,
+  timeframe,
+  setTimeframe,
   onOpenDetail,
   supervisorTeams,
   supervisorLookup,
@@ -1637,29 +1845,44 @@ function WeeklyAgentTable({
   );
 
   const { periods, tableRows } = useMemo(
-    () => buildAgentWeeklyRows(weeklyRows, filters, metric),
-    [weeklyRows, filters, metric]
+    () => buildAgentWeeklyRows(weeklyRows, filters, metric, timeframe),
+    [weeklyRows, filters, metric, timeframe]
   );
 
   const metricLabel = WEEKLY_METRIC_OPTIONS.find((item) => item.key === metric)?.label || "Metric";
+  const timeframeLabel = TIMEFRAME_OPTIONS.find((item) => item.key === timeframe)?.label || "Weekly";
 
   return (
     <section className="panel weekly-panel">
       <div className="section-title-row">
         <div>
-          <p>Weekly Performance Table</p>
+          <p>Performance Timeline Table</p>
           <div className="title-with-help">
-            <h2>Agent Week By Week View</h2>
-            <InfoTip text="This table compares each agent across weekly periods for the selected date range and filters. By default, it is filtered to Review = Missed Opportunity and Client = Very Positive, so each cell shows one clean count. You can change the filters or metric anytime." />
+            <h2>Agent Performance By Timeframe</h2>
+            <InfoTip text="This table breaks the selected date range into Daily, Weekly, Monthly, or Yearly columns. Weekly is the default. The default filters remain Review = Missed Opportunity and Client = Very Positive so the table starts with a focused missed-opportunity view." />
           </div>
-          <span>Click An Employee Or Weekly Cell To Open The Underlying Conversations.</span>
+          <span>Click An Employee Or Any Timeframe Cell To Open The Underlying Conversations.</span>
         </div>
 
         <div className="weekly-controls">
           <label>
             <span className="label-with-help">
+              Timeframe
+              <InfoTip text="Choose how the selected date range is broken into columns. Daily shows one column per day, Weekly groups every 7 days, Monthly groups by month, and Yearly groups by year." />
+            </span>
+            <select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>
+              {TIMEFRAME_OPTIONS.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span className="label-with-help">
               Metric
-              <InfoTip text="Change the table metric anytime. The default setup counts Missed Opportunities where the client sentiment is Very Positive. The Review and Client filters below show this default clearly." />
+              <InfoTip text={`Change the table metric anytime. The table is currently grouped by ${timeframeLabel.toLowerCase()} columns. The default setup counts Missed Opportunities where the client sentiment is Very Positive.`} />
             </span>
             <select value={metric} onChange={(event) => setMetric(event.target.value)}>
               {WEEKLY_METRIC_OPTIONS.map((item) => (
@@ -1670,7 +1893,7 @@ function WeeklyAgentTable({
             </select>
           </label>
 
-          <button type="button" className="secondary-btn" onClick={() => downloadWeeklyCsv(tableRows, periods, metric, metricLabel)}>
+          <button type="button" className="secondary-btn" onClick={() => downloadWeeklyCsv(tableRows, periods, metric, metricLabel, timeframeLabel)}>
             Export Table CSV
           </button>
         </div>
@@ -1726,7 +1949,7 @@ function WeeklyAgentTable({
                           title={metricLabel}
                           onClick={() =>
                             drillRows.length
-                              ? onOpenDetail("Weekly Agent Drill In", `${employeeRow.employee} · ${period.label}`, drillRows, filters)
+                              ? onOpenDetail(`${timeframeLabel} Agent Drill In`, `${employeeRow.employee} · ${period.label}`, drillRows, filters)
                               : null
                           }
                         >
@@ -1749,7 +1972,7 @@ function WeeklyAgentTable({
   );
 }
 
-function downloadWeeklyCsv(tableRows, periods, metric, metricLabel) {
+function downloadWeeklyCsv(tableRows, periods, metric, metricLabel, timeframeLabel = "Weekly") {
   const header = ["Employee", "Team", `Total ${metricLabel}`, ...periods.map((period) => period.label)];
 
   const rows = tableRows.map((row) => [
@@ -1768,7 +1991,7 @@ function downloadWeeklyCsv(tableRows, periods, metric, metricLabel) {
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = "weekly-agent-table.csv";
+  a.download = `${timeframeLabel.toLowerCase()}-agent-performance-table.csv`;
   a.click();
 
   URL.revokeObjectURL(url);
@@ -1828,6 +2051,7 @@ export default function DashboardPage() {
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
   const [weeklyFilters, setWeeklyFilters] = useState(() => createWeeklyDefaultFilters());
   const [weeklyMetric, setWeeklyMetric] = useState("missed");
+  const [weeklyTimeframe, setWeeklyTimeframe] = useState("weekly");
   const [showJumpTop, setShowJumpTop] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(false);
 
@@ -4909,6 +5133,212 @@ const dashboardStyles = `
     display: inline-flex !important;
     align-items: center !important;
     gap: 7px !important;
+  }
+
+
+  /* Dashboard Date Picker Upgrade + Timeframe Table Controls */
+  .upgraded-date-popover {
+    width: min(980px, 94vw) !important;
+    grid-template-columns: 220px minmax(0, 1fr) !important;
+    overflow: visible !important;
+  }
+
+  .premium-calendar-panel {
+    position: relative;
+    z-index: 1;
+    padding: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(34, 211, 238, 0.08), transparent 34%),
+      linear-gradient(180deg, #101827 0%, #0b1122 100%);
+  }
+
+  .calendar-panel-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    gap: 16px;
+    align-items: end;
+    margin-bottom: 14px;
+  }
+
+  .calendar-panel-head small,
+  .range-field-tabs span {
+    display: block;
+    margin-bottom: 6px;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .calendar-panel-head > div:first-child strong {
+    display: block;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 950;
+    letter-spacing: -0.03em;
+  }
+
+  .range-field-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .range-field-tabs button {
+    min-height: 58px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(147, 197, 253, 0.18);
+    background: rgba(2, 6, 23, 0.58);
+    color: #dbeafe;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .range-field-tabs button.active {
+    border-color: rgba(34, 197, 94, 0.7);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(59, 130, 246, 0.08));
+    box-shadow: inset 0 -2px 0 rgba(34, 197, 94, 0.82);
+  }
+
+  .range-field-tabs strong {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 950;
+  }
+
+  .calendar-toolbar {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 12px;
+    align-items: center;
+    margin: 10px 0 14px;
+  }
+
+  .calendar-toolbar span {
+    color: #f8fbff;
+    font-size: 18px;
+    font-weight: 950;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+
+  .calendar-toolbar button {
+    width: 42px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    border: 1px solid rgba(147, 197, 253, 0.24);
+    background: rgba(15, 23, 42, 0.9);
+    color: #e5edff;
+    cursor: pointer;
+    font-size: 24px;
+    line-height: 1;
+  }
+
+  .calendar-toolbar button:hover {
+    border-color: rgba(34, 211, 238, 0.45);
+    background: rgba(30, 41, 59, 0.9);
+  }
+
+  .calendar-months-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .calendar-month {
+    min-width: 0;
+  }
+
+  .calendar-month h4 {
+    margin: 0 0 12px;
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: 950;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+
+  .calendar-weekdays,
+  .calendar-grid-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .calendar-weekdays span {
+    display: grid;
+    place-items: center;
+    min-height: 26px;
+    margin: 0;
+    color: #9aa8c7;
+    font-size: 11px;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .calendar-day {
+    min-width: 0;
+    min-height: 34px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 10px;
+    color: #e5edff;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 850;
+    cursor: pointer;
+  }
+
+  .calendar-day.blank {
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .calendar-day:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .calendar-day.in-range {
+    color: #ffffff;
+    background: rgba(16, 185, 129, 0.16);
+  }
+
+  .calendar-day.range-start,
+  .calendar-day.range-end {
+    color: #ffffff;
+    background: #15803d;
+    box-shadow:
+      0 10px 28px rgba(16, 185, 129, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+
+  .premium-calendar-actions {
+    margin-top: 18px;
+  }
+
+  .weekly-controls label {
+    min-width: 220px;
+  }
+
+  .weekly-controls select {
+    min-height: 44px;
+  }
+
+  @media (max-width: 900px) {
+    .upgraded-date-popover {
+      grid-template-columns: 1fr !important;
+    }
+
+    .calendar-panel-head,
+    .calendar-months-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
 `;
