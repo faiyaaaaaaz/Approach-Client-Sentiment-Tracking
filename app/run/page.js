@@ -29,11 +29,22 @@ const DATE_PRESET_OPTIONS = [
   { key: "custom", label: "Custom" },
 ];
 
+const SCORE_FILTER_OPTIONS = [
+  { value: "1", label: "1" },
+  { value: "2", label: "2" },
+  { value: "3", label: "3" },
+  { value: "4", label: "4" },
+  { value: "5", label: "5" },
+];
+
+const DEFAULT_CONVERSATION_RATINGS = ["3", "4", "5"];
+const DEFAULT_CX_SCORE_RATINGS = [];
+
 const FETCH_STEPS = [
   "Preparing request",
   "Checking access",
   "Connecting to Intercom",
-  "Finding low-CSAT conversations",
+  "Finding filtered conversations",
   "Hydrating conversation details",
   "Preparing audit queue",
 ];
@@ -82,6 +93,278 @@ function CheckIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+function normalizeRunText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeRunKey(value) {
+  return normalizeRunText(value).toLowerCase();
+}
+
+function uniqueSortedText(values) {
+  return Array.from(new Set((values || []).map(normalizeRunText).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b)
+  );
+}
+
+function toOptionList(values) {
+  return uniqueSortedText(values).map((value) => ({ value, label: value }));
+}
+
+function sameCalendarDay(a, b) {
+  return a && b && formatDateInput(a) === formatDateInput(b);
+}
+
+function monthStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthEnd(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function formatMonthTitle(date) {
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function buildCalendarDays(monthDate) {
+  const first = monthStart(monthDate);
+  const last = monthEnd(monthDate);
+  const startOffset = first.getDay();
+  const days = [];
+
+  for (let index = 0; index < startOffset; index += 1) {
+    const date = new Date(first);
+    date.setDate(first.getDate() - (startOffset - index));
+    days.push({ date, muted: true });
+  }
+
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    days.push({ date: new Date(first.getFullYear(), first.getMonth(), day), muted: false });
+  }
+
+  while (days.length % 7 !== 0) {
+    const lastDate = days[days.length - 1].date;
+    const date = new Date(lastDate);
+    date.setDate(lastDate.getDate() + 1);
+    days.push({ date, muted: true });
+  }
+
+  return days;
+}
+
+function isDateInDraftRange(date, draftStart, draftEnd) {
+  if (!draftStart || !draftEnd) return false;
+  const value = normalizeToStartOfDay(date).getTime();
+  return value >= normalizeToStartOfDay(draftStart).getTime() && value <= normalizeToStartOfDay(draftEnd).getTime();
+}
+
+function describeSelection(values, fallback = "Any") {
+  if (!Array.isArray(values) || values.length === 0) return fallback;
+  return values.join(", ");
+}
+
+function MultiSelectFilter({ label, options, selected, onChange, placeholder = "Any", helper = "" }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef(null);
+
+  const normalizedOptions = useMemo(() => {
+    return (options || [])
+      .map((option) =>
+        typeof option === "string"
+          ? { value: option, label: option, helper: "" }
+          : { value: option.value, label: option.label || option.value, helper: option.helper || "" }
+      )
+      .filter((option) => normalizeRunText(option.value));
+  }, [options]);
+
+  const filteredOptions = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    if (!search) return normalizedOptions;
+    return normalizedOptions.filter((option) => `${option.label || ""} ${option.helper || ""}`.toLowerCase().includes(search));
+  }, [normalizedOptions, query]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  const selectedList = Array.isArray(selected) ? selected : [];
+  const selectedSet = new Set(selectedList);
+  const allSelected = selectedList.length === 0;
+  const buttonLabel = allSelected
+    ? placeholder
+    : selectedList.length === 1
+    ? normalizedOptions.find((option) => option.value === selectedList[0])?.label || selectedList[0]
+    : `${selectedList.length} Selected`;
+
+  function toggleValue(value) {
+    const next = new Set(selectedList);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onChange(Array.from(next));
+  }
+
+  return (
+    <div ref={ref} className="run-multi-filter">
+      <label>
+        <span>{label}</span>
+        <button type="button" className="run-multi-button" onClick={() => setOpen((prev) => !prev)}>
+          <strong>{buttonLabel}</strong>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+        {helper ? <small>{helper}</small> : null}
+      </label>
+
+      {open ? (
+        <div className="run-multi-menu">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${label.toLowerCase()}`} />
+          <button type="button" className={allSelected ? "run-multi-option active" : "run-multi-option"} onClick={() => onChange([])}>
+            <span>{allSelected ? "Selected" : "Select"}</span>
+            <strong>{placeholder}</strong>
+          </button>
+          <div className="run-multi-options">
+            {filteredOptions.map((option) => (
+              <button key={option.value} type="button" className={selectedSet.has(option.value) ? "run-multi-option active" : "run-multi-option"} onClick={() => toggleValue(option.value)}>
+                <span>{selectedSet.has(option.value) ? "Selected" : "Select"}</span>
+                <strong>{option.label}</strong>
+                {option.helper ? <em>{option.helper}</em> : null}
+              </button>
+            ))}
+            {!filteredOptions.length ? <div className="run-multi-empty">No Matching Options.</div> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
+  const days = buildCalendarDays(monthDate);
+  return (
+    <div className="calendar-month-card">
+      <h4>{formatMonthTitle(monthDate)}</h4>
+      <div className="calendar-weekdays">{["SU", "MO", "TU", "WE", "TH", "FR", "SA"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="calendar-day-grid">
+        {days.map(({ date, muted }) => {
+          const isStart = draftStart && sameCalendarDay(date, draftStart);
+          const isEnd = draftEnd && sameCalendarDay(date, draftEnd);
+          const inRange = isDateInDraftRange(date, draftStart, draftEnd);
+          return (
+            <button key={formatDateInput(date)} type="button" className={["calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RunDateRangePicker({ startDate, endDate, selectedDatePreset, selectedPresetLabel, onApplyPreset, onApplyCustom }) {
+  const [open, setOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState(startDate ? normalizeToStartOfDay(new Date(`${startDate}T00:00:00`)) : null);
+  const [draftEnd, setDraftEnd] = useState(endDate ? normalizeToStartOfDay(new Date(`${endDate}T00:00:00`)) : null);
+  const [visibleMonth, setVisibleMonth] = useState(() => monthStart(startDate ? new Date(`${startDate}T00:00:00`) : new Date()));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftStart(startDate ? normalizeToStartOfDay(new Date(`${startDate}T00:00:00`)) : null);
+    setDraftEnd(endDate ? normalizeToStartOfDay(new Date(`${endDate}T00:00:00`)) : null);
+    setVisibleMonth(monthStart(startDate ? new Date(`${startDate}T00:00:00`) : new Date()));
+  }, [open, startDate, endDate]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  function selectDate(date) {
+    const normalized = normalizeToStartOfDay(date);
+    if (!draftStart || (draftStart && draftEnd)) {
+      setDraftStart(normalized);
+      setDraftEnd(null);
+      return;
+    }
+    if (normalized < draftStart) {
+      setDraftEnd(draftStart);
+      setDraftStart(normalized);
+      return;
+    }
+    setDraftEnd(normalized);
+  }
+
+  function applyCustomRange() {
+    const safeStart = draftStart || draftEnd;
+    const safeEnd = draftEnd || draftStart;
+    if (!safeStart || !safeEnd) return;
+    onApplyCustom(formatDateInput(safeStart), formatDateInput(safeEnd));
+    setOpen(false);
+  }
+
+  function applyPreset(key) {
+    onApplyPreset(key);
+    if (key !== "custom") setOpen(false);
+  }
+
+  const displayRange = startDate && endDate ? `${startDate} to ${endDate}` : "Select a range";
+  const secondMonth = shiftMonths(visibleMonth, 1);
+
+  return (
+    <div className="run-date-range-picker" ref={ref}>
+      <label>
+        <span>Date Range</span>
+        <button type="button" className="run-date-button" onClick={() => setOpen((prev) => !prev)}>
+          <strong><CalendarIcon /> {selectedPresetLabel}</strong>
+          <small>{displayRange}</small>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+      </label>
+
+      {open ? (
+        <div className="run-date-popover">
+          <div className="date-popover-tabs">
+            <div><span>From</span><strong>{draftStart ? formatDateInput(draftStart) : "Choose Start"}</strong></div>
+            <div className={draftEnd ? "active" : ""}><span>To</span><strong>{draftEnd ? formatDateInput(draftEnd) : "Choose End"}</strong></div>
+          </div>
+          <div className="date-popover-body">
+            <aside className="date-preset-column">
+              {DATE_PRESET_OPTIONS.map((item) => (
+                <button key={item.key} type="button" className={item.key === selectedDatePreset ? "active" : ""} onClick={() => applyPreset(item.key)}>{item.label}</button>
+              ))}
+            </aside>
+            <div className="date-calendar-zone">
+              <div className="calendar-nav-row">
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, -1))}>‹</button>
+                <strong>{formatMonthTitle(visibleMonth)} - {formatMonthTitle(secondMonth)}</strong>
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, 1))}>›</button>
+              </div>
+              <div className="calendar-months-grid">
+                <CalendarMonth monthDate={visibleMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+                <CalendarMonth monthDate={secondMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+              </div>
+            </div>
+          </div>
+          <div className="date-popover-actions">
+            <button type="button" className="ghost-btn" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="primary-btn light" onClick={applyCustomRange} disabled={!draftStart && !draftEnd}>Apply</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -560,6 +843,14 @@ export default function RunPage() {
   const [limitCount, setLimitCount] = useState("10");
   const [autoRunAfterFetch, setAutoRunAfterFetch] = useState(false);
 
+  const [conversationRatings, setConversationRatings] = useState(DEFAULT_CONVERSATION_RATINGS);
+  const [cxScoreRatings, setCxScoreRatings] = useState(DEFAULT_CX_SCORE_RATINGS);
+  const [selectedEmployeeNames, setSelectedEmployeeNames] = useState([]);
+  const [selectedIntercomAgentNames, setSelectedIntercomAgentNames] = useState([]);
+  const [agentMappings, setAgentMappings] = useState([]);
+  const [mappingFilterError, setMappingFilterError] = useState("");
+  const [mappingFilterLoading, setMappingFilterLoading] = useState(false);
+
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -631,6 +922,51 @@ export default function RunPage() {
   const visibleResults = showAllResults ? results : results.slice(0, 8);
   const selectedPresetLabel =
     DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
+  const activeAgentMappings = useMemo(
+    () =>
+      (Array.isArray(agentMappings) ? agentMappings : [])
+        .filter((item) => item?.is_active !== false)
+        .map((item) => ({
+          id: item.id || `${item.intercom_agent_name}-${item.employee_name}`,
+          intercom_agent_name: normalizeRunText(item.intercom_agent_name),
+          employee_name: normalizeRunText(item.employee_name || item.intercom_agent_name),
+          employee_email: normalizeRunText(item.employee_email),
+          team_name: normalizeRunText(item.team_name),
+        }))
+        .filter((item) => item.intercom_agent_name || item.employee_name),
+    [agentMappings]
+  );
+
+  const employeeFilterOptions = useMemo(
+    () =>
+      toOptionList(activeAgentMappings.map((item) => item.employee_name)).map((option) => {
+        const mappedAgents = activeAgentMappings
+          .filter((item) => normalizeRunKey(item.employee_name) === normalizeRunKey(option.value))
+          .map((item) => item.intercom_agent_name)
+          .filter(Boolean);
+        return { ...option, helper: mappedAgents.length ? `${mappedAgents.length} Intercom Agent(s)` : "No Intercom Agent" };
+      }),
+    [activeAgentMappings]
+  );
+
+  const intercomAgentFilterOptions = useMemo(
+    () =>
+      toOptionList(activeAgentMappings.map((item) => item.intercom_agent_name)).map((option) => {
+        const mapping = activeAgentMappings.find((item) => normalizeRunKey(item.intercom_agent_name) === normalizeRunKey(option.value));
+        return { ...option, helper: mapping?.employee_name ? `Employee: ${mapping.employee_name}` : "Unmapped" };
+      }),
+    [activeAgentMappings]
+  );
+
+  const selectedFilterSummary = useMemo(
+    () => ({
+      conversationRatings: describeSelection(conversationRatings, "Any Rating"),
+      cxScoreRatings: describeSelection(cxScoreRatings, "Any CX Score"),
+      employees: selectedEmployeeNames.length ? `${selectedEmployeeNames.length} Employee(s)` : "All Employees",
+      agents: selectedIntercomAgentNames.length ? `${selectedIntercomAgentNames.length} Intercom Agent(s)` : "All Intercom Agents",
+    }),
+    [conversationRatings, cxScoreRatings, selectedEmployeeNames, selectedIntercomAgentNames]
+  );
   const queuedConversationCount = useMemo(
     () => getQueuedConversations(fetchedConversations).length,
     [fetchedConversations, limiterEnabled, limitCount]
@@ -967,6 +1303,83 @@ export default function RunPage() {
     }
   }
 
+  async function loadAgentMappingsForFilters(activeSession = session) {
+    if (!activeSession?.access_token) {
+      setAgentMappings([]);
+      return;
+    }
+
+    setMappingFilterLoading(true);
+    setMappingFilterError("");
+
+    try {
+      const response = await fetch("/api/admin/agent-mappings", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeSession.access_token}`,
+        },
+        cache: "no-store",
+      });
+
+      const data = await readJsonSafely(response);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not load agent mappings.");
+      setAgentMappings(Array.isArray(data.mappings) ? data.mappings : []);
+    } catch (error) {
+      setMappingFilterError(error instanceof Error ? error.message : "Could not load employee mappings.");
+      setAgentMappings([]);
+    } finally {
+      setMappingFilterLoading(false);
+    }
+  }
+
+  function applyEmployeeFilterSelection(nextEmployees) {
+    const normalizedEmployees = uniqueSortedText(nextEmployees);
+    setSelectedEmployeeNames(normalizedEmployees);
+
+    if (!normalizedEmployees.length) {
+      setSelectedIntercomAgentNames([]);
+      resetRunStateForInputChange();
+      return;
+    }
+
+    const selectedEmployeeKeys = new Set(normalizedEmployees.map(normalizeRunKey));
+    const matchingAgents = activeAgentMappings
+      .filter((item) => selectedEmployeeKeys.has(normalizeRunKey(item.employee_name)))
+      .map((item) => item.intercom_agent_name)
+      .filter(Boolean);
+
+    setSelectedIntercomAgentNames(uniqueSortedText(matchingAgents));
+    resetRunStateForInputChange();
+  }
+
+  function applyIntercomAgentFilterSelection(nextAgents) {
+    const normalizedAgents = uniqueSortedText(nextAgents);
+    setSelectedIntercomAgentNames(normalizedAgents);
+
+    if (!normalizedAgents.length) {
+      setSelectedEmployeeNames([]);
+      resetRunStateForInputChange();
+      return;
+    }
+
+    const selectedAgentKeys = new Set(normalizedAgents.map(normalizeRunKey));
+    const matchingEmployees = activeAgentMappings
+      .filter((item) => selectedAgentKeys.has(normalizeRunKey(item.intercom_agent_name)))
+      .map((item) => item.employee_name)
+      .filter(Boolean);
+
+    setSelectedEmployeeNames(uniqueSortedText(matchingEmployees));
+    resetRunStateForInputChange();
+  }
+
+  function applyCustomDateRange(nextStartDate, nextEndDate) {
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
+    setSelectedDatePreset("custom");
+    resetRunStateForInputChange();
+  }
+
   useEffect(() => {
     let active = true;
 
@@ -1048,6 +1461,15 @@ export default function RunPage() {
   }, []);
 
   useEffect(() => {
+    if (!session?.access_token) {
+      setAgentMappings([]);
+      return;
+    }
+
+    loadAgentMappingsForFilters(session);
+  }, [session?.access_token]);
+
+  useEffect(() => {
     if (cacheHydratedRef.current) return;
 
     const cached = readRunPageCache();
@@ -1061,6 +1483,10 @@ export default function RunPage() {
     if (typeof cached.limiterEnabled === "boolean") setLimiterEnabled(cached.limiterEnabled);
     if (cached.limitCount) setLimitCount(cached.limitCount);
     if (typeof cached.autoRunAfterFetch === "boolean") setAutoRunAfterFetch(cached.autoRunAfterFetch);
+    if (Array.isArray(cached.conversationRatings)) setConversationRatings(cached.conversationRatings);
+    if (Array.isArray(cached.cxScoreRatings)) setCxScoreRatings(cached.cxScoreRatings);
+    if (Array.isArray(cached.selectedEmployeeNames)) setSelectedEmployeeNames(cached.selectedEmployeeNames);
+    if (Array.isArray(cached.selectedIntercomAgentNames)) setSelectedIntercomAgentNames(cached.selectedIntercomAgentNames);
     if (cached.workflowRunId) setWorkflowRunId(cached.workflowRunId);
     if (cached.workflowRun) setWorkflowRun(cached.workflowRun);
 
@@ -1117,6 +1543,10 @@ export default function RunPage() {
       limiterEnabled,
       limitCount,
       autoRunAfterFetch,
+      conversationRatings,
+      cxScoreRatings,
+      selectedEmployeeNames,
+      selectedIntercomAgentNames,
       workflowRunId,
       workflowRun,
       fetchData,
@@ -1134,6 +1564,10 @@ export default function RunPage() {
     limiterEnabled,
     limitCount,
     autoRunAfterFetch,
+    conversationRatings,
+    cxScoreRatings,
+    selectedEmployeeNames,
+    selectedIntercomAgentNames,
     workflowRunId,
     workflowRun,
     fetchData,
@@ -1846,6 +2280,12 @@ export default function RunPage() {
           autoRunAfterFetch,
           batchSize: AUDIT_BATCH_SIZE,
           selectedDatePreset,
+          filters: {
+            conversationRatings,
+            cxScoreRatings,
+            employeeNames: selectedEmployeeNames,
+            intercomAgentNames: selectedIntercomAgentNames,
+          },
         },
         { quiet: false }
       );
@@ -1867,6 +2307,10 @@ export default function RunPage() {
           endDate,
           limiterEnabled,
           limitCount,
+          conversationRatings,
+          cxScoreRatings,
+          employeeNames: selectedEmployeeNames,
+          intercomAgentNames: selectedIntercomAgentNames,
           debug: true,
         }),
         signal: controller.signal,
@@ -1897,7 +2341,7 @@ export default function RunPage() {
       }
 
       if (fetchedCount > 0) {
-        setFetchSuccess(`${formatNumber(fetchedCount)} low-CSAT conversation(s) fetched.`);
+        setFetchSuccess(`${formatNumber(fetchedCount)} filtered conversation(s) fetched.`);
         setOperationStatus("fetched");
         addLog(`${formatNumber(fetchedCount)} conversation(s) fetched.`, "success");
       } else {
@@ -2091,115 +2535,17 @@ export default function RunPage() {
         onOverwrite={handleDuplicateOverwrite}
       />
 
-      <section className="hero-shell">
-        <div className="hero-grid">
-          <div className="hero-copy-card surface-card">
-            <div className="hero-badge-row">
-              <span className="hero-badge">Run audit</span>
-              <span className={`state-pill ${operationTone}`}>{operationLabel}</span>
-            </div>
-
-            <h1>Audit command center</h1>
-            <p className="hero-copy">
-              Fetch low-CSAT conversations, review the queue, run GPT audits in batches, and store
-              results with clear live progress at every step.
-            </p>
-
-            <div className="hero-summary-card">
-              <div>
-                <span className="mini-label">Current state</span>
-                <strong>{summaryText}</strong>
-              </div>
-            </div>
-
-            <div className="hero-quick-grid">
-              <div className="hero-quick-card">
-                <span className="mini-label">Signed in</span>
-                <strong>{authLoading ? "Checking" : session?.user?.email || "Not signed in"}</strong>
-                <small>
-                  {authLoading
-                    ? "Please wait"
-                    : profile?.role
-                    ? `Role: ${profile.role}`
-                    : "Role unavailable"}
-                </small>
-              </div>
-              <div className="hero-quick-card">
-                <span className="mini-label">Date range</span>
-                <strong>{startDate && endDate ? `${startDate} to ${endDate}` : "Not selected"}</strong>
-                <small>{selectedPresetLabel}</small>
-              </div>
-              <div className="hero-quick-card">
-                <span className="mini-label">Limiter</span>
-                <strong>{limiterEnabled ? `On · ${limitCount || 0}` : "Off"}</strong>
-                <small>{limiterEnabled ? "Maximum rows in fetch" : "Full eligible queue"}</small>
-              </div>
-            </div>
-          </div>
-
-          <div className="hero-side-column">
-            <div className="surface-card workflow-card">
-              <div className="section-head compact alt">
-                <div>
-                  <span className="mini-label">Workflow</span>
-                  <h2>How this run will flow</h2>
-                </div>
-              </div>
-
-              <div className="workflow-stack">
-                <WorkflowStep
-                  number="1"
-                  title="Set the range"
-                  body="Choose a date preset or custom dates for the Intercom search window."
-                  status={workflowStatus.setup}
-                />
-                <WorkflowStep
-                  number="2"
-                  title="Fetch conversations"
-                  body="The app gathers low-CSAT conversations and prepares the audit queue."
-                  status={workflowStatus.fetch}
-                />
-                <WorkflowStep
-                  number="3"
-                  title="Review duplicates"
-                  body="If duplicates appear, choose to skip or overwrite before continuing."
-                  status={workflowStatus.review}
-                />
-                <WorkflowStep
-                  number="4"
-                  title="Run batched audit"
-                  body="Audits are sent in batches and saved to Results as progress completes."
-                  status={workflowStatus.run}
-                />
-              </div>
-            </div>
-
-            <div className="surface-card insight-card">
-              <div className="insight-line">
-                <SparklesIcon />
-                <span>
-                  Auto-run is <strong>{autoRunAfterFetch ? "enabled" : "disabled"}</strong>.
-                </span>
-              </div>
-              <div className="insight-line">
-                <RefreshIcon />
-                <span>
-                  Batch size is fixed at <strong>{AUDIT_BATCH_SIZE}</strong> for safer, steadier runs.
-                </span>
-              </div>
-            </div>
-          </div>
+      <section className="run-intro-strip surface-card">
+        <div>
+          <span className="mini-label">Run Audit</span>
+          <h1>Setup and Controls</h1>
+          <p>{summaryText}</p>
         </div>
-      </section>
-
-      <section className="stats-grid">
-        {statCards.map((card) => (
-          <article key={card.label} className={`stat-card ${card.tone}`}>
-            <p>{card.label}</p>
-            <strong>{card.value}</strong>
-            <span>{card.subtext}</span>
-          </article>
-        ))}
+        <div className="run-intro-meta">
+          <span className={`state-pill ${operationTone}`}>{operationLabel}</span>
+          <strong>{startDate && endDate ? `${startDate} to ${endDate}` : "Choose Date Range"}</strong>
+          <small>{selectedPresetLabel} · Auto-run {autoRunAfterFetch ? "On" : "Off"}</small>
+        </div>
       </section>
 
       <section className="command-grid">
@@ -2247,86 +2593,81 @@ export default function RunPage() {
                 <h3>Choose the audit range</h3>
               </div>
 
-              <div ref={presetMenuRef} className="preset-box">
-                <label>Date range preset</label>
-                <button
-                  type="button"
-                  className="preset-button"
-                  onClick={() => setShowPresetMenu((prev) => !prev)}
-                >
-                  <span>
-                    <CalendarIcon /> {selectedPresetLabel}
-                  </span>
-                  <small>
-                    {startDate && endDate ? `${startDate} to ${endDate}` : "Select a range"}
-                  </small>
-                  <b>{showPresetMenu ? "▲" : "▼"}</b>
-                </button>
+              <RunDateRangePicker
+                startDate={startDate}
+                endDate={endDate}
+                selectedDatePreset={selectedDatePreset}
+                selectedPresetLabel={selectedPresetLabel}
+                onApplyPreset={applyDatePreset}
+                onApplyCustom={applyCustomDateRange}
+              />
+            </div>
 
-                {showPresetMenu ? (
-                  <div className="preset-menu">
-                    {DATE_PRESET_OPTIONS.map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        className={item.key === selectedDatePreset ? "active" : ""}
-                        onClick={() => applyDatePreset(item.key)}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+            <div className="control-block filter-control-block">
+              <div className="block-head">
+                <span className="mini-label">Step 2</span>
+                <h3>Choose fetch filters</h3>
+                <small>These filters control which Intercom conversations are fetched before the GPT audit starts.</small>
               </div>
 
-              <div className="form-grid two">
-                <label>
-                  <span>Start date</span>
-                  <div className="date-control">
-                    <input
-                      ref={startDateRef}
-                      type="date"
-                      value={startDate}
-                      onChange={(event) => {
-                        setStartDate(event.target.value);
-                        setSelectedDatePreset("custom");
-                        resetRunStateForInputChange();
-                      }}
-                      onFocus={() => openPicker(startDateRef)}
-                    />
-                    <button type="button" className="icon-btn" onClick={() => openPicker(startDateRef)}>
-                      <CalendarIcon />
-                    </button>
-                  </div>
-                </label>
-
-                <label>
-                  <span>End date</span>
-                  <div className="date-control">
-                    <input
-                      ref={endDateRef}
-                      type="date"
-                      value={endDate}
-                      onChange={(event) => {
-                        setEndDate(event.target.value);
-                        setSelectedDatePreset("custom");
-                        resetRunStateForInputChange();
-                      }}
-                      onFocus={() => openPicker(endDateRef)}
-                    />
-                    <button type="button" className="icon-btn" onClick={() => openPicker(endDateRef)}>
-                      <CalendarIcon />
-                    </button>
-                  </div>
-                </label>
+              <div className="filter-control-grid">
+                <MultiSelectFilter
+                  label="Conversation Rating"
+                  options={SCORE_FILTER_OPTIONS}
+                  selected={conversationRatings}
+                  onChange={(value) => {
+                    setConversationRatings(value);
+                    resetRunStateForInputChange();
+                  }}
+                  placeholder="Any Rating"
+                  helper="Default: 3, 4, and 5. Clear selection to fetch any rating."
+                />
+                <MultiSelectFilter
+                  label="CX Score Rating"
+                  options={SCORE_FILTER_OPTIONS}
+                  selected={cxScoreRatings}
+                  onChange={(value) => {
+                    setCxScoreRatings(value);
+                    resetRunStateForInputChange();
+                  }}
+                  placeholder="Any CX Score"
+                  helper="Works together with Conversation Rating when both filters are selected."
+                />
+                <MultiSelectFilter
+                  label="Employee"
+                  options={employeeFilterOptions}
+                  selected={selectedEmployeeNames}
+                  onChange={applyEmployeeFilterSelection}
+                  placeholder="All Employees"
+                  helper="Pulled from active Admin Agent Mappings. Selecting employees auto-selects their Intercom agents."
+                />
+                <MultiSelectFilter
+                  label="Intercom Agent"
+                  options={intercomAgentFilterOptions}
+                  selected={selectedIntercomAgentNames}
+                  onChange={applyIntercomAgentFilterSelection}
+                  placeholder="All Intercom Agents"
+                  helper="Selecting Intercom agents updates the matching Employee filter."
+                />
               </div>
+
+              <div className="filter-summary-grid">
+                <div><span>Conversation Rating</span><strong>{selectedFilterSummary.conversationRatings}</strong></div>
+                <div><span>CX Score Rating</span><strong>{selectedFilterSummary.cxScoreRatings}</strong></div>
+                <div><span>Employees</span><strong>{selectedFilterSummary.employees}</strong></div>
+                <div><span>Intercom Agents</span><strong>{selectedFilterSummary.agents}</strong></div>
+              </div>
+
+              {mappingFilterLoading ? <div className="message subtle">Loading active Agent Mappings...</div> : null}
+              {mappingFilterError ? <div className="message error subtle">{mappingFilterError}</div> : null}
             </div>
 
             <div className="control-block">
               <div className="block-head">
-                <span className="mini-label">Step 2</span>
+                <span className="mini-label">Step 3</span>
                 <h3>Set run behavior</h3>
               </div>
+
 
               <div className="behavior-grid">
                 <div className="behavior-card">
@@ -2408,7 +2749,7 @@ export default function RunPage() {
 
             <div className="control-block action-block">
               <div className="block-head">
-                <span className="mini-label">Step 3</span>
+                <span className="mini-label">Step 4</span>
                 <h3>Run the workflow</h3>
               </div>
 
@@ -2496,7 +2837,7 @@ export default function RunPage() {
               <ProgressPanel
                 type="Fetch progress"
                 label={FETCH_STEPS[fetchStepIndex] || "Fetching"}
-                detail="Fetching and hydrating eligible Intercom conversations."
+                detail="Fetching and hydrating Intercom conversations that match the selected filters."
                 percent={Math.min(96, ((fetchStepIndex + 1) / FETCH_STEPS.length) * 100)}
                 elapsed={formatElapsed(fetchStartedAt)}
                 handled={0}
@@ -2604,6 +2945,16 @@ export default function RunPage() {
         </div>
       </section>
 
+      <section className="stats-grid compact-run-stats">
+        {statCards.map((card) => (
+          <article key={card.label} className={`stat-card ${card.tone}`}>
+            <p>{card.label}</p>
+            <strong>{card.value}</strong>
+            <span>{card.subtext}</span>
+          </article>
+        ))}
+      </section>
+
       <section className="surface-card preview-panel">
         <div className="section-head">
           <div>
@@ -2629,7 +2980,7 @@ export default function RunPage() {
                     <span>Conversation</span>
                     <strong>{item?.conversationId || "-"}</strong>
                   </div>
-                  <span className="pill notice">Low CSAT</span>
+                  <span className="pill notice">Filtered</span>
                 </div>
 
                 <div className="conversation-details">
@@ -2642,8 +2993,12 @@ export default function RunPage() {
                     <strong>{item?.clientEmail || "-"}</strong>
                   </div>
                   <div>
-                    <span>CSAT</span>
-                    <strong>{item?.csatScore || "-"}</strong>
+                    <span>Conversation Rating</span>
+                    <strong>{item?.conversationRating || item?.csatScore || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>CX Score</span>
+                    <strong>{item?.cxScoreRating || "-"}</strong>
                   </div>
                   <div>
                     <span>Replied</span>
@@ -2727,8 +3082,8 @@ export default function RunPage() {
                         <strong>{item?.clientEmail || "-"}</strong>
                       </div>
                       <div>
-                        <span>CSAT</span>
-                        <strong>{item?.csatScore || "-"}</strong>
+                        <span>Conversation Rating</span>
+                        <strong>{item?.conversationRating || item?.csatScore || "-"}</strong>
                       </div>
                       <div>
                         <span>Replied</span>
@@ -4210,9 +4565,445 @@ const runStyles = `
     gap: 10px;
   }
 
+  .run-intro-strip {
+    max-width: 1440px;
+    margin: 0 auto 18px;
+    padding: 18px 22px;
+    border-radius: 28px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    background: radial-gradient(circle at 14% 0%, rgba(34, 211, 238, 0.1), transparent 30%), linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(19, 13, 45, 0.94));
+  }
+
+  .run-intro-strip h1 {
+    font-size: clamp(28px, 3vw, 42px);
+    letter-spacing: -0.05em;
+    line-height: 1.04;
+    margin: 0 0 8px;
+  }
+
+  .run-intro-strip p {
+    margin: 0;
+    color: #a9b4d0;
+    font-size: 14px;
+    line-height: 1.65;
+    max-width: 820px;
+  }
+
+  .run-intro-meta {
+    min-width: 280px;
+    padding: 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    display: grid;
+    gap: 8px;
+    justify-items: start;
+  }
+
+  .run-intro-meta strong,
+  .run-intro-meta small {
+    display: block;
+  }
+
+  .run-intro-meta strong {
+    color: #f5f7ff;
+    font-size: 15px;
+  }
+
+  .run-intro-meta small {
+    color: #a9b4d0;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .compact-run-stats {
+    margin-top: 0;
+  }
+
+  .filter-control-block .block-head small {
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.6;
+    font-weight: 750;
+  }
+
+  .filter-control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .run-multi-filter {
+    position: relative;
+    z-index: 12;
+  }
+
+  .run-multi-filter label {
+    display: grid;
+    gap: 8px;
+  }
+
+  .run-multi-filter label > small {
+    color: #8ea0d6;
+    font-size: 12px;
+    line-height: 1.55;
+    font-weight: 750;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .run-multi-button,
+  .run-date-button {
+    width: 100%;
+    min-height: 48px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(2, 6, 23, 0.72);
+    color: #f8fbff;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .run-multi-button strong,
+  .run-date-button strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .run-multi-button b,
+  .run-date-button b {
+    color: #9fb2ee;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .run-multi-menu {
+    position: absolute;
+    z-index: 80;
+    top: calc(100% + 10px);
+    left: 0;
+    right: 0;
+    min-width: 280px;
+    padding: 10px;
+    border-radius: 18px;
+    border: 1px solid rgba(96, 165, 250, 0.24);
+    background: rgba(7, 11, 25, 0.98);
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.48);
+  }
+
+  .run-multi-menu input {
+    width: 100%;
+    min-height: 42px;
+    margin-bottom: 8px;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(0, 0, 0, 0.34);
+    color: #ffffff;
+    padding: 0 12px;
+  }
+
+  .run-multi-options {
+    display: grid;
+    gap: 7px;
+    max-height: 260px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .run-multi-option {
+    width: 100%;
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: 62px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.035);
+    color: #dbe7ff;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    padding: 8px 10px;
+  }
+
+  .run-multi-option span {
+    color: #93c5fd;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .run-multi-option strong {
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .run-multi-option em {
+    grid-column: 2;
+    color: #9fb2ee;
+    font-size: 11px;
+    font-style: normal;
+    line-height: 1.4;
+  }
+
+  .run-multi-option.active,
+  .run-multi-option:hover {
+    border-color: rgba(34, 211, 238, 0.24);
+    background: rgba(14, 165, 233, 0.1);
+  }
+
+  .run-multi-empty {
+    padding: 14px;
+    color: #8ea0d6;
+    font-size: 13px;
+  }
+
+  .filter-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .filter-summary-grid div {
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .filter-summary-grid span,
+  .filter-summary-grid strong {
+    display: block;
+  }
+
+  .filter-summary-grid span {
+    color: #8ea0d6;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .filter-summary-grid strong {
+    color: #f8fbff;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .run-date-range-picker {
+    position: relative;
+    z-index: 25;
+  }
+
+  .run-date-range-picker label {
+    display: grid;
+    gap: 10px;
+  }
+
+  .run-date-button {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    min-height: 56px;
+  }
+
+  .run-date-button strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .run-date-button small {
+    color: #a9b4d0;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .run-date-popover {
+    position: absolute;
+    z-index: 90;
+    top: calc(100% + 12px);
+    left: 0;
+    width: min(940px, calc(100vw - 52px));
+    border-radius: 24px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(8, 13, 28, 0.98);
+    box-shadow: 0 34px 90px rgba(0, 0, 0, 0.55);
+    padding: 18px;
+  }
+
+  .date-popover-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+  }
+
+  .date-popover-tabs div {
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .date-popover-tabs div.active {
+    border-bottom: 2px solid #22c55e;
+  }
+
+  .date-popover-tabs span,
+  .date-popover-tabs strong {
+    display: block;
+  }
+
+  .date-popover-tabs span {
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .date-popover-tabs strong {
+    color: #f8fbff;
+    font-size: 14px;
+  }
+
+  .date-popover-body {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .date-preset-column {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .date-preset-column button,
+  .calendar-nav-row button {
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #dbe7ff;
+    min-height: 38px;
+    padding: 0 10px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .date-preset-column button.active,
+  .date-preset-column button:hover,
+  .calendar-nav-row button:hover {
+    border-color: rgba(34, 211, 238, 0.24);
+    background: rgba(14, 165, 233, 0.12);
+  }
+
+  .calendar-nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .calendar-nav-row strong {
+    color: #f8fbff;
+    font-size: 15px;
+  }
+
+  .calendar-months-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .calendar-month-card h4 {
+    margin: 0 0 12px;
+    color: #f8fbff;
+    font-size: 16px;
+  }
+
+  .calendar-weekdays,
+  .calendar-day-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .calendar-weekdays span {
+    color: #8ea0d6;
+    font-size: 10px;
+    font-weight: 900;
+    text-align: center;
+    padding: 6px 0;
+  }
+
+  .calendar-day {
+    min-height: 36px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #dbe7ff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 850;
+    cursor: pointer;
+  }
+
+  .calendar-day.muted {
+    color: rgba(148, 163, 184, 0.36);
+  }
+
+  .calendar-day.in-range {
+    background: rgba(34, 197, 94, 0.12);
+  }
+
+  .calendar-day.range-start,
+  .calendar-day.range-end {
+    color: #ffffff;
+    border-color: rgba(34, 197, 94, 0.4);
+    background: rgba(22, 163, 74, 0.72);
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.16), 0 0 20px rgba(34, 197, 94, 0.18);
+  }
+
+  .date-popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .primary-btn.light {
+    background: #f8fafc;
+    color: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+
   @media (max-width: 1280px) {
     .hero-grid,
-    .command-grid {
+    .command-grid,
+    .run-intro-strip {
       grid-template-columns: 1fr;
     }
 
@@ -4225,6 +5016,8 @@ const runStyles = `
   @media (max-width: 1080px) {
     .stats-grid,
     .hero-quick-grid,
+    .filter-control-grid,
+    .filter-summary-grid,
     .behavior-grid,
     .conversation-grid,
     .results-grid,
@@ -4249,6 +5042,10 @@ const runStyles = `
 
     .stats-grid,
     .hero-quick-grid,
+    .filter-control-grid,
+    .filter-summary-grid,
+    .date-popover-body,
+    .calendar-months-grid,
     .behavior-grid,
     .conversation-grid,
     .results-grid,
