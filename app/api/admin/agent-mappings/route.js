@@ -259,6 +259,109 @@ async function findExistingMapping(adminClient, id, intercomAgentName) {
   return (data || []).find((row) => normalizeKey(row?.intercom_agent_name) === key) || null;
 }
 
+
+async function getAuthenticatedReadContext(request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : "";
+
+  if (!token) {
+    return {
+      ok: false,
+      response: json({ ok: false, error: "Missing access token." }, { status: 401 }),
+    };
+  }
+
+  const { authClient, adminClient } = getSupabaseClients();
+
+  const {
+    data: { user },
+    error,
+  } = await authClient.auth.getUser(token);
+
+  if (error || !user) {
+    return {
+      ok: false,
+      response: json({ ok: false, error: "Invalid or expired session." }, { status: 401 }),
+    };
+  }
+
+  const email = normalizeEmail(user.email);
+
+  if (!email.endsWith("@nextventures.io")) {
+    return {
+      ok: false,
+      response: json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 }),
+    };
+  }
+
+  const { data: grant } = await adminClient
+    .from("user_role_grants")
+    .select("email, full_name, role, can_run_tests, is_active")
+    .eq("email", email)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("id, email, full_name, role, can_run_tests, is_active")
+    .or(`id.eq.${user.id},email.eq.${email}`)
+    .maybeSingle();
+
+  const role = email === MASTER_ADMIN_EMAIL ? "master_admin" : grant?.role || profile?.role || "viewer";
+  const isActive = email === MASTER_ADMIN_EMAIL ? true : grant ? grant.is_active !== false : profile?.is_active !== false;
+  const canRunTests = Boolean(grant?.can_run_tests || profile?.can_run_tests);
+  const canRead =
+    isActive === true &&
+    (email === MASTER_ADMIN_EMAIL ||
+      role === "master_admin" ||
+      role === "co_admin" ||
+      role === "admin" ||
+      role === "audit_runner" ||
+      canRunTests === true);
+
+  if (!canRead) {
+    return {
+      ok: false,
+      response: json({ ok: false, error: "This account cannot read agent mappings." }, { status: 403 }),
+    };
+  }
+
+  return { ok: true, adminClient, user, email, role };
+}
+
+export async function GET(request) {
+  const auth = await getAuthenticatedReadContext(request);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const { data, error } = await auth.adminClient
+      .from("agent_mappings")
+      .select("id, intercom_agent_name, employee_name, employee_email, team_name, notes, is_active, created_at, updated_at")
+      .eq("is_active", true)
+      .order("employee_name", { ascending: true })
+      .limit(10000);
+
+    if (error) throw new Error(error.message || "Could not load agent mappings.");
+
+    return json({
+      ok: true,
+      mappings: Array.isArray(data) ? data : [],
+      meta: {
+        requestedBy: auth.email,
+        role: auth.role,
+        count: Array.isArray(data) ? data.length : 0,
+      },
+    });
+  } catch (error) {
+    return json(
+      { ok: false, error: error instanceof Error ? error.message : "Could not load agent mappings." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request) {
   const auth = await getAuthenticatedContext(request);
   if (!auth.ok) return auth.response;
