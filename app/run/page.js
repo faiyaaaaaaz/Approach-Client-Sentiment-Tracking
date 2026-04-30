@@ -214,7 +214,7 @@ function MultiSelectFilter({ label, options, selected, onChange, placeholder = "
   }
 
   return (
-    <div ref={ref} className="run-multi-filter">
+    <div ref={ref} className={open ? "run-multi-filter open" : "run-multi-filter"}>
       <label>
         <span>{label}</span>
         <button type="button" className="run-multi-button" onClick={() => setOpen((prev) => !prev)}>
@@ -324,7 +324,7 @@ function RunDateRangePicker({ startDate, endDate, selectedDatePreset, selectedPr
   const secondMonth = shiftMonths(visibleMonth, 1);
 
   return (
-    <div className="run-date-range-picker" ref={ref}>
+    <div className={open ? "run-date-range-picker open" : "run-date-range-picker"} ref={ref}>
       <label>
         <span>Date Range</span>
         <button type="button" className="run-date-button" onClick={() => setOpen((prev) => !prev)}>
@@ -3609,7 +3609,7 @@ const runStyles = `
 
   .command-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(430px, 0.9fr);
     gap: 18px;
     margin-bottom: 18px;
   }
@@ -5029,6 +5029,109 @@ const runStyles = `
     background: #f8fafc;
     color: #0f172a;
     border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+
+
+  /* Final Run Audit overlay repair */
+  .run-multi-filter.open,
+  .run-date-range-picker.open {
+    z-index: 9000;
+  }
+
+  .run-multi-menu {
+    z-index: 99999 !important;
+    width: max(100%, 330px);
+    background: #050a16 !important;
+    background-image: linear-gradient(180deg, #0a1430 0%, #050a16 100%) !important;
+    border-color: rgba(96, 165, 250, 0.42) !important;
+    box-shadow: 0 34px 90px rgba(0, 0, 0, 0.86), 0 0 0 1px rgba(2, 6, 23, 0.98), 0 0 38px rgba(14, 165, 233, 0.12) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .filter-control-grid > .run-multi-filter:nth-child(2n) .run-multi-menu {
+    left: auto;
+    right: 0;
+  }
+
+  .run-multi-menu input {
+    background: #020617 !important;
+    border-color: rgba(96, 165, 250, 0.26) !important;
+  }
+
+  .run-multi-option {
+    background: #0b1326 !important;
+    border-color: rgba(96, 165, 250, 0.2) !important;
+  }
+
+  .run-multi-option.active,
+  .run-multi-option:hover {
+    background: linear-gradient(135deg, #083044 0%, #0b2144 100%) !important;
+    border-color: rgba(34, 211, 238, 0.58) !important;
+  }
+
+  .run-date-popover {
+    z-index: 99999 !important;
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(15, 23, 42, 0.14) !important;
+    box-shadow: 0 34px 100px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .date-popover-tabs { border-bottom-color: rgba(15, 23, 42, 0.1) !important; }
+  .date-popover-tabs div { background: #ffffff !important; border: 1px solid rgba(15, 23, 42, 0.08) !important; }
+  .date-popover-tabs span { color: #64748b !important; }
+  .date-popover-tabs strong,
+  .calendar-nav-row strong,
+  .calendar-month-card h4 { color: #0f172a !important; }
+  .date-preset-column button,
+  .calendar-nav-row button { background: #ffffff !important; color: #0f172a !important; border: 1px solid rgba(15, 23, 42, 0.1) !important; }
+  .date-preset-column button.active,
+  .date-preset-column button:hover,
+  .calendar-nav-row button:hover { background: #dcfce7 !important; color: #14532d !important; border-color: rgba(22, 163, 74, 0.28) !important; }
+  .calendar-weekdays span { color: #94a3b8 !important; }
+  .calendar-day { color: #0f172a !important; background: transparent !important; }
+  .calendar-day.muted { color: #cbd5e1 !important; }
+  .calendar-day.in-range { background: #e8f5ec !important; }
+  .calendar-day.range-start,
+  .calendar-day.range-end { color: #ffffff !important; border-radius: 999px; border-color: #15803d !important; background: #15803d !important; }
+  .date-popover-actions { border-top: 1px solid rgba(15, 23, 42, 0.08); }
+  .date-popover-actions .ghost-btn { background: #ffffff !important; color: #0f172a !important; border: 1px solid rgba(15, 23, 42, 0.1) !important; }
+  .primary-btn.light { background: #15803d !important; color: #ffffff !important; }
+
+  .monitor-column > .surface-card {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .run-summary-card .mini-grid.polished {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .run-summary-card .mini-grid.polished div {
+    min-height: 78px;
+  }
+
+
+  .command-card,
+  .control-block,
+  .filter-control-block {
+    overflow: visible !important;
+  }
+
+  .filter-control-block {
+    position: relative;
+    z-index: 80;
+  }
+
+  .control-block:has(.run-multi-filter.open),
+  .filter-control-block:has(.run-multi-filter.open),
+  .control-block:has(.run-date-range-picker.open),
+  .filter-control-block:has(.run-date-range-picker.open) {
+    z-index: 8000;
   }
 
   @media (max-width: 1280px) {
