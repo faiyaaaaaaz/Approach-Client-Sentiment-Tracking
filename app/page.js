@@ -535,6 +535,16 @@ function resultTypeColor(label) {
   return "#8b5cf6";
 }
 
+function reviewSentimentColor(label) {
+  if (label === "Highly Likely Positive Review") return "#10b981";
+  if (label === "Likely Positive Review") return "#22c55e";
+  if (label === "Missed Opportunity") return "#f59e0b";
+  if (label === "Negative Outcome - No Review Request") return "#a855f7";
+  if (label === "Likely Negative Review") return "#f97316";
+  if (label === "Highly Likely Negative Review") return "#ef4444";
+  return "#6366f1";
+}
+
 function clientSentimentColor(label) {
   if (label === "Very Positive") return "#10b981";
   if (label === "Positive") return "#22c55e";
@@ -558,6 +568,7 @@ function chartColor(label, kind, index = 0) {
   const fallback = ["#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f59e0b", "#ec4899", "#6366f1"];
   if (kind === "client") return clientSentimentColor(label);
   if (kind === "resolution") return resolutionStatusColor(label);
+  if (kind === "review") return reviewSentimentColor(label);
   if (kind === "result") return resultTypeColor(label);
   return fallback[index % fallback.length];
 }
@@ -575,6 +586,13 @@ function chartGradient(label, kind, index = 0) {
     if (label === "Pending") return "linear-gradient(90deg, #f59e0b, #f97316)";
     if (label === "Unclear") return "linear-gradient(90deg, #8b5cf6, #ec4899)";
     return "linear-gradient(90deg, #ef4444, #7f1d1d)";
+  }
+
+  if (kind === "review") {
+    if (label.includes("Positive")) return `linear-gradient(90deg, ${color}, #06b6d4)`;
+    if (label === "Missed Opportunity") return "linear-gradient(90deg, #f59e0b, #ef4444)";
+    if (label.includes("Negative")) return `linear-gradient(90deg, ${color}, #7f1d1d)`;
+    return `linear-gradient(90deg, ${color}, #8b5cf6)`;
   }
 
   return `linear-gradient(90deg, ${color}, #8b5cf6)`;
@@ -2181,7 +2199,7 @@ export default function DashboardPage() {
                 <DonutChart
                   entries={reviewEntries}
                   total={filteredRows.length}
-                  kind="result"
+                  kind="review"
                   onSelect={(entry) =>
                     openDetail(
                       "Review Approach Drill In",
@@ -3292,7 +3310,7 @@ const dashboardStyles = `
 
   .kpi-card {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     min-height: 124px;
     display: flex;
     flex-direction: column;
@@ -3315,6 +3333,8 @@ const dashboardStyles = `
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.08);
     filter: blur(24px);
+    z-index: 0;
+    pointer-events: none;
   }
 
   .kpi-card:hover {
@@ -3405,7 +3425,7 @@ const dashboardStyles = `
   }
 
   .chart-card {
-    overflow: hidden;
+    overflow: visible;
   }
 
   .chart-card::before,
@@ -3455,33 +3475,36 @@ const dashboardStyles = `
     position: relative;
     display: inline-grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     flex: 0 0 auto;
     border-radius: 999px;
-    color: #bfdbfe;
-    border: 1px solid rgba(96, 165, 250, 0.32);
-    background: rgba(59, 130, 246, 0.12);
-    font-size: 12px;
-    font-weight: 900;
+    color: #e0f2fe;
+    border: 1px solid rgba(125, 211, 252, 0.48);
+    background: rgba(14, 165, 233, 0.16);
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.18);
+    font-size: 13px;
+    font-weight: 950;
+    line-height: 1;
     cursor: help;
+    z-index: 50;
   }
 
   .info-tip-bubble {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 10px);
-    z-index: 1000;
-    width: min(340px, 80vw);
-    transform: translateX(-50%) translateY(6px);
+    bottom: calc(100% + 12px);
+    z-index: 1000000;
+    width: min(360px, 80vw);
+    transform: translateX(-50%) translateY(8px);
     padding: 12px 14px;
     border-radius: 14px;
     color: #e5ebff;
-    border: 1px solid rgba(147, 197, 253, 0.22);
+    border: 1px solid rgba(147, 197, 253, 0.3);
     background:
-      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 35%),
-      #0b1122;
-    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.52);
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.18), transparent 35%),
+      #070b18;
+    box-shadow: 0 26px 70px rgba(0, 0, 0, 0.68);
     font-size: 12px;
     font-weight: 800;
     line-height: 1.55;
@@ -3626,15 +3649,16 @@ const dashboardStyles = `
 
   .donut-layout {
     display: grid;
-    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 280px) minmax(280px, 1fr);
     gap: 22px;
     align-items: center;
-    min-height: 320px;
+    min-height: 300px;
   }
 
   .donut {
-    width: 300px;
-    height: 300px;
+    width: 280px;
+    height: 280px;
+    max-width: 100%;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -3720,7 +3744,7 @@ const dashboardStyles = `
 
   .donut-legend button {
     display: grid;
-    grid-template-columns: 10px minmax(0, 1fr) auto;
+    grid-template-columns: 12px minmax(180px, 1fr) auto;
     gap: 10px;
     align-items: center;
     padding: 10px 12px;
@@ -3740,15 +3764,18 @@ const dashboardStyles = `
   }
 
   .donut-legend i {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
+    box-shadow: 0 0 14px currentColor;
   }
 
   .donut-legend strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.25;
+    min-width: 0;
   }
 
   .donut-legend span {
@@ -3756,6 +3783,7 @@ const dashboardStyles = `
     font-size: 12px;
     font-weight: 900;
     white-space: nowrap;
+    padding-left: 10px;
   }
 
   .leaderboard-panel {
@@ -4244,9 +4272,13 @@ const dashboardStyles = `
 
   .overview-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px;
     margin-bottom: 18px;
+  }
+
+  .overview-grid .chart-card:first-child {
+    grid-column: 1 / -1;
   }
 
   .breakdown-grid {
@@ -4269,11 +4301,25 @@ const dashboardStyles = `
   .kpi-card > .info-tip .info-tip-bubble {
     left: auto;
     right: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
 
   .kpi-card > .info-tip:hover .info-tip-bubble,
   .kpi-card > .info-tip:focus .info-tip-bubble {
+    transform: translateY(0);
+  }
+
+  .chart-head .info-tip .info-tip-bubble,
+  .section-title-row .info-tip .info-tip-bubble {
+    left: 0;
+    right: auto;
+    transform: translateY(8px);
+  }
+
+  .chart-head .info-tip:hover .info-tip-bubble,
+  .chart-head .info-tip:focus .info-tip-bubble,
+  .section-title-row .info-tip:hover .info-tip-bubble,
+  .section-title-row .info-tip:focus .info-tip-bubble {
     transform: translateY(0);
   }
 
