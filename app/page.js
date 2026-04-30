@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { supabase } from "../lib/supabase";
 
 const INTERCOM_BASE_URL =
@@ -2094,36 +2093,11 @@ export default function DashboardPage() {
       />
 
       <div className="dashboard-shell">
-        <section className="hero-panel compact-hero">
+        <section className="hero-panel compact-hero slim-hero">
           <div className="hero-copy">
             <p>Insights Dashboard</p>
-            <strong>Interactive Dashboard for In Depth Analysis</strong>
+            <strong>Live Quality Overview</strong>
             <span>Latest Stored Result: {formatDateTime(latestStoredAt)}</span>
-          </div>
-
-          <div className="hero-command-card">
-            <div>
-              <span>Current View</span>
-              <strong>{formatNumber(total)} Conversations</strong>
-              <small>{getRangeDisplay(globalFilters)} · {globalFilters.cexOnly ? "CEx Only" : "All Teams"}</small>
-            </div>
-
-            <div className="hero-metric-grid">
-              <span>
-                <b>{formatNumber(missedCount)}</b>
-                Missed
-              </span>
-              <span>
-                <b>{formatPercent(total ? (resolvedCount / total) * 100 : 0)}</b>
-                Resolved
-              </span>
-            </div>
-
-            <div className="hero-actions">
-              <Link href="/run" className="primary-link">Run Audit</Link>
-              <Link href="/results" className="secondary-link">Results</Link>
-              <Link href="/admin" className="secondary-link">Admin</Link>
-            </div>
           </div>
         </section>
 
@@ -2242,7 +2216,37 @@ export default function DashboardPage() {
               </div>
             </section>
 
-            <section className="overview-grid">
+            <section className="overview-grid current-view-overview-grid">
+              <article className="current-view-card">
+                <div className="current-view-head">
+                  <div>
+                    <p>Current View</p>
+                    <strong>{formatNumber(total)} Conversations</strong>
+                    <span>{getRangeDisplay(globalFilters)} · {globalFilters.cexOnly ? "CEx Only" : "All Teams"}</span>
+                  </div>
+                  <InfoTip text="A quick summary of the currently selected date range and filters. The numbers update whenever filters change." />
+                </div>
+
+                <div className="current-view-stats">
+                  <div>
+                    <span>Missed Opportunities</span>
+                    <strong>{formatNumber(missedCount)}</strong>
+                  </div>
+                  <div>
+                    <span>Resolution Rate</span>
+                    <strong>{formatPercent(total ? (resolvedCount / total) * 100 : 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Very Positive</span>
+                    <strong>{formatNumber(veryPositiveCount)}</strong>
+                  </div>
+                  <div>
+                    <span>Unresolved</span>
+                    <strong>{formatNumber(unresolvedCount)}</strong>
+                  </div>
+                </div>
+              </article>
+
               <ChartCard
                 title="Review Approach Breakdown"
                 subtitle="Distribution By Review Approach"
@@ -4462,6 +4466,227 @@ const dashboardStyles = `
 
   .info-tip-bubble-floating.below {
     transform: translate(-50%, 0);
+  }
+
+
+  /* Compact hero + current-view layout refinement */
+  .hero-panel.slim-hero {
+    display: block;
+    min-height: 0;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    border-radius: 24px;
+  }
+
+  .hero-panel.slim-hero::before,
+  .hero-panel.slim-hero::after {
+    opacity: 0.55;
+  }
+
+  .slim-hero .hero-copy {
+    max-width: none;
+    min-height: 0;
+    align-self: auto;
+  }
+
+  .slim-hero .hero-copy p {
+    margin: 0 0 6px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+  }
+
+  .slim-hero .hero-copy strong {
+    margin: 0 0 4px;
+    font-size: clamp(20px, 1.55vw, 28px);
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+
+  .slim-hero .hero-copy span {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .current-view-overview-grid {
+    grid-template-columns: minmax(260px, 0.74fr) repeat(3, minmax(300px, 1fr));
+    align-items: stretch;
+  }
+
+  .current-view-card {
+    position: relative;
+    overflow: visible;
+    min-height: 390px;
+    display: grid;
+    align-content: space-between;
+    gap: 18px;
+    padding: 20px;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(139, 92, 246, 0.22), transparent 38%),
+      radial-gradient(circle at 0% 100%, rgba(14, 165, 233, 0.10), transparent 42%),
+      linear-gradient(180deg, rgba(20, 26, 50, 0.94), rgba(7, 10, 24, 0.97));
+    box-shadow:
+      0 24px 80px rgba(0, 0, 0, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .current-view-card::before {
+    content: "";
+    position: absolute;
+    inset: -90px auto auto -100px;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.08);
+    filter: blur(42px);
+    pointer-events: none;
+  }
+
+  .current-view-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .current-view-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .current-view-head p {
+    margin: 0 0 10px;
+    color: #8ea0d6;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .current-view-head strong {
+    display: block;
+    margin: 0 0 8px;
+    color: #ffffff;
+    font-size: clamp(26px, 2.1vw, 38px);
+    line-height: 1;
+    letter-spacing: -0.055em;
+  }
+
+  .current-view-head span {
+    display: block;
+    color: #a9b4d0;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .current-view-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .current-view-stats div {
+    min-width: 0;
+    padding: 12px 13px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .current-view-stats span {
+    display: block;
+    margin: 0 0 6px;
+    color: #98a7d0;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    line-height: 1.35;
+  }
+
+  .current-view-stats strong {
+    display: block;
+    color: #ffffff;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.045em;
+  }
+
+  /* Center the question mark inside every help circle */
+  .info-tip,
+  .kpi-card .info-tip,
+  .chart-head .info-tip,
+  .section-title-row .info-tip,
+  .current-view-card .info-tip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    flex: 0 0 18px;
+    padding: 0;
+    margin: 0;
+    border-radius: 999px;
+    font-size: 0;
+    line-height: 1;
+    text-align: center;
+    color: #dff7ff;
+    border: 1px solid rgba(125, 211, 252, 0.62);
+    background: rgba(14, 165, 233, 0.22);
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.26);
+  }
+
+  .info-tip::before,
+  .kpi-card .info-tip::before,
+  .chart-head .info-tip::before,
+  .section-title-row .info-tip::before,
+  .current-view-card .info-tip::before {
+    content: "?";
+    display: block;
+    color: #dff7ff;
+    font-size: 10px;
+    font-weight: 950;
+    line-height: 1;
+    transform: translateY(-0.25px);
+  }
+
+  .kpi-head-row {
+    align-items: flex-start;
+  }
+
+  @media (max-width: 1500px) {
+    .current-view-overview-grid {
+      grid-template-columns: minmax(260px, 0.82fr) repeat(3, minmax(270px, 1fr));
+    }
+  }
+
+  @media (max-width: 1320px) {
+    .current-view-overview-grid {
+      grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .current-view-overview-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .current-view-card {
+      min-height: 0;
+    }
+
+    .current-view-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 760px) {
+    .current-view-stats {
+      grid-template-columns: 1fr;
+    }
   }
 
 `;
