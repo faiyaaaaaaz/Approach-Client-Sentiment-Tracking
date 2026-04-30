@@ -1291,7 +1291,7 @@ function InfoTip({ text }) {
           event.stopPropagation();
         }}
       >
-        ?
+        <span className="info-tip-mark" aria-hidden="true">?</span>
       </span>
 
       {tooltipState && typeof document !== "undefined"
@@ -4819,6 +4819,96 @@ const dashboardStyles = `
     .compact-current-stats {
       grid-template-columns: 1fr;
     }
+  }
+
+
+  /* Final tooltip icon alignment repair: keep every help icon centered and prevent duplicate question marks. */
+  .info-tip,
+  .kpi-card .info-tip,
+  .chart-head .info-tip,
+  .section-title-row .info-tip,
+  .current-view-card .info-tip,
+  .title-with-help .info-tip {
+    box-sizing: border-box !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    min-height: 18px !important;
+    flex: 0 0 18px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 999px !important;
+    color: #dff7ff !important;
+    border: 1px solid rgba(125, 211, 252, 0.68) !important;
+    background: rgba(14, 165, 233, 0.24) !important;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.22) !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    cursor: help !important;
+  }
+
+  .info-tip::before,
+  .kpi-card .info-tip::before,
+  .chart-head .info-tip::before,
+  .section-title-row .info-tip::before,
+  .current-view-card .info-tip::before,
+  .title-with-help .info-tip::before {
+    content: none !important;
+    display: none !important;
+  }
+
+  .info-tip-mark {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #dff7ff !important;
+    font-size: 10px !important;
+    font-weight: 950 !important;
+    line-height: 1 !important;
+    letter-spacing: 0 !important;
+    text-align: center !important;
+    transform: translateY(-0.15px) !important;
+    pointer-events: none !important;
+  }
+
+  .kpi-head-row .info-tip {
+    align-self: flex-start !important;
+    margin-left: auto !important;
+  }
+
+  .current-view-head .info-tip {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    align-self: flex-start !important;
+    margin-left: 12px !important;
+  }
+
+  .chart-head .info-tip,
+  .section-title-row .info-tip,
+  .title-with-help .info-tip {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    margin-left: 7px !important;
+    transform: none !important;
+  }
+
+  .chart-head .title-with-help,
+  .section-title-row .title-with-help {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
   }
 
 `;
