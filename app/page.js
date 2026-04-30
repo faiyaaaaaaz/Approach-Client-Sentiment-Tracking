@@ -902,9 +902,10 @@ function buildAgentWeeklyRows(rows, filters, metric, timeframe = "weekly") {
       const periodRows = rowsInPeriod(employeeRow.totalRows, period);
       return {
         ...period,
+        dateLabel: period.label,
         rows: periodRows,
         value: metricValue(periodRows, metric),
-        label: formatMetricValue(periodRows, metric),
+        metricLabel: formatMetricValue(periodRows, metric),
       };
     }),
     totalValue: metricValue(employeeRow.totalRows, metric),
@@ -1829,8 +1830,8 @@ function WeeklyAgentTable({
   setFilters,
   metric,
   setMetric,
-  timeframe,
-  setTimeframe,
+  timeframe = "weekly",
+  setTimeframe = () => {},
   onOpenDetail,
   supervisorTeams,
   supervisorLookup,
@@ -1949,11 +1950,11 @@ function WeeklyAgentTable({
                           title={metricLabel}
                           onClick={() =>
                             drillRows.length
-                              ? onOpenDetail(`${timeframeLabel} Agent Drill In`, `${employeeRow.employee} · ${period.label}`, drillRows, filters)
+                              ? onOpenDetail(`${timeframeLabel} Agent Drill In`, `${employeeRow.employee} · ${period.dateLabel || period.label}`, drillRows, filters)
                               : null
                           }
                         >
-                          {period.label}
+                          {period.metricLabel || period.label}
                         </button>
                       </td>
                     );
@@ -1962,7 +1963,7 @@ function WeeklyAgentTable({
               ))
             ) : (
               <tr>
-                <td colSpan={3 + periods.length}>No Weekly Agent Data For The Selected Filters.</td>
+                <td colSpan={3 + periods.length}>No Agent Performance Data For The Selected Timeframe And Filters.</td>
               </tr>
             )}
           </tbody>
@@ -1979,7 +1980,7 @@ function downloadWeeklyCsv(tableRows, periods, metric, metricLabel, timeframeLab
     row.employee,
     row.team,
     formatMetricValue(row.totalRows, metric),
-    ...row.periods.map((period) => period.label),
+    ...row.periods.map((period) => period.metricLabel || period.label),
   ]);
 
   const csv = [header, ...rows]
@@ -2734,6 +2735,8 @@ export default function DashboardPage() {
               setFilters={setWeeklyFilters}
               metric={weeklyMetric}
               setMetric={setWeeklyMetric}
+              timeframe={weeklyTimeframe}
+              setTimeframe={setWeeklyTimeframe}
               supervisorTeams={supervisorTeams}
               supervisorLookup={supervisorLookup}
               employees={employees}
