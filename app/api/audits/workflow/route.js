@@ -411,6 +411,7 @@ export async function POST(request) {
       const limitCount = body.limitCount === null || body.limitCount === undefined ? null : toInt(body.limitCount, null);
       const autoRunEnabled = Boolean(body.autoRunAfterFetch);
       const batchSize = toInt(body.batchSize, DEFAULT_BATCH_SIZE) || DEFAULT_BATCH_SIZE;
+      const filters = body.filters && typeof body.filters === "object" ? body.filters : {};
 
       const { data: run, error } = await auth.adminClient
         .from("audit_workflow_runs")
@@ -430,6 +431,7 @@ export async function POST(request) {
           batch_size: batchSize,
           safe_payload: {
             datePreset: body.selectedDatePreset || null,
+            filters,
             createdFrom: "run_audit_page",
           },
           last_heartbeat_at: now,
@@ -449,7 +451,7 @@ export async function POST(request) {
         stage: "fetch",
         target_label: `${startDate} to ${endDate}`,
         details: `Fetch started for ${startDate} to ${endDate}.`,
-        metadata: { limiterEnabled, limitCount, autoRunEnabled, batchSize },
+        metadata: { limiterEnabled, limitCount, autoRunEnabled, batchSize, filters },
       });
 
       await writeSystemLog(auth.adminClient, request, actor, {
@@ -459,7 +461,7 @@ export async function POST(request) {
         target_id: run.id,
         target_label: `${startDate} to ${endDate}`,
         description: `${auth.profile?.full_name || auth.email} started a database-backed Run Audit workflow.`,
-        safe_after: { startDate, endDate, limiterEnabled, limitCount, autoRunEnabled },
+        safe_after: { startDate, endDate, limiterEnabled, limitCount, autoRunEnabled, filters },
       });
 
       return json({ ok: true, run });
