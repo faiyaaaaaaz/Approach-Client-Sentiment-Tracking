@@ -8,7 +8,14 @@ const INTERCOM_PER_PAGE = 150;
 const MAX_FETCH_PAGES_PER_DAY = 50;
 const DEFAULT_CONVERSATION_RATINGS = [3, 4, 5];
 const SOFT_TIMEOUT_MS = 45000;
-const MAX_DETAIL_HYDRATIONS_PER_REQUEST = 120;
+const MAX_DETAIL_HYDRATIONS_PER_REQUEST = 160;
+const CX_SCORE_SEARCH_FIELDS = [
+  "custom_attributes.CX Score rating",
+  "custom_attributes.CX Score Rating",
+  "custom_attributes.CX Score",
+  "custom_attributes.cx_score_rating",
+  "custom_attributes.cx_score",
+];
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -108,17 +115,6 @@ function numberMatchesFilter(value, selectedNumbers) {
   if (!Array.isArray(selectedNumbers) || selectedNumbers.length === 0) return true;
   const number = Number(value);
   return Number.isFinite(number) && selectedNumbers.includes(number);
-}
-
-function hasUsableNumber(value) {
-  if (value === null || value === undefined || value === "") return false;
-  const number = Number(value);
-  return Number.isFinite(number);
-}
-
-function isClearlyUnassignedAgent(value) {
-  const key = normalizeKey(value);
-  return !key || key === "unassigned" || key === "unknown" || key === "-";
 }
 
 function textMatchesFilter(value, selectedValues) {
@@ -426,15 +422,22 @@ function extractConversationPreview(conversation) {
   };
 }
 
-function buildSearchBody({ sinceTs, untilTs, startingAfter, conversationRatings }) {
+function buildSearchBody({
+  sinceTs,
+  untilTs,
+  startingAfter,
+  conversationRatings,
+  cxScoreRatings,
+  cxScoreSearchField,
+}) {
   const values = [
     {
-      field: "conversation_rating.replied_at",
+      field: "created_at",
       operator: ">",
       value: Number(sinceTs),
     },
     {
-      field: "conversation_rating.replied_at",
+      field: "created_at",
       operator: "<",
       value: Number(untilTs),
     },
@@ -448,13 +451,21 @@ function buildSearchBody({ sinceTs, untilTs, startingAfter, conversationRatings 
     });
   }
 
+  if (cxScoreSearchField && Array.isArray(cxScoreRatings) && cxScoreRatings.length > 0) {
+    values.push({
+      field: cxScoreSearchField,
+      operator: "IN",
+      value: cxScoreRatings,
+    });
+  }
+
   return {
     query: {
       operator: "AND",
       value: values,
     },
     sort: {
-      field: "conversation_rating.replied_at",
+      field: "created_at",
       order: "ascending",
     },
     pagination: startingAfter
@@ -463,20 +474,7 @@ function buildSearchBody({ sinceTs, untilTs, startingAfter, conversationRatings 
   };
 }
 
-async function fetchIntercomSearchPage({
-  intercomApiKey,
-  sinceTs,
-  untilTs,
-  startingAfter,
-  conversationRatings,
-}) {
-  const body = buildSearchBody({
-    sinceTs,
-    untilTs,
-    startingAfter,
-    conversationRatings,
-  });
-
+async function postIntercomSearch({ intercomApiKey, body }) {
   const response = await fetch("https://api.intercom.io/conversations/search", {
     method: "POST",
     headers: {
@@ -506,6 +504,122 @@ async function fetchIntercomSearchPage({
     contentType,
     responseExcerpt: responseText.slice(0, 1200),
     data,
+  };
+}
+
+function looksLikeInvalidSearchField(pageResult) {
+  const text = String(pageResult?.responseExcerpt || "").toLowerCase();
+  return (
+    pageResult?.status === 400 &&
+    (text.includes("field") || text.includes("attribute") || text.includes("invalid") || text.includes("unknown"))
+  );
+}
+
+async function fetchIntercomSearchPage({
+  intercomApiKey,
+  sinceTs,
+  untilTs,
+  startingAfter,
+  conversationRatings,
+  cxScoreRatings,
+  cxScoreSearchState,
+}) {
+  const hasCxFilter = Array.isArray(cxScoreRatings) && cxScoreRatings.length > 0;
+
+  if (!hasCxFilter) {
+    const body = buildSearchBody({
+      sinceTs,
+      untilTs,
+      startingAfter,
+      conversationRatings,
+      cxScoreRatings: [],
+      cxScoreSearchField: "",
+    });
+
+    return postIntercomSearch({ intercomApiKey, body });
+  }
+
+  if (cxScoreSearchState?.field) {
+    const body = buildSearchBody({
+      sinceTs,
+      untilTs,
+      startingAfter,
+      conversationRatings,
+      cxScoreRatings,
+      cxScoreSearchField: cxScoreSearchState.field,
+    });
+
+    const result = await postIntercomSearch({ intercomApiKey, body });
+    return { ...result, cxScoreSearchField: cxScoreSearchState.field, cxScoreSearchFallback: false };
+  }
+
+  if (cxScoreSearchState?.unsupported === true) {
+    const body = buildSearchBody({
+      sinceTs,
+      untilTs,
+      startingAfter,
+      conversationRatings,
+      cxScoreRatings: [],
+      cxScoreSearchField: "",
+    });
+
+    const result = await postIntercomSearch({ intercomApiKey, body });
+    return { ...result, cxScoreSearchField: "detail_hydration_fallback", cxScoreSearchFallback: true };
+  }
+
+  const failedCandidates = [];
+
+  for (const field of CX_SCORE_SEARCH_FIELDS) {
+    const body = buildSearchBody({
+      sinceTs,
+      untilTs,
+      startingAfter,
+      conversationRatings,
+      cxScoreRatings,
+      cxScoreSearchField: field,
+    });
+
+    const result = await postIntercomSearch({ intercomApiKey, body });
+
+    if (result.ok) {
+      if (cxScoreSearchState) cxScoreSearchState.field = field;
+      return {
+        ...result,
+        cxScoreSearchField: field,
+        cxScoreSearchFallback: false,
+        failedCxScoreFieldCandidates: failedCandidates,
+      };
+    }
+
+    failedCandidates.push({ field, status: result.status, responseExcerpt: result.responseExcerpt });
+
+    if (!looksLikeInvalidSearchField(result)) {
+      return {
+        ...result,
+        cxScoreSearchField: field,
+        cxScoreSearchFallback: false,
+        failedCxScoreFieldCandidates: failedCandidates,
+      };
+    }
+  }
+
+  if (cxScoreSearchState) cxScoreSearchState.unsupported = true;
+
+  const fallbackBody = buildSearchBody({
+    sinceTs,
+    untilTs,
+    startingAfter,
+    conversationRatings,
+    cxScoreRatings: [],
+    cxScoreSearchField: "",
+  });
+
+  const fallbackResult = await postIntercomSearch({ intercomApiKey, body: fallbackBody });
+  return {
+    ...fallbackResult,
+    cxScoreSearchField: "detail_hydration_fallback",
+    cxScoreSearchFallback: true,
+    failedCxScoreFieldCandidates: failedCandidates,
   };
 }
 
@@ -557,6 +671,7 @@ async function fetchConversationsForDay({
   selectedIntercomAgentNames,
   requestStartedAt,
   hydrationCounter,
+  cxScoreSearchState,
 }) {
   const { sinceTs, untilTs } = dhakaDayBounds(date);
 
@@ -581,12 +696,17 @@ async function fetchConversationsForDay({
       untilTs,
       startingAfter,
       conversationRatings,
+      cxScoreRatings,
+      cxScoreSearchState,
     });
 
     const pageItems = Array.isArray(pageResult?.data?.conversations)
       ? pageResult.data.conversations
       : [];
     const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
+    const cxScoreFilteredByIntercom = Boolean(
+      cxScoreRatings?.length && pageResult?.cxScoreSearchField && !pageResult?.cxScoreSearchFallback
+    );
 
     let hydratedOnThisPage = 0;
     let skippedBeforeHydration = 0;
@@ -604,12 +724,21 @@ async function fetchConversationsForDay({
         .filter(Boolean)
         .slice(0, 10),
       responseExcerpt: pageResult.responseExcerpt,
+      cxScoreSearchField: pageResult.cxScoreSearchField || cxScoreSearchState?.field || "",
+      cxScoreSearchFallback: Boolean(pageResult.cxScoreSearchFallback),
+      failedCxScoreFieldCandidates: pageResult.failedCxScoreFieldCandidates || undefined,
     });
+
+    if (!pageResult.ok) {
+      stoppedEarly = true;
+      stopReason = `Intercom search failed with status ${pageResult.status}.`;
+      break;
+    }
 
     for (const conversation of pageItems) {
       if (Date.now() - requestStartedAt > SOFT_TIMEOUT_MS) {
         stoppedEarly = true;
-        stopReason = "Stopped early to avoid a Vercel function timeout while filtering CX Score results.";
+        stopReason = "Stopped early to avoid a Vercel function timeout while filtering Intercom conversations.";
         break;
       }
 
@@ -634,7 +763,7 @@ async function fetchConversationsForDay({
 
       let finalPreview = preliminaryPreview;
       const needsHydrationForAgent = hasAgentFilter && (!preliminaryAgentKnown || !preliminaryAgentMatches);
-      const needsHydrationForCx = hasCxFilter && !hasUsableNumber(preliminaryPreview?.cxScoreRating);
+      const needsHydrationForCx = hasCxFilter && !cxScoreFilteredByIntercom && !hasUsableNumber(preliminaryPreview?.cxScoreRating);
 
       if (needsHydrationForAgent || needsHydrationForCx) {
         if (hydrationCounter.count >= MAX_DETAIL_HYDRATIONS_PER_REQUEST) {
@@ -652,7 +781,7 @@ async function fetchConversationsForDay({
         continue;
       }
 
-      if (!numberMatchesFilter(finalPreview?.cxScoreRating, cxScoreRatings)) {
+      if (hasCxFilter && !cxScoreFilteredByIntercom && !numberMatchesFilter(finalPreview?.cxScoreRating, cxScoreRatings)) {
         continue;
       }
 
@@ -661,7 +790,10 @@ async function fetchConversationsForDay({
       }
 
       seenIds.add(id);
-      conversations.push(finalPreview);
+      conversations.push({
+        ...finalPreview,
+        cxScoreRating: finalPreview?.cxScoreRating || (cxScoreFilteredByIntercom ? cxScoreRatings.join(", ") : ""),
+      });
 
       if (limiterEnabled && conversations.length >= desiredCount) {
         const lastDebug = debugPages[debugPages.length - 1];
@@ -678,6 +810,8 @@ async function fetchConversationsForDay({
           stoppedEarly,
           stopReason,
           hydrationCount: hydrationCounter.count,
+          cxScoreSearchField: cxScoreSearchState?.field || "",
+          cxScoreSearchFallback: Boolean(cxScoreSearchState?.unsupported),
         };
       }
     }
@@ -704,6 +838,8 @@ async function fetchConversationsForDay({
     stoppedEarly,
     stopReason,
     hydrationCount: hydrationCounter.count,
+    cxScoreSearchField: cxScoreSearchState?.field || "",
+    cxScoreSearchFallback: Boolean(cxScoreSearchState?.unsupported),
   };
 }
 
@@ -833,6 +969,7 @@ export async function POST(request) {
     const dailySummary = [];
     const requestStartedAt = Date.now();
     const hydrationCounter = { count: 0 };
+    const cxScoreSearchState = { field: "", unsupported: false };
     let stoppedEarly = false;
     let stopReason = "";
 
@@ -848,6 +985,7 @@ export async function POST(request) {
         selectedIntercomAgentNames,
         requestStartedAt,
         hydrationCounter,
+        cxScoreSearchState,
       });
 
       fetchedConversations.push(...dayResult.conversations);
@@ -861,6 +999,8 @@ export async function POST(request) {
         stoppedEarly: dayResult.stoppedEarly || false,
         stopReason: dayResult.stopReason || "",
         hydrationCount: dayResult.hydrationCount || hydrationCounter.count,
+        cxScoreSearchField: dayResult.cxScoreSearchField || cxScoreSearchState.field || "",
+        cxScoreSearchFallback: dayResult.cxScoreSearchFallback || false,
       });
 
       if (dayResult.stoppedEarly) {
@@ -906,18 +1046,18 @@ export async function POST(request) {
         hydration_count: hydrationCounter.count,
         stopped_early: stoppedEarly,
         stop_reason: stopReason,
+        cx_score_search_field: cxScoreSearchState.field || "",
+        cx_score_search_fallback: Boolean(cxScoreSearchState.unsupported),
         key_source: intercomKey.source,
       },
     });
 
     return json({
       ok: true,
-      message: stoppedEarly
-        ? `${limitedConversations.length} conversation(s) matched before the safe timeout limit. Narrow the filters if you expected more.`
-        : limitedConversations.length > 0
+      message:
+        limitedConversations.length > 0
           ? "Conversations fetched successfully."
           : "No conversations found for the selected date range.",
-      warning: stoppedEarly ? stopReason : "",
       meta: {
         startDate,
         endDate,
@@ -929,6 +1069,8 @@ export async function POST(request) {
         hydrationCount: hydrationCounter.count,
         stoppedEarly,
         stopReason,
+        cxScoreSearchField: cxScoreSearchState.field || "",
+        cxScoreSearchFallback: Boolean(cxScoreSearchState.unsupported),
         filters: {
           conversationRatings: conversationRatings.length ? conversationRatings : "any",
           cxScoreRatings: cxScoreRatings.length ? cxScoreRatings : "any",
@@ -951,6 +1093,8 @@ export async function POST(request) {
             hydrationCount: hydrationCounter.count,
             stoppedEarly,
             stopReason,
+            cxScoreSearchField: cxScoreSearchState.field || "",
+            cxScoreSearchFallback: Boolean(cxScoreSearchState.unsupported),
           }
         : undefined,
     });
