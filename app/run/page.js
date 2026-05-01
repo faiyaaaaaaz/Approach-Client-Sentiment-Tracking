@@ -38,7 +38,6 @@ const SCORE_FILTER_OPTIONS = [
 ];
 
 const DEFAULT_CONVERSATION_RATINGS = ["3", "4", "5"];
-const DEFAULT_CX_SCORE_RATINGS = [];
 
 const FETCH_STEPS = [
   "Preparing request",
@@ -866,7 +865,6 @@ export default function RunPage() {
   const [autoRunAfterFetch, setAutoRunAfterFetch] = useState(false);
 
   const [conversationRatings, setConversationRatings] = useState(DEFAULT_CONVERSATION_RATINGS);
-  const [cxScoreRatings, setCxScoreRatings] = useState(DEFAULT_CX_SCORE_RATINGS);
   const [selectedEmployeeNames, setSelectedEmployeeNames] = useState([]);
   const [selectedIntercomAgentNames, setSelectedIntercomAgentNames] = useState([]);
   const [agentMappings, setAgentMappings] = useState([]);
@@ -983,11 +981,10 @@ export default function RunPage() {
   const selectedFilterSummary = useMemo(
     () => ({
       conversationRatings: describeSelection(conversationRatings, "Any Rating"),
-      cxScoreRatings: describeSelection(cxScoreRatings, "Any CX Score"),
       employees: selectedEmployeeNames.length ? `${selectedEmployeeNames.length} Employee(s)` : "All Employees",
       agents: selectedIntercomAgentNames.length ? `${selectedIntercomAgentNames.length} Intercom Agent(s)` : "All Intercom Agents",
     }),
-    [conversationRatings, cxScoreRatings, selectedEmployeeNames, selectedIntercomAgentNames]
+    [conversationRatings, selectedEmployeeNames, selectedIntercomAgentNames]
   );
   const queuedConversationCount = useMemo(
     () => getQueuedConversations(fetchedConversations).length,
@@ -1506,7 +1503,6 @@ export default function RunPage() {
     if (cached.limitCount) setLimitCount(cached.limitCount);
     if (typeof cached.autoRunAfterFetch === "boolean") setAutoRunAfterFetch(cached.autoRunAfterFetch);
     if (Array.isArray(cached.conversationRatings)) setConversationRatings(cached.conversationRatings);
-    if (Array.isArray(cached.cxScoreRatings)) setCxScoreRatings(cached.cxScoreRatings);
     if (Array.isArray(cached.selectedEmployeeNames)) setSelectedEmployeeNames(cached.selectedEmployeeNames);
     if (Array.isArray(cached.selectedIntercomAgentNames)) setSelectedIntercomAgentNames(cached.selectedIntercomAgentNames);
     if (cached.workflowRunId) setWorkflowRunId(cached.workflowRunId);
@@ -1566,7 +1562,6 @@ export default function RunPage() {
       limitCount,
       autoRunAfterFetch,
       conversationRatings,
-      cxScoreRatings,
       selectedEmployeeNames,
       selectedIntercomAgentNames,
       workflowRunId,
@@ -1587,7 +1582,6 @@ export default function RunPage() {
     limitCount,
     autoRunAfterFetch,
     conversationRatings,
-    cxScoreRatings,
     selectedEmployeeNames,
     selectedIntercomAgentNames,
     workflowRunId,
@@ -2304,8 +2298,7 @@ export default function RunPage() {
           selectedDatePreset,
           filters: {
             conversationRatings,
-            cxScoreRatings,
-            employeeNames: selectedEmployeeNames,
+                  employeeNames: selectedEmployeeNames,
             intercomAgentNames: selectedIntercomAgentNames,
           },
         },
@@ -2330,8 +2323,7 @@ export default function RunPage() {
           limiterEnabled,
           limitCount,
           conversationRatings,
-          cxScoreRatings,
-          employeeNames: selectedEmployeeNames,
+              employeeNames: selectedEmployeeNames,
           intercomAgentNames: selectedIntercomAgentNames,
           debug: true,
         }),
@@ -2645,17 +2637,6 @@ export default function RunPage() {
                   helper="Default: 3, 4, and 5. Clear selection to fetch any rating."
                 />
                 <MultiSelectFilter
-                  label="CX Score Rating"
-                  options={SCORE_FILTER_OPTIONS}
-                  selected={cxScoreRatings}
-                  onChange={(value) => {
-                    setCxScoreRatings(value);
-                    resetRunStateForInputChange();
-                  }}
-                  placeholder="Any CX Score"
-                  helper="Works together with Conversation Rating when both filters are selected."
-                />
-                <MultiSelectFilter
                   label="Employee"
                   options={employeeFilterOptions}
                   selected={selectedEmployeeNames}
@@ -2675,7 +2656,6 @@ export default function RunPage() {
 
               <div className="filter-summary-grid">
                 <div><span>Conversation Rating</span><strong>{selectedFilterSummary.conversationRatings}</strong></div>
-                <div><span>CX Score Rating</span><strong>{selectedFilterSummary.cxScoreRatings}</strong></div>
                 <div><span>Employees</span><strong>{selectedFilterSummary.employees}</strong></div>
                 <div><span>Intercom Agents</span><strong>{selectedFilterSummary.agents}</strong></div>
               </div>
@@ -3017,10 +2997,6 @@ export default function RunPage() {
                   <div>
                     <span>Conversation Rating</span>
                     <strong>{item?.conversationRating || item?.csatScore || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>CX Score</span>
-                    <strong>{item?.cxScoreRating || "-"}</strong>
                   </div>
                   <div>
                     <span>Replied</span>
