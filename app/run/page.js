@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
@@ -495,6 +496,108 @@ function formatClock(value) {
     minute: "2-digit",
   });
 }
+const INTERCOM_CONVERSATION_URL_PREFIX = "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
+
+function intercomConversationUrl(conversationId) {
+  const id = String(conversationId || "").trim();
+  return id ? `${INTERCOM_CONVERSATION_URL_PREFIX}/${id}` : "#";
+}
+
+function conversationIdOf(item) {
+  return String(item?.conversationId || item?.conversation_id || item?.id || "").trim();
+}
+
+function normalizePreviewMessages(data) {
+  return Array.isArray(data?.messages) ? data.messages : [];
+}
+
+function ConversationPreviewModal({ conversationId, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreview() {
+      if (!conversationId) return;
+      setLoading(true);
+      setError("");
+      setData(null);
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
+
+        const response = await fetch("/api/intercom/conversation-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ conversationId }),
+          cache: "no-store",
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
+        if (!cancelled) setData(payload);
+      } catch (previewError) {
+        if (!cancelled) setError(previewError instanceof Error ? previewError.message : "Preview is not available for this conversation.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPreview();
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  if (!conversationId) return null;
+  const messages = normalizePreviewMessages(data);
+  const metadata = data?.metadata || {};
+
+  return createPortal(
+    <div className="conversation-preview-backdrop" onClick={onClose}>
+      <div className="conversation-preview-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="conversation-preview-head">
+          <div>
+            <p>Conversation Preview</p>
+            <h2>{conversationId}</h2>
+            <span>{metadata.clientEmail || "Client email unavailable"} · {formatNumber(messages.length)} message(s)</span>
+          </div>
+          <div className="conversation-preview-actions">
+            <a href={intercomConversationUrl(conversationId)} target="_blank" rel="noreferrer" className="secondary-btn">Open on Intercom</a>
+            <button type="button" className="secondary-btn light-action" onClick={onClose}>Close</button>
+          </div>
+        </div>
+        {loading ? (
+          <div className="conversation-preview-loading">Loading the full Intercom conversation...</div>
+        ) : error ? (
+          <div className="conversation-preview-error"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom to see this conversation.</small></div>
+        ) : (
+          <>
+            <div className="conversation-preview-meta">
+              <div><span>Assigned Agent</span><strong>{metadata.assignedAdmin || "Unassigned"}</strong></div>
+              <div><span>Rating</span><strong>{metadata.rating || "-"}</strong></div>
+              <div><span>Status</span><strong>{metadata.state || "-"}</strong></div>
+              <div><span>Created</span><strong>{formatClock(metadata.createdAt)}</strong></div>
+            </div>
+            <div className="conversation-transcript-list">
+              {messages.length ? messages.map((message) => (
+                <article key={message.id} className={`conversation-message ${message.authorType || "system"}`}>
+                  <div className="conversation-message-top"><strong>{message.authorName || "Unknown"}</strong><span>{formatClock(message.createdAt)}</span></div>
+                  <p>{message.body || "Open on Intercom to see this message."}</p>
+                  {!message.isRenderableText ? <small>Open on Intercom to see this message.</small> : null}
+                </article>
+              )) : <div className="conversation-preview-empty">No renderable text was returned. Open on Intercom to see this conversation.</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function formatElapsed(startedAt) {
   if (!startedAt) return "0s";
 
@@ -894,6 +997,10 @@ export default function RunPage() {
   const [operationStatus, setOperationStatus] = useState("idle");
   const [executionLog, setExecutionLog] = useState([]);
   const [showAllResults, setShowAllResults] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(false);
+  const [queueSearchText, setQueueSearchText] = useState("");
+  const [selectedQueueIds, setSelectedQueueIds] = useState([]);
+  const [previewConversationId, setPreviewConversationId] = useState("");
   const [showJumpTop, setShowJumpTop] = useState(false);
   const [_elapsedTick, setElapsedTick] = useState(0);
 
@@ -937,6 +1044,19 @@ export default function RunPage() {
   const dailySummary = Array.isArray(fetchData?.debug?.dailySummary)
     ? fetchData.debug.dailySummary
     : [];
+
+  const filteredFetchedQueue = useMemo(() => {
+    const search = queueSearchText.trim().toLowerCase();
+    if (!search) return fetchedConversations;
+    return fetchedConversations.filter((item) => {
+      const haystack = [conversationIdOf(item), item?.agentName, item?.clientEmail, item?.conversationRating, item?.csatScore, item?.repliedAt].join(" ").toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [fetchedConversations, queueSearchText]);
+
+  const visibleFetchedQueue = queueExpanded ? filteredFetchedQueue : filteredFetchedQueue.slice(0, 8);
+  const selectedQueueSet = useMemo(() => new Set(selectedQueueIds), [selectedQueueIds]);
+  const allVisibleQueueSelected = visibleFetchedQueue.length > 0 && visibleFetchedQueue.every((item) => selectedQueueSet.has(conversationIdOf(item)));
 
   const results = Array.isArray(runData?.results) ? runData.results : [];
   const successCount = results.filter((item) => !item?.error).length;
@@ -2322,6 +2442,68 @@ export default function RunPage() {
     }
   }
 
+  async function syncWorkflowQueue(nextConversations, reason = "Queue updated.") {
+    if (!workflowRunId) return;
+    try {
+      await postWorkflowAction(
+        "update_queue",
+        {
+          run_id: workflowRunId,
+          conversations: nextConversations,
+          fetchedCount: nextConversations.length,
+          reason,
+        },
+        { quiet: true }
+      );
+    } catch (error) {
+      addLog("Queue updated locally, but database queue sync failed. Refresh may restore older queue.", "warning");
+    }
+  }
+
+  function applyQueueUpdate(nextConversations, message) {
+    const safeList = Array.isArray(nextConversations) ? nextConversations : [];
+    setFetchData((prev) => ({
+      ...(prev || {}),
+      ok: true,
+      conversations: safeList,
+      meta: {
+        ...(prev?.meta || {}),
+        fetchedCount: safeList.length,
+      },
+    }));
+    setSelectedQueueIds([]);
+    addLog(message, "notice");
+    syncWorkflowQueue(safeList, message);
+  }
+
+  function toggleQueueSelection(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    setSelectedQueueIds((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
+  }
+
+  function toggleAllVisibleQueueSelection() {
+    const visibleIds = visibleFetchedQueue.map(conversationIdOf).filter(Boolean);
+    if (!visibleIds.length) return;
+    if (allVisibleQueueSelected) {
+      setSelectedQueueIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    setSelectedQueueIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+  }
+
+  function removeSelectedFromQueue() {
+    if (!selectedQueueIds.length) return;
+    const selected = new Set(selectedQueueIds);
+    const nextConversations = fetchedConversations.filter((item) => !selected.has(conversationIdOf(item)));
+    applyQueueUpdate(nextConversations, formatNumber(selectedQueueIds.length) + " selected conversation(s) removed from the audit queue.");
+  }
+
+  function clearFetchedQueue() {
+    if (!fetchedConversations.length) return;
+    applyQueueUpdate([], "Fetched queue cleared. Fetch again to rebuild the audit queue.");
+  }
+
   async function handleFetchConversations() {
     setFetchError("");
     setFetchSuccess("");
@@ -2430,6 +2612,9 @@ export default function RunPage() {
       }
 
       setFetchData(data);
+      setSelectedQueueIds([]);
+      setQueueExpanded(false);
+      setQueueSearchText("");
       setFetchStepIndex(FETCH_STEPS.length - 1);
 
       const fetchedCount = Number(data?.meta?.fetchedCount || 0);
@@ -2815,7 +3000,7 @@ export default function RunPage() {
             <div className="control-block">
               <div className="block-head">
                 <span className="mini-label">Step 3</span>
-                <h3>Set run behavior</h3>
+                <h3>Set Run Behavior</h3>
               </div>
 
 
@@ -3002,6 +3187,8 @@ export default function RunPage() {
             ) : null}
 
             {runLoading ? (
+              <>
+                <div className="ai-working-inline"><span className="gear-loader" /> AI audit engine is working through the selected queue.</div>
               <ProgressPanel
                 type="Audit progress"
                 label={auditProgress.label}
@@ -3017,6 +3204,7 @@ export default function RunPage() {
                 failedRows={auditProgress.failedRows}
                 onCancel={handleCancelAudit}
               />
+              </>
             ) : null}
 
             {!fetchLoading && !runLoading ? (
@@ -3105,55 +3293,97 @@ export default function RunPage() {
         ))}
       </section>
 
-      <section className="surface-card preview-panel">
+      <section className="surface-card preview-panel fetched-queue-panel compact-preview-panel">
         <div className="section-head">
           <div>
-            <span className="mini-label">Fetched queue</span>
-            <h2>Conversation preview</h2>
+            <span className="mini-label">Fetched conversation preview</span>
+            <h2>Fetched queue</h2>
+            <p className="soft-copy">Review, preview, remove, or skip conversations before starting the GPT audit.</p>
           </div>
           <div className="header-right-meta">
-            <span className="count-pill">{formatNumber(fetchedConversations.length)} found</span>
+            <span className="count-pill">{formatNumber(fetchedConversations.length)} fetched</span>
             <span className="count-pill muted">{formatNumber(queuedConversationCount)} in audit queue</span>
+            <span className="count-pill muted">{formatNumber(selectedQueueIds.length)} selected</span>
           </div>
         </div>
 
         {!fetchData ? (
-          <div className="empty-box">Fetch conversations first.</div>
+          <div className="empty-box">Fetch conversations first. The queue table will appear here.</div>
         ) : fetchedConversations.length === 0 ? (
-          <div className="empty-box">No conversations were returned for this range.</div>
+          <div className="empty-box">No conversations are currently queued. Fetch again or adjust filters.</div>
         ) : (
-          <div className="conversation-grid">
-            {fetchedConversations.slice(0, 12).map((item, index) => (
-              <article key={item?.conversationId || `fetched-${index}`} className="conversation-card">
-                <div className="conversation-head">
-                  <div>
-                    <span>Conversation</span>
-                    <strong>{item?.conversationId || "-"}</strong>
-                  </div>
-                  <span className="pill notice">Filtered</span>
-                </div>
+          <>
+            <div className="fetched-queue-toolbar">
+              <label className="queue-search-field">
+                <span>Search fetched conversations</span>
+                <input
+                  value={queueSearchText}
+                  onChange={(event) => setQueueSearchText(event.target.value)}
+                  placeholder="Conversation, agent, client, rating"
+                />
+              </label>
+              <div className="queue-toolbar-actions">
+                <button type="button" className="secondary-btn" onClick={toggleAllVisibleQueueSelection}>
+                  {allVisibleQueueSelected ? "Clear Visible" : "Select Visible"}
+                </button>
+                <button type="button" className="secondary-btn" onClick={() => setSelectedQueueIds([])} disabled={!selectedQueueIds.length}>
+                  Clear Selection
+                </button>
+                <button type="button" className="danger-btn" onClick={removeSelectedFromQueue} disabled={!selectedQueueIds.length || runLoading}>
+                  Remove Selected
+                </button>
+                <button type="button" className="danger-btn" onClick={clearFetchedQueue} disabled={!fetchedConversations.length || runLoading}>
+                  Clear Queue
+                </button>
+              </div>
+            </div>
 
-                <div className="conversation-details">
-                  <div>
-                    <span>Agent</span>
-                    <strong>{item?.agentName || "Unassigned"}</strong>
-                  </div>
-                  <div>
-                    <span>Client</span>
-                    <strong>{item?.clientEmail || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>Conversation Rating</span>
-                    <strong>{item?.conversationRating || item?.csatScore || "-"}</strong>
-                  </div>
-                  <div>
-                    <span>Replied</span>
-                    <strong>{formatClock(item?.repliedAt)}</strong>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+            <div className="queue-table-wrap">
+              <table className="queue-table">
+                <thead>
+                  <tr>
+                    <th><input className="queue-select" type="checkbox" checked={allVisibleQueueSelected} onChange={toggleAllVisibleQueueSelection} /></th>
+                    <th>Conversation</th>
+                    <th>Agent</th>
+                    <th>Client</th>
+                    <th>Rating</th>
+                    <th>Replied</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleFetchedQueue.map((item, index) => {
+                    const id = conversationIdOf(item);
+                    return (
+                      <tr key={id || `queue-${index}`}>
+                        <td><input className="queue-select" type="checkbox" checked={selectedQueueSet.has(id)} onChange={() => toggleQueueSelection(id)} /></td>
+                        <td><strong>{id || "-"}</strong><small>Fetched from Intercom</small></td>
+                        <td>{item?.agentName || "Unassigned"}</td>
+                        <td>{item?.clientEmail || "-"}</td>
+                        <td>{item?.conversationRating || item?.csatScore || "-"}</td>
+                        <td>{formatClock(item?.repliedAt)}</td>
+                        <td>
+                          <div className="queue-action-cell">
+                            <button type="button" className="queue-action-btn" onClick={() => setPreviewConversationId(id)} disabled={!id}>Preview</button>
+                            {id ? <a className="queue-action-btn" href={intercomConversationUrl(id)} target="_blank" rel="noreferrer">Open on Intercom</a> : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="queue-table-footer">
+              <span className="soft-copy">Showing {formatNumber(visibleFetchedQueue.length)} of {formatNumber(filteredFetchedQueue.length)} filtered conversation(s).</span>
+              {filteredFetchedQueue.length > 8 ? (
+                <button type="button" className="secondary-btn" onClick={() => setQueueExpanded((prev) => !prev)}>
+                  {queueExpanded ? "Show Less" : `Show More (${formatNumber(filteredFetchedQueue.length - visibleFetchedQueue.length)} more)`}
+                </button>
+              ) : null}
+            </div>
+          </>
         )}
       </section>
 
@@ -3289,6 +3519,10 @@ export default function RunPage() {
             </div>
           </details>
         </section>
+      ) : null}
+
+      {previewConversationId ? (
+        <ConversationPreviewModal conversationId={previewConversationId} onClose={() => setPreviewConversationId("")} />
       ) : null}
 
       {showJumpTop ? (
@@ -3872,12 +4106,12 @@ const runStyles = `
 
   .control-section-grid > .control-block:nth-child(3) {
     grid-column: 1;
-    grid-row: 3;
+    grid-row: 2;
   }
 
   .control-section-grid > .action-block {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
   }
 
   .control-block {
@@ -5474,4 +5708,51 @@ const runStyles = `
       font-size: 28px;
     }
   }
+  .fetched-queue-panel.compact-preview-panel { padding: 20px; }
+  .fetched-queue-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 14px; align-items: end; margin-bottom: 14px; }
+  .queue-search-field span { display: block; margin-bottom: 8px; color: #8ea0d6; font-size: 11px; font-weight: 950; letter-spacing: .13em; text-transform: uppercase; }
+  .queue-search-field input { width: 100%; min-height: 46px; padding: 0 14px; border-radius: 16px; border: 1px solid rgba(148,163,184,.16); color: #e7ecff; background: rgba(5,8,18,.92); outline: none; }
+  .queue-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .queue-table-wrap { overflow: auto; border-radius: 18px; border: 1px solid rgba(148,163,184,.12); background: rgba(2,6,23,.35); max-height: 420px; }
+  .queue-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+  .queue-table th, .queue-table td { padding: 12px 14px; border-bottom: 1px solid rgba(148,163,184,.1); text-align: left; vertical-align: top; }
+  .queue-table th { color: #8ea0d6; background: rgba(15,23,42,.86); font-size: 10px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; position: sticky; top: 0; z-index: 5; }
+  .queue-table td { color: #e7ecff; font-size: 13px; font-weight: 750; }
+  .queue-table small { display: block; margin-top: 4px; color: #8ea0d6; font-size: 11px; line-height: 1.4; }
+  .queue-select { width: 18px; height: 18px; accent-color: #22d3ee; }
+  .queue-action-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .queue-action-btn { min-height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(148,163,184,.18); background: rgba(15,23,42,.9); color: #e7ecff; font-size: 11px; font-weight: 900; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  .queue-action-btn:hover { border-color: rgba(34,211,238,.45); background: rgba(14,165,233,.16); }
+  .queue-table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .ai-working-inline { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(34,211,238,.2); background: rgba(14,165,233,.09); color: #dbeafe; font-size: 12px; font-weight: 900; }
+  .gear-loader { position: relative; width: 28px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
+  .gear-loader::before, .gear-loader::after { content: "⚙"; position: absolute; font-size: 16px; line-height: 1; color: #22d3ee; animation: gearSpin 1.8s linear infinite; }
+  .gear-loader::after { left: 13px; top: 2px; font-size: 13px; color: #c084fc; animation-direction: reverse; animation-duration: 1.3s; }
+  @keyframes gearSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .conversation-preview-backdrop { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 28px; background: rgba(2,6,23,.76); backdrop-filter: blur(16px); }
+  .conversation-preview-modal { width: min(980px, 96vw); max-height: min(86vh, 860px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148,163,184,.18); border-radius: 28px; background: linear-gradient(180deg,#10172b 0%,#050917 100%); box-shadow: 0 34px 120px rgba(0,0,0,.76), 0 0 0 1px rgba(96,165,250,.08); }
+  .conversation-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px 24px; border-bottom: 1px solid rgba(148,163,184,.12); }
+  .conversation-preview-head p { margin: 0 0 6px; color: #8ea0d6; font-size: 11px; font-weight: 950; letter-spacing: .14em; text-transform: uppercase; }
+  .conversation-preview-head h2 { margin: 0 0 6px; color: #fff; font-size: 26px; letter-spacing: -.04em; }
+  .conversation-preview-head span { color: #a9b4d0; font-size: 13px; font-weight: 750; }
+  .conversation-preview-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .conversation-preview-meta { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; padding: 16px 24px; border-bottom: 1px solid rgba(148,163,184,.1); }
+  .conversation-preview-meta div { min-height: 62px; padding: 12px; border-radius: 16px; border: 1px solid rgba(148,163,184,.1); background: rgba(255,255,255,.035); }
+  .conversation-preview-meta span, .conversation-preview-meta strong { display: block; }
+  .conversation-preview-meta span { margin-bottom: 6px; color: #8ea0d6; font-size: 10px; font-weight: 950; letter-spacing: .12em; text-transform: uppercase; }
+  .conversation-preview-meta strong { color: #f8fbff; font-size: 13px; line-height: 1.35; }
+  .conversation-transcript-list { overflow: auto; padding: 20px 24px 24px; display: grid; gap: 12px; }
+  .conversation-message { max-width: 82%; padding: 14px 16px; border-radius: 18px; border: 1px solid rgba(148,163,184,.12); background: rgba(15,23,42,.82); }
+  .conversation-message.client { justify-self: start; border-color: rgba(59,130,246,.18); background: rgba(30,64,175,.18); }
+  .conversation-message.agent { justify-self: end; border-color: rgba(16,185,129,.18); background: rgba(6,78,59,.18); }
+  .conversation-message.system { justify-self: center; max-width: 92%; background: rgba(255,255,255,.045); }
+  .conversation-message-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .conversation-message-top strong { color: #f8fbff; font-size: 13px; }
+  .conversation-message-top span, .conversation-message small { color: #8ea0d6; font-size: 11px; font-weight: 800; }
+  .conversation-message p { margin: 0; color: #dbe7ff; white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
+  .conversation-preview-loading, .conversation-preview-empty, .conversation-preview-error { margin: 20px 24px 24px; padding: 22px; border-radius: 18px; border: 1px dashed rgba(148,163,184,.18); color: #dbe7ff; background: rgba(15,23,42,.7); }
+  .conversation-preview-error strong, .conversation-preview-error span, .conversation-preview-error small { display: block; }
+  .conversation-preview-error strong { color: #fecaca; margin-bottom: 8px; }
+  .conversation-preview-error span { color: #f8fbff; margin-bottom: 6px; }
+
 `;
