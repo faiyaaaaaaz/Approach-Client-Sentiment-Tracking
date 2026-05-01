@@ -475,6 +475,117 @@ function conversationUrl(conversationId) {
   return id ? `${INTERCOM_BASE_URL}/${id}` : "#";
 }
 
+function normalizePreviewMessages(data) {
+  return Array.isArray(data?.messages) ? data.messages : [];
+}
+
+function ConversationPreviewModal({ conversationId, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreview() {
+      if (!conversationId) return;
+      setLoading(true);
+      setError("");
+      setData(null);
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
+
+        const response = await fetch("/api/intercom/conversation-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ conversationId }),
+          cache: "no-store",
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
+        if (!cancelled) setData(payload);
+      } catch (previewError) {
+        if (!cancelled) setError(previewError instanceof Error ? previewError.message : "Preview is not available for this conversation.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPreview();
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  if (!conversationId) return null;
+
+  const messages = normalizePreviewMessages(data);
+  const metadata = data?.metadata || {};
+
+  return createPortal(
+    <div className="conversation-preview-backdrop" onClick={onClose}>
+      <div className="conversation-preview-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="conversation-preview-head">
+          <div>
+            <p>Conversation Preview</p>
+            <h2>{conversationId}</h2>
+            <span>{metadata.clientEmail || "Client email unavailable"} · {formatNumber(messages.length)} message(s)</span>
+          </div>
+          <div className="conversation-preview-actions">
+            <a href={conversationUrl(conversationId)} target="_blank" rel="noreferrer" className="secondary-btn">Open on Intercom</a>
+            <button type="button" className="light-btn" onClick={onClose}>Close</button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="conversation-preview-loading">Loading the full Intercom conversation...</div>
+        ) : error ? (
+          <div className="conversation-preview-error">
+            <strong>Preview Not Available</strong>
+            <span>{error}</span>
+            <small>Open on Intercom to see this conversation.</small>
+          </div>
+        ) : (
+          <>
+            <div className="conversation-preview-meta">
+              <div><span>Assigned Agent</span><strong>{metadata.assignedAdmin || "Unassigned"}</strong></div>
+              <div><span>Rating</span><strong>{metadata.rating || "-"}</strong></div>
+              <div><span>Status</span><strong>{metadata.state || "-"}</strong></div>
+              <div><span>Created</span><strong>{formatDateTime(metadata.createdAt)}</strong></div>
+            </div>
+            <div className="conversation-transcript-list">
+              {messages.length ? messages.map((message) => (
+                <article key={message.id} className={`conversation-message ${message.authorType || "system"}`}>
+                  <div className="conversation-message-top">
+                    <strong>{message.authorName || "Unknown"}</strong>
+                    <span>{formatDateTime(message.createdAt)}</span>
+                  </div>
+                  <p>{message.body || "Open on Intercom to see this message."}</p>
+                  {!message.isRenderableText ? <small>Open on Intercom to see this message.</small> : null}
+                </article>
+              )) : <div className="conversation-preview-empty">No renderable text was returned. Open on Intercom to see this conversation.</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ConversationActionButtons({ conversationId, onPreview }) {
+  const id = String(conversationId || "").trim();
+  if (!id) return <span className="preview-unavailable">Preview Not Available</span>;
+  return (
+    <div className="conversation-action-buttons">
+      <button type="button" className="mini-preview-btn" onClick={() => onPreview(id)}>Preview Conversation</button>
+      <a href={conversationUrl(id)} target="_blank" rel="noreferrer" className="mini-open-link">Open on Intercom</a>
+    </div>
+  );
+}
+
 function dedupeLatestByConversation(rows) {
   const byConversation = new Map();
 
@@ -1798,11 +1909,13 @@ function DetailModal({
 }) {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState(() => cloneFilters(initialFilters, "all", false));
+  const [previewConversationId, setPreviewConversationId] = useState("");
 
   useEffect(() => {
     if (!open) return;
 
     setQuery("");
+    setPreviewConversationId("");
     setFilters(cloneFilters(initialFilters, "all", false));
   }, [open, title, value, initialFilters]);
 
@@ -1891,7 +2004,7 @@ function DetailModal({
                 <th>Client</th>
                 <th>Resolution</th>
                 <th>Date</th>
-                <th>Open</th>
+                <th>Actions</th>
               </tr>
             </thead>
 
@@ -1913,9 +2026,7 @@ function DetailModal({
                   <td>{row.resolution_status || "-"}</td>
                   <td>{formatDateTime(row.replied_at || row.created_at)}</td>
                   <td>
-                    <a href={conversationUrl(row.conversation_id)} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
+                    <ConversationActionButtons conversationId={row.conversation_id} onPreview={setPreviewConversationId} />
                   </td>
                 </tr>
               ))}
@@ -1928,6 +2039,10 @@ function DetailModal({
             </div>
           ) : null}
         </div>
+
+        {previewConversationId ? (
+          <ConversationPreviewModal conversationId={previewConversationId} onClose={() => setPreviewConversationId("")} />
+        ) : null}
       </div>
     </div>
   );
@@ -2170,6 +2285,7 @@ function DashboardLoadingScreen({ welcomeIdentity = null, showWelcome = false })
 }
 
 export default function DashboardPage() {
+  const [previewConversationId, setPreviewConversationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState([]);
   const [supervisorTeams, setSupervisorTeams] = useState([]);
@@ -2937,7 +3053,7 @@ export default function DashboardPage() {
                       <th>Client</th>
                       <th>Resolution</th>
                       <th>Date</th>
-                      <th>Open</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
 
@@ -2959,9 +3075,7 @@ export default function DashboardPage() {
                         <td>{row.resolution_status || "-"}</td>
                         <td>{formatDateTime(row.replied_at || row.created_at)}</td>
                         <td>
-                          <a href={conversationUrl(row.conversation_id)} target="_blank" rel="noreferrer">
-                            Open
-                          </a>
+                          <ConversationActionButtons conversationId={row.conversation_id} onPreview={setPreviewConversationId} />
                         </td>
                       </tr>
                     ))}
@@ -2972,6 +3086,10 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      {previewConversationId ? (
+        <ConversationPreviewModal conversationId={previewConversationId} onClose={() => setPreviewConversationId("")} />
+      ) : null}
 
       {showJumpTop ? (
         <button type="button" className="jump-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
@@ -5573,5 +5691,37 @@ const dashboardStyles = `
       grid-template-columns: 1fr;
     }
   }
+
+
+  .conversation-action-buttons { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+  .mini-preview-btn, .mini-open-link { min-height: 32px; padding: 0 11px; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(15, 23, 42, 0.86); color: #e7ecff; font-size: 11px; font-weight: 900; text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .mini-preview-btn:hover, .mini-open-link:hover { border-color: rgba(34, 211, 238, 0.45); background: rgba(14, 165, 233, 0.16); }
+  .preview-unavailable { color: #8ea0d6; font-size: 11px; font-weight: 800; }
+  .conversation-preview-backdrop { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 28px; background: rgba(2, 6, 23, 0.76); backdrop-filter: blur(16px); }
+  .conversation-preview-modal { width: min(980px, 96vw); max-height: min(86vh, 860px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 28px; background: linear-gradient(180deg, #10172b 0%, #050917 100%); box-shadow: 0 34px 120px rgba(0, 0, 0, 0.76), 0 0 0 1px rgba(96, 165, 250, 0.08); }
+  .conversation-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
+  .conversation-preview-head p { margin: 0 0 6px; color: #8ea0d6; font-size: 11px; font-weight: 950; letter-spacing: 0.14em; text-transform: uppercase; }
+  .conversation-preview-head h2 { margin: 0 0 6px; color: #ffffff; font-size: 26px; letter-spacing: -0.04em; }
+  .conversation-preview-head span { color: #a9b4d0; font-size: 13px; font-weight: 750; }
+  .conversation-preview-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .conversation-preview-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 16px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.1); }
+  .conversation-preview-meta div { min-height: 62px; padding: 12px; border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); background: rgba(255, 255, 255, 0.035); }
+  .conversation-preview-meta span, .conversation-preview-meta strong { display: block; }
+  .conversation-preview-meta span { margin-bottom: 6px; color: #8ea0d6; font-size: 10px; font-weight: 950; letter-spacing: 0.12em; text-transform: uppercase; }
+  .conversation-preview-meta strong { color: #f8fbff; font-size: 13px; line-height: 1.35; }
+  .conversation-transcript-list { overflow: auto; padding: 20px 24px 24px; display: grid; gap: 12px; }
+  .conversation-message { max-width: 82%; padding: 14px 16px; border-radius: 18px; border: 1px solid rgba(148, 163, 184, 0.12); background: rgba(15, 23, 42, 0.82); }
+  .conversation-message.client { justify-self: start; border-color: rgba(59, 130, 246, 0.18); background: rgba(30, 64, 175, 0.18); }
+  .conversation-message.agent { justify-self: end; border-color: rgba(16, 185, 129, 0.18); background: rgba(6, 78, 59, 0.18); }
+  .conversation-message.system { justify-self: center; max-width: 92%; background: rgba(255, 255, 255, 0.045); }
+  .conversation-message-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .conversation-message-top strong { color: #f8fbff; font-size: 13px; }
+  .conversation-message-top span, .conversation-message small { color: #8ea0d6; font-size: 11px; font-weight: 800; }
+  .conversation-message p { margin: 0; color: #dbe7ff; white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
+  .conversation-preview-loading, .conversation-preview-empty, .conversation-preview-error { margin: 20px 24px 24px; padding: 22px; border-radius: 18px; border: 1px dashed rgba(148, 163, 184, 0.18); color: #dbe7ff; background: rgba(15, 23, 42, 0.7); }
+  .conversation-preview-error strong, .conversation-preview-error span, .conversation-preview-error small { display: block; }
+  .conversation-preview-error strong { color: #fecaca; margin-bottom: 8px; }
+  .conversation-preview-error span { color: #f8fbff; margin-bottom: 6px; }
+  @media (max-width: 780px) { .conversation-preview-head, .conversation-preview-actions { flex-direction: column; align-items: stretch; } .conversation-preview-meta { grid-template-columns: 1fr; } .conversation-message { max-width: 100%; } }
 
 `;
