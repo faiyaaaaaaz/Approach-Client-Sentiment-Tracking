@@ -11,6 +11,7 @@ const PAGE_SIZE = 1000;
 const MAX_DASHBOARD_ROWS = 50000;
 const DASHBOARD_CACHE_PREFIX = "cx-insights-dashboard-cache-v4";
 const DASHBOARD_CACHE_TTL_MS = 0;
+const DASHBOARD_WELCOME_PREFIX = "cx-insights-dashboard-welcome-seen";
 
 const REVIEW_SENTIMENT_ORDER = [
   "Highly Likely Positive Review",
@@ -95,6 +96,114 @@ function writeClientCache(key, value) {
 function getDashboardCacheKey(email) {
   const normalized = String(email || "").trim().toLowerCase();
   return `${DASHBOARD_CACHE_PREFIX}:${normalized || "anonymous"}`;
+}
+
+function getDashboardWelcomeKey(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  return `${DASHBOARD_WELCOME_PREFIX}:${normalized || "anonymous"}`;
+}
+
+function hasSeenDashboardWelcome(email) {
+  if (typeof window === "undefined" || !email) return true;
+
+  try {
+    return window.sessionStorage.getItem(getDashboardWelcomeKey(email)) === "true";
+  } catch (_error) {
+    return true;
+  }
+}
+
+function markDashboardWelcomeSeen(email) {
+  if (typeof window === "undefined" || !email) return;
+
+  try {
+    window.sessionStorage.setItem(getDashboardWelcomeKey(email), "true");
+  } catch (_error) {
+    // Ignore storage failures.
+  }
+}
+
+function roleLabel(value) {
+  const normalized = String(value || "viewer")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]+/g, " ");
+
+  return normalized
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ") || "Viewer";
+}
+
+function getInitials(nameOrEmail) {
+  const text = String(nameOrEmail || "").trim();
+  if (!text) return "NV";
+
+  const namePart = text.includes("@") ? text.split("@")[0] : text;
+  const words = namePart.split(/[\s._-]+/).filter(Boolean);
+
+  if (!words.length) return "NV";
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+}
+
+function getSessionAvatarUrl(session, profile = null) {
+  return (
+    session?.user?.user_metadata?.avatar_url ||
+    session?.user?.identities?.[0]?.identity_data?.avatar_url ||
+    profile?.avatar_url ||
+    ""
+  );
+}
+
+function buildWelcomeIdentity(session, profile = null) {
+  const user = session?.user || null;
+  const email = normalizeEmail(profile?.email || user?.email);
+
+  if (!user || !email) return null;
+
+  const displayName =
+    normalizeText(profile?.full_name, "") ||
+    normalizeText(user?.user_metadata?.full_name, "") ||
+    normalizeText(user?.user_metadata?.name, "") ||
+    normalizeText(user?.identities?.[0]?.identity_data?.full_name, "") ||
+    normalizeText(user?.identities?.[0]?.identity_data?.name, "") ||
+    email;
+
+  return {
+    email,
+    displayName,
+    role: roleLabel(profile?.role || "viewer"),
+    avatarUrl: getSessionAvatarUrl(session, profile),
+    initials: getInitials(displayName || email),
+  };
+}
+
+async function fetchWelcomeProfile(activeSession) {
+  if (!activeSession?.access_token) return null;
+
+  try {
+    const response = await fetch("/api/auth/profile", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${activeSession.access_token}`,
+      },
+      cache: "no-store",
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.ok || !data?.profile) return null;
+
+    return data.profile;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function normalizeText(value, fallback = "-") {
@@ -1999,7 +2108,7 @@ function downloadWeeklyCsv(tableRows, periods, metric, metricLabel, timeframeLab
 }
 
 
-function DashboardLoadingScreen() {
+function DashboardLoadingScreen({ welcomeIdentity = null, showWelcome = false }) {
   return (
     <main className="dashboard-page">
       <style>{dashboardStyles}</style>
@@ -2032,6 +2141,23 @@ function DashboardLoadingScreen() {
 
           <p>Dashboard Intelligence</p>
           <h1>Preparing Insights...</h1>
+
+          {showWelcome && welcomeIdentity ? (
+            <div className="dashboard-welcome-strip">
+              <div className="dashboard-welcome-avatar">
+                {welcomeIdentity.avatarUrl ? (
+                  <img src={welcomeIdentity.avatarUrl} alt={welcomeIdentity.displayName} />
+                ) : (
+                  <strong>{welcomeIdentity.initials}</strong>
+                )}
+              </div>
+              <div className="dashboard-welcome-copy">
+                <span>Welcome, {welcomeIdentity.displayName}</span>
+                <strong>{welcomeIdentity.role}</strong>
+              </div>
+            </div>
+          ) : null}
+
           <span>Syncing stored audit results, Supervisor Teams, and filtered analytics.</span>
 
           <div className="dashboard-loader-bar">
@@ -2048,6 +2174,8 @@ export default function DashboardPage() {
   const [rawRows, setRawRows] = useState([]);
   const [supervisorTeams, setSupervisorTeams] = useState([]);
   const [error, setError] = useState("");
+  const [welcomeIdentity, setWelcomeIdentity] = useState(null);
+  const [welcomeAlreadyShown, setWelcomeAlreadyShown] = useState(true);
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
   const [weeklyFilters, setWeeklyFilters] = useState(() => createWeeklyDefaultFilters());
@@ -2077,9 +2205,18 @@ export default function DashboardPage() {
       if (!activeSession?.access_token) {
         setRawRows([]);
         setSupervisorTeams([]);
+        setWelcomeIdentity(null);
+        setWelcomeAlreadyShown(true);
         setError("Please sign in with your NEXT Ventures account to load dashboard data.");
         setLoading(false);
         return;
+      }
+
+      const baseWelcomeIdentity = buildWelcomeIdentity(activeSession);
+
+      if (baseWelcomeIdentity) {
+        setWelcomeIdentity(baseWelcomeIdentity);
+        setWelcomeAlreadyShown(hasSeenDashboardWelcome(baseWelcomeIdentity.email));
       }
 
       const currentRequestId = requestId + 1;
@@ -2092,14 +2229,26 @@ export default function DashboardPage() {
       setError("");
 
       try {
-        const response = await fetch(`/api/results?dashboardRefresh=${Date.now()}`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${activeSession.access_token}`,
-          },
-          cache: "no-store",
-        });
+        const [response, welcomeProfile] = await Promise.all([
+          fetch(`/api/results?dashboardRefresh=${Date.now()}`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${activeSession.access_token}`,
+            },
+            cache: "no-store",
+          }),
+          fetchWelcomeProfile(activeSession),
+        ]);
+
+        if (welcomeProfile) {
+          const enrichedWelcomeIdentity = buildWelcomeIdentity(activeSession, welcomeProfile);
+
+          if (enrichedWelcomeIdentity) {
+            setWelcomeIdentity(enrichedWelcomeIdentity);
+            setWelcomeAlreadyShown(hasSeenDashboardWelcome(enrichedWelcomeIdentity.email));
+          }
+        }
 
         const data = await response.json().catch(() => null);
 
@@ -2154,6 +2303,8 @@ export default function DashboardPage() {
         if (event === "SIGNED_OUT") {
           setRawRows([]);
           setSupervisorTeams([]);
+          setWelcomeIdentity(null);
+          setWelcomeAlreadyShown(true);
           setError("Please sign in with your NEXT Ventures account to load dashboard data.");
           setLoading(false);
         }
@@ -2169,6 +2320,13 @@ export default function DashboardPage() {
       subscription?.unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!loading && welcomeIdentity?.email && !welcomeAlreadyShown) {
+      markDashboardWelcomeSeen(welcomeIdentity.email);
+      setWelcomeAlreadyShown(true);
+    }
+  }, [loading, welcomeIdentity, welcomeAlreadyShown]);
 
   useEffect(() => {
     function handleScroll() {
@@ -2276,8 +2434,10 @@ export default function DashboardPage() {
 
   const latestStoredAt = dashboardRows[0]?.created_at || dedupedRows[0]?.created_at || "";
 
+  const showWelcomeOnLoading = Boolean(welcomeIdentity && !welcomeAlreadyShown);
+
   if (loading) {
-    return <DashboardLoadingScreen />;
+    return <DashboardLoadingScreen welcomeIdentity={welcomeIdentity} showWelcome={showWelcomeOnLoading} />;
   }
 
   function openDetail(title, value, rows, initialFilters = globalFilters) {
@@ -3003,6 +3163,76 @@ const dashboardStyles = `
     color: #aebbe1;
     font-size: 15px;
     line-height: 1.7;
+  }
+
+  .dashboard-welcome-strip {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: min(440px, 100%);
+    padding: 12px 14px;
+    border-radius: 22px;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    background:
+      radial-gradient(circle at top left, rgba(34, 211, 238, 0.14), transparent 38%),
+      linear-gradient(135deg, rgba(15, 23, 42, 0.86), rgba(30, 20, 66, 0.78));
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.06),
+      0 18px 44px rgba(2, 6, 23, 0.34);
+  }
+
+  .dashboard-welcome-avatar {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 17px;
+    border: 1px solid rgba(191, 219, 254, 0.22);
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.24), rgba(139, 92, 246, 0.25));
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.18);
+  }
+
+  .dashboard-welcome-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .dashboard-welcome-avatar strong {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 950;
+    letter-spacing: 0.04em;
+  }
+
+  .dashboard-welcome-copy {
+    min-width: 0;
+    display: grid;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .dashboard-welcome-copy span {
+    max-width: none;
+    margin: 0;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+
+  .dashboard-welcome-copy strong {
+    margin-top: 4px;
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   .dashboard-loader-bar {
