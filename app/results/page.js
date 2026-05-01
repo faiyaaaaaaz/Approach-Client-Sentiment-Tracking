@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
 
 const INTERCOM_CONVERSATION_URL_PREFIX =
@@ -72,6 +73,109 @@ const DUPLICATE_MODE_OPTIONS = [
     helper: "Stops the import if any uploaded conversation already exists.",
   },
 ];
+
+
+function intercomConversationUrl(conversationId) {
+  const id = String(conversationId || "").trim();
+  return id ? INTERCOM_CONVERSATION_URL_PREFIX + "/" + id : "#";
+}
+
+function normalizePreviewMessages(data) {
+  return Array.isArray(data?.messages) ? data.messages : [];
+}
+
+function ConversationPreviewModal({ conversationId, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPreview() {
+      if (!conversationId) return;
+      setLoading(true);
+      setError("");
+      setData(null);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
+        const response = await fetch("/api/intercom/conversation-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+          body: JSON.stringify({ conversationId }),
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
+        if (!cancelled) setData(payload);
+      } catch (previewError) {
+        if (!cancelled) setError(previewError instanceof Error ? previewError.message : "Preview is not available for this conversation.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadPreview();
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  if (!conversationId) return null;
+  const messages = normalizePreviewMessages(data);
+  const metadata = data?.metadata || {};
+
+  return createPortal(
+    <div className="conversation-preview-backdrop" onClick={onClose}>
+      <div className="conversation-preview-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="conversation-preview-head">
+          <div>
+            <p>Conversation Preview</p>
+            <h2>{conversationId}</h2>
+            <span>{metadata.clientEmail || "Client email unavailable"} · {formatNumber(messages.length)} message(s)</span>
+          </div>
+          <div className="conversation-preview-actions">
+            <a href={intercomConversationUrl(conversationId)} target="_blank" rel="noreferrer" className="secondary-btn">Open on Intercom</a>
+            <button type="button" className="secondary-btn light-action" onClick={onClose}>Close</button>
+          </div>
+        </div>
+        {loading ? (
+          <div className="conversation-preview-loading">Loading the full Intercom conversation...</div>
+        ) : error ? (
+          <div className="conversation-preview-error"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom to see this conversation.</small></div>
+        ) : (
+          <>
+            <div className="conversation-preview-meta">
+              <div><span>Assigned Agent</span><strong>{metadata.assignedAdmin || "Unassigned"}</strong></div>
+              <div><span>Rating</span><strong>{metadata.rating || "-"}</strong></div>
+              <div><span>Status</span><strong>{metadata.state || "-"}</strong></div>
+              <div><span>Created</span><strong>{formatDateTime(metadata.createdAt)}</strong></div>
+            </div>
+            <div className="conversation-transcript-list">
+              {messages.length ? messages.map((message) => (
+                <article key={message.id} className={"conversation-message " + (message.authorType || "system")}>
+                  <div className="conversation-message-top"><strong>{message.authorName || "Unknown"}</strong><span>{formatDateTime(message.createdAt)}</span></div>
+                  <p>{message.body || "Open on Intercom to see this message."}</p>
+                  {!message.isRenderableText ? <small>Open on Intercom to see this message.</small> : null}
+                </article>
+              )) : <div className="conversation-preview-empty">No renderable text was returned. Open on Intercom to see this conversation.</div>}
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ConversationActionButtons({ conversationId, onPreview }) {
+  const id = String(conversationId || "").trim();
+  if (!id) return <span className="preview-unavailable">Preview Not Available</span>;
+  return (
+    <div className="conversation-action-buttons">
+      <button type="button" className="mini-preview-btn" onClick={() => onPreview(id)}>Preview Conversation</button>
+      <a href={intercomConversationUrl(id)} target="_blank" rel="noreferrer" className="mini-open-link">Open on Intercom</a>
+    </div>
+  );
+}
 
 const IMPORT_PROGRESS_STEPS = [
   {
@@ -231,6 +335,178 @@ function formatShortDate(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
+}
+
+function shiftMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return normalizeToStartOfDay(next);
+}
+
+function monthStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthEnd(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function sameCalendarDay(a, b) {
+  return a && b && formatDateInput(a) === formatDateInput(b);
+}
+
+function formatMonthTitle(date) {
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function buildCalendarDays(monthDate) {
+  const first = monthStart(monthDate);
+  const last = monthEnd(monthDate);
+  const days = [];
+  const startOffset = first.getDay();
+  for (let index = 0; index < startOffset; index += 1) {
+    const date = new Date(first);
+    date.setDate(first.getDate() - (startOffset - index));
+    days.push({ date, muted: true });
+  }
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    days.push({ date: new Date(first.getFullYear(), first.getMonth(), day), muted: false });
+  }
+  while (days.length % 7 !== 0 || days.length < 42) {
+    const lastDate = days[days.length - 1].date;
+    const date = new Date(lastDate);
+    date.setDate(lastDate.getDate() + 1);
+    days.push({ date, muted: true });
+  }
+  return days;
+}
+
+function isDateInDraftRange(date, draftStart, draftEnd) {
+  if (!draftStart || !draftEnd) return false;
+  const value = normalizeToStartOfDay(date).getTime();
+  return value >= normalizeToStartOfDay(draftStart).getTime() && value <= normalizeToStartOfDay(draftEnd).getTime();
+}
+
+function ResultsCalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
+  const days = buildCalendarDays(monthDate);
+  return (
+    <div className="results-calendar-month-card">
+      <h4>{formatMonthTitle(monthDate)}</h4>
+      <div className="results-calendar-weekdays">{["SU", "MO", "TU", "WE", "TH", "FR", "SA"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="results-calendar-day-grid">
+        {days.map(({ date, muted }) => {
+          const isStart = draftStart && sameCalendarDay(date, draftStart);
+          const isEnd = draftEnd && sameCalendarDay(date, draftEnd);
+          const inRange = isDateInDraftRange(date, draftStart, draftEnd);
+          return (
+            <button key={formatDateInput(date)} type="button" className={["results-calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ResultsDateRangePicker({ startDate, endDate, selectedDatePreset, onApplyPreset, onApplyCustom }) {
+  const [open, setOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState(startDate ? normalizeToStartOfDay(new Date(`${startDate}T00:00:00`)) : null);
+  const [draftEnd, setDraftEnd] = useState(endDate ? normalizeToStartOfDay(new Date(`${endDate}T00:00:00`)) : null);
+  const [visibleMonth, setVisibleMonth] = useState(() => monthStart(startDate ? new Date(`${startDate}T00:00:00`) : new Date()));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftStart(startDate ? normalizeToStartOfDay(new Date(`${startDate}T00:00:00`)) : null);
+    setDraftEnd(endDate ? normalizeToStartOfDay(new Date(`${endDate}T00:00:00`)) : null);
+    setVisibleMonth(monthStart(startDate ? new Date(`${startDate}T00:00:00`) : new Date()));
+  }, [open, startDate, endDate]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  function selectDate(date) {
+    const normalized = normalizeToStartOfDay(date);
+    if (!draftStart || (draftStart && draftEnd)) {
+      setDraftStart(normalized);
+      setDraftEnd(null);
+      return;
+    }
+    if (normalized < draftStart) {
+      setDraftEnd(draftStart);
+      setDraftStart(normalized);
+      return;
+    }
+    setDraftEnd(normalized);
+  }
+
+  function applyCustomRange() {
+    const safeStart = draftStart || draftEnd;
+    const safeEnd = draftEnd || draftStart;
+    if (!safeStart || !safeEnd) return;
+    onApplyCustom(formatDateInput(safeStart), formatDateInput(safeEnd));
+    setOpen(false);
+  }
+
+  function applyPreset(key) {
+    onApplyPreset(key);
+    if (key !== "custom") setOpen(false);
+  }
+
+  const displayRange = startDate && endDate ? `${startDate} to ${endDate}` : "Select a range";
+  const selectedLabel = DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
+  const secondMonth = shiftMonths(visibleMonth, 1);
+
+  return (
+    <div className={open ? "results-date-range-picker open" : "results-date-range-picker"} ref={ref}>
+      <label>
+        <span>Date Range</span>
+        <button type="button" className="results-date-button" onClick={() => setOpen((prev) => !prev)}>
+          <strong><CalendarIcon /> {selectedLabel}</strong>
+          <small>{displayRange}</small>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+      </label>
+
+      {open ? (
+        <div className="results-date-popover">
+          <div className="results-date-popover-tabs">
+            <div><span>From</span><strong>{draftStart ? formatDateInput(draftStart) : "Choose Start"}</strong></div>
+            <div className={draftEnd ? "active" : ""}><span>To</span><strong>{draftEnd ? formatDateInput(draftEnd) : "Choose End"}</strong></div>
+          </div>
+          <div className="results-date-popover-body">
+            <aside className="results-date-preset-column">
+              {DATE_PRESET_OPTIONS.map((item) => (
+                <button key={item.key} type="button" className={item.key === selectedDatePreset ? "active" : ""} onClick={() => applyPreset(item.key)}>{item.label}</button>
+              ))}
+            </aside>
+            <div className="results-date-calendar-zone">
+              <div className="results-calendar-nav-row">
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, -1))}>‹</button>
+                <strong>{formatMonthTitle(visibleMonth)} - {formatMonthTitle(secondMonth)}</strong>
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, 1))}>›</button>
+              </div>
+              <div className="results-calendar-months-grid">
+                <ResultsCalendarMonth monthDate={visibleMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+                <ResultsCalendarMonth monthDate={secondMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+              </div>
+            </div>
+          </div>
+          <div className="results-date-popover-actions">
+            <button type="button" className="secondary-btn" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="primary-btn" onClick={applyCustomRange} disabled={!draftStart && !draftEnd}>Apply</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function buildFallbackProfile(user) {
@@ -587,6 +863,7 @@ function MultiSelectFilter({ label, allLabel, options, selected, setSelected, se
 
 
 export default function ResultsPage() {
+  const [previewConversationId, setPreviewConversationId] = useState("");
   const initialRange = getPresetRange("past_7_days");
 
   const [session, setSession] = useState(null);
@@ -942,6 +1219,13 @@ export default function ResultsPage() {
 
     setStartDate(range.startDate);
     setEndDate(range.endDate);
+    setShowPresetMenu(false);
+  }
+
+  function applyCustomDateRange(nextStartDate, nextEndDate) {
+    setSelectedDatePreset("custom");
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
     setShowPresetMenu(false);
   }
 
@@ -1565,53 +1849,13 @@ export default function ResultsPage() {
 
       <section className="filters-panel">
         <div className="filters-top">
-          <div ref={presetMenuRef} className="preset-wrap">
-            <label>Quick Range</label>
-            <button type="button" className="date-preset-btn" onClick={() => setShowPresetMenu((prev) => !prev)}>
-              <span><CalendarIcon />{DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom"}</span>
-              <small>{startDate} - {endDate}</small>
-              <b>{showPresetMenu ? "▲" : "▼"}</b>
-            </button>
-
-            {showPresetMenu ? (
-              <div className="preset-menu">
-                {DATE_PRESET_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={selectedDatePreset === option.key ? "active" : ""}
-                    onClick={() => applyDatePreset(option.key)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <label>
-            <span>Start Date</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(event) => {
-                setSelectedDatePreset("custom");
-                setStartDate(event.target.value);
-              }}
-            />
-          </label>
-
-          <label>
-            <span>End Date</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => {
-                setSelectedDatePreset("custom");
-                setEndDate(event.target.value);
-              }}
-            />
-          </label>
+          <ResultsDateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            selectedDatePreset={selectedDatePreset}
+            onApplyPreset={applyDatePreset}
+            onApplyCustom={applyCustomDateRange}
+          />
 
           <label className="search-field">
             <span>Search</span>
@@ -1774,7 +2018,7 @@ export default function ResultsPage() {
                     const resultType = getResultType(item);
                     const isExpanded = Boolean(expandedRows[item.id]);
                     const conversationUrl = item.conversation_id
-                      ? `${INTERCOM_CONVERSATION_URL_PREFIX}/${item.conversation_id}`
+                      ? intercomConversationUrl(item.conversation_id)
                       : "";
                     const mappingStatus = getMappingStatus(item);
 
@@ -1792,7 +2036,7 @@ export default function ResultsPage() {
                             <strong>{safeText(item.conversation_id, "Unknown")}</strong>
                             <small>{safeText(item.client_email)}</small>
                             {conversationUrl ? (
-                              <a href={conversationUrl} target="_blank" rel="noreferrer" className="mini-link">Open Intercom</a>
+                              <ConversationActionButtons conversationId={item.conversation_id} onPreview={setPreviewConversationId} />
                             ) : null}
                           </td>
                           <td>
@@ -3193,4 +3437,66 @@ const resultsStyles = `
       font-size: 42px;
     }
   }
+
+  .conversation-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .mini-preview-btn, .mini-open-link { min-height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(15, 23, 42, 0.86); color: #e7ecff; font-size: 11px; font-weight: 900; text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .mini-preview-btn:hover, .mini-open-link:hover { border-color: rgba(34, 211, 238, 0.45); background: rgba(14, 165, 233, 0.16); }
+  .preview-unavailable { color: #8ea0d6; font-size: 11px; font-weight: 800; }
+  .conversation-preview-backdrop { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 28px; background: rgba(2, 6, 23, 0.76); backdrop-filter: blur(16px); }
+  .conversation-preview-modal { width: min(980px, 96vw); max-height: min(86vh, 860px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 28px; background: linear-gradient(180deg, #10172b 0%, #050917 100%); box-shadow: 0 34px 120px rgba(0, 0, 0, 0.76), 0 0 0 1px rgba(96, 165, 250, 0.08); }
+  .conversation-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
+  .conversation-preview-head p { margin: 0 0 6px; color: #8ea0d6; font-size: 11px; font-weight: 950; letter-spacing: 0.14em; text-transform: uppercase; }
+  .conversation-preview-head h2 { margin: 0 0 6px; color: #ffffff; font-size: 26px; letter-spacing: -0.04em; }
+  .conversation-preview-head span { color: #a9b4d0; font-size: 13px; font-weight: 750; }
+  .conversation-preview-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .conversation-preview-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 16px 24px; border-bottom: 1px solid rgba(148, 163, 184, 0.1); }
+  .conversation-preview-meta div { min-height: 62px; padding: 12px; border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); background: rgba(255, 255, 255, 0.035); }
+  .conversation-preview-meta span, .conversation-preview-meta strong { display: block; }
+  .conversation-preview-meta span { margin-bottom: 6px; color: #8ea0d6; font-size: 10px; font-weight: 950; letter-spacing: 0.12em; text-transform: uppercase; }
+  .conversation-preview-meta strong { color: #f8fbff; font-size: 13px; line-height: 1.35; }
+  .conversation-transcript-list { overflow: auto; padding: 20px 24px 24px; display: grid; gap: 12px; }
+  .conversation-message { max-width: 82%; padding: 14px 16px; border-radius: 18px; border: 1px solid rgba(148, 163, 184, 0.12); background: rgba(15, 23, 42, 0.82); }
+  .conversation-message.client { justify-self: start; border-color: rgba(59, 130, 246, 0.18); background: rgba(30, 64, 175, 0.18); }
+  .conversation-message.agent { justify-self: end; border-color: rgba(16, 185, 129, 0.18); background: rgba(6, 78, 59, 0.18); }
+  .conversation-message.system { justify-self: center; max-width: 92%; background: rgba(255, 255, 255, 0.045); }
+  .conversation-message-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .conversation-message-top strong { color: #f8fbff; font-size: 13px; }
+  .conversation-message-top span, .conversation-message small { color: #8ea0d6; font-size: 11px; font-weight: 800; }
+  .conversation-message p { margin: 0; color: #dbe7ff; white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
+  .conversation-preview-loading, .conversation-preview-empty, .conversation-preview-error { margin: 20px 24px 24px; padding: 22px; border-radius: 18px; border: 1px dashed rgba(148, 163, 184, 0.18); color: #dbe7ff; background: rgba(15, 23, 42, 0.7); }
+  .conversation-preview-error strong, .conversation-preview-error span, .conversation-preview-error small { display: block; }
+  .conversation-preview-error strong { color: #fecaca; margin-bottom: 8px; }
+  .conversation-preview-error span { color: #f8fbff; margin-bottom: 6px; }
+  @media (max-width: 780px) { .conversation-preview-head, .conversation-preview-actions { flex-direction: column; align-items: stretch; } .conversation-preview-meta { grid-template-columns: 1fr; } .conversation-message { max-width: 100%; } }
+
+  .results-date-range-picker { position: relative; z-index: 35; }
+  .results-date-range-picker.open { z-index: 9999; }
+  .results-date-button { width: 100%; min-height: 50px; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 0 14px; cursor: pointer; color: #e7ecff; border: 1px solid rgba(255,255,255,0.09); border-radius: 16px; outline: none; background: rgba(5,8,18,0.94); }
+  .results-date-button strong { display: inline-flex; align-items: center; gap: 9px; font-weight: 900; }
+  .results-date-button small { color: #8ea0d6; font-size: 12px; }
+  .results-date-button b { color: #8ea0d6; font-size: 11px; }
+  .results-date-popover { position: absolute; top: calc(100% + 10px); left: 0; width: min(740px, 92vw); z-index: 99999; overflow: hidden; border-radius: 22px; background: #f8fafc; color: #0f172a; border: 1px solid rgba(15,23,42,0.14); box-shadow: 0 34px 100px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.9); }
+  .results-date-popover-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 18px 20px 10px; border-bottom: 1px solid rgba(15,23,42,0.1); }
+  .results-date-popover-tabs div { padding: 10px 12px; border-radius: 14px; background: #fff; border: 1px solid rgba(15,23,42,0.08); }
+  .results-date-popover-tabs div.active { border-bottom-color: #15803d; box-shadow: inset 0 -2px 0 #15803d; }
+  .results-date-popover-tabs span { display: block; color: #64748b; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px; }
+  .results-date-popover-tabs strong, .results-calendar-nav-row strong, .results-calendar-month-card h4 { color: #0f172a; }
+  .results-date-popover-body { display: grid; grid-template-columns: 160px minmax(0,1fr); gap: 16px; padding: 16px 20px; }
+  .results-date-preset-column { display: grid; align-content: start; gap: 8px; }
+  .results-date-preset-column button, .results-calendar-nav-row button { min-height: 38px; border-radius: 12px; border: 1px solid rgba(15,23,42,0.1); background: #fff; color: #0f172a; font-weight: 850; cursor: pointer; }
+  .results-date-preset-column button.active, .results-date-preset-column button:hover, .results-calendar-nav-row button:hover { background: #dcfce7; color: #14532d; border-color: rgba(22,163,74,.28); }
+  .results-calendar-nav-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .results-calendar-months-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .results-calendar-month-card h4 { margin: 0 0 10px; text-align: center; font-size: 15px; }
+  .results-calendar-weekdays, .results-calendar-day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .results-calendar-weekdays span { color: #94a3b8; text-align: center; font-size: 11px; font-weight: 900; }
+  .results-calendar-day { min-height: 34px; border: 0; border-radius: 10px; color: #0f172a; background: transparent; cursor: pointer; font-weight: 800; }
+  .results-calendar-day.muted { color: #cbd5e1; }
+  .results-calendar-day.in-range { background: #e8f5ec; }
+  .results-calendar-day.range-start, .results-calendar-day.range-end { color: #fff; border-radius: 999px; background: #15803d; }
+  .results-date-popover-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid rgba(15,23,42,.08); }
+  .results-date-popover-actions .secondary-btn { background: #fff; color: #0f172a; border: 1px solid rgba(15,23,42,.1); }
+  .results-date-popover-actions .primary-btn { background: #15803d; color: #fff; }
+  @media (max-width: 780px) { .results-date-popover { width: min(94vw, 520px); } .results-date-popover-body, .results-calendar-months-grid { grid-template-columns: 1fr; } }
+
 `;
