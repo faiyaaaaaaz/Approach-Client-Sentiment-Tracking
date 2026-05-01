@@ -117,6 +117,17 @@ function numberMatchesFilter(value, selectedNumbers) {
   return Number.isFinite(number) && selectedNumbers.includes(number);
 }
 
+function hasUsableNumber(value) {
+  if (value === null || value === undefined || value === "") return false;
+  const number = Number(value);
+  return Number.isFinite(number);
+}
+
+function isClearlyUnassignedAgent(value) {
+  const key = normalizeKey(value);
+  return !key || key === "unassigned" || key === "unknown" || key === "-";
+}
+
 function textMatchesFilter(value, selectedValues) {
   if (!Array.isArray(selectedValues) || selectedValues.length === 0) return true;
   const key = normalizeKey(value);
