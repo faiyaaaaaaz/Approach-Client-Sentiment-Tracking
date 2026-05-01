@@ -528,6 +528,51 @@ export async function POST(request) {
       return json({ ok: true, ...bundle });
     }
 
+    if (action === "update_queue") {
+      const conversations = Array.isArray(body.conversations) ? body.conversations : [];
+      const batchSize = toInt(existingRun.batch_size, DEFAULT_BATCH_SIZE) || DEFAULT_BATCH_SIZE;
+      const queueRows = makeQueueRows(runId, conversations, batchSize);
+      const fetchedCount = toInt(body.fetchedCount, conversations.length);
+      const queuedCount = queueRows.length;
+      const totalBatches = queuedCount ? Math.ceil(queuedCount / batchSize) : 0;
+      const reason = normalizeText(body.reason || "Queue updated from Run Audit page.");
+
+      await auth.adminClient.from("audit_workflow_queue").delete().eq("run_id", runId);
+
+      if (queueRows.length) {
+        const { error: insertError } = await auth.adminClient.from("audit_workflow_queue").insert(queueRows);
+        if (insertError) throw new Error(insertError.message || "Could not update workflow queue.");
+      }
+
+      await updateRun(auth.adminClient, runId, {
+        status: queuedCount > 0 ? "fetched" : "completed",
+        stage: queuedCount > 0 ? "queue_updated" : "queue_cleared",
+        status_message: queuedCount > 0 ? `${queuedCount} conversation(s) currently queued.` : "Queue cleared.",
+        fetched_count: fetchedCount,
+        queued_count: queuedCount,
+        total_batches: totalBatches,
+        fetched_conversations: conversations,
+        progress_percent: queuedCount ? Math.max(Number(existingRun.progress_percent || 20), 20) : 100,
+        completed_at: queuedCount ? null : now,
+      });
+
+      await writeWorkflowEvent(auth.adminClient, runId, {
+        event_type: "queue_updated",
+        event_label: "Queue Updated",
+        status: queuedCount ? "info" : "warning",
+        actor_email: auth.email,
+        actor_name: auth.profile?.full_name,
+        actor_role: auth.profile?.role,
+        stage: "queue",
+        target_label: `${queuedCount} queued conversation(s)`,
+        details: reason,
+        metadata: { fetchedCount, queuedCount, totalBatches },
+      });
+
+      const bundle = await loadRunBundle(auth.adminClient, runId);
+      return json({ ok: true, ...bundle });
+    }
+
     if (action === "duplicate_check_completed") {
       const duplicateSummary = body.duplicateSummary || body.duplicate_summary || null;
       const duplicateCount = toInt(duplicateSummary?.duplicateCount || body.duplicateCount, 0);
