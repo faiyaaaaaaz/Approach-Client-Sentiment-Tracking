@@ -808,9 +808,9 @@ export default function AppShellClient({ children }) {
             </div>
           </nav>
 
-          <div className="sidebar-mini">
-            <span>Workspace</span>
-            <strong>NEXT Ventures</strong>
+          <div className="sidebar-mini developer-credit">
+            <span>Developed by</span>
+            <strong>Faiyaz Ahmed</strong>
           </div>
         </aside>
 
