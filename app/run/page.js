@@ -6,6 +6,10 @@ import { supabase } from "../../lib/supabase";
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
 const AUDIT_BATCH_SIZE = 8;
+const LARGE_FETCH_LIMIT_THRESHOLD = 250;
+const LARGE_FETCH_RANGE_DAYS = 7;
+const LARGE_QUEUE_CONFIRM_THRESHOLD = 100;
+const CANCEL_FETCH_CONFIRM_THRESHOLD = 50;
 const SESSION_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 const RUN_PAGE_CACHE_KEY = "ai-auditor-run-page-state-v2";
 const RUN_PAGE_CACHE_VERSION = 2;
@@ -789,6 +793,68 @@ function getOperationLabel(status, fetchLoading, runLoading, duplicateOpen) {
   return "Ready";
 }
 
+function getDateRangeDayCount(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+
+  const diffDays = Math.round((normalizeToStartOfDay(end).getTime() - normalizeToStartOfDay(start).getTime()) / 86400000) + 1;
+  return Math.max(1, diffDays);
+}
+
+function SafetyConfirmationModal({ confirmation, onCancel, onConfirm }) {
+  if (!confirmation) return null;
+
+  const details = Array.isArray(confirmation.details) ? confirmation.details : [];
+  const tone = confirmation.tone || "warning";
+  const confirmClassName = tone === "danger" ? "danger-btn" : "primary-btn";
+
+  return (
+    <div className="modal-backdrop safety-backdrop" onClick={onCancel}>
+      <div className="duplicate-modal safety-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-shell-top">
+          <div className={`modal-badge ${tone}`}>{confirmation.badge || "Confirmation Required"}</div>
+          {confirmation.countLabel ? <div className={`modal-count ${tone}`}>{confirmation.countLabel}</div> : null}
+        </div>
+
+        <h2>{confirmation.title || "Confirm This Action"}</h2>
+        <p className="modal-copy">{confirmation.message || "Please confirm before continuing."}</p>
+
+        {details.length ? (
+          <div className="safety-detail-grid">
+            {details.map((item) => (
+              <div className="modal-note-card safety-detail-card" key={`${item.label}-${item.value}`}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+                {item.helper ? <small>{item.helper}</small> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {confirmation.note ? (
+          <div className="modal-hint safety-hint">
+            <SparklesIcon />
+            <span>{confirmation.note}</span>
+          </div>
+        ) : null}
+
+        <div className="modal-actions">
+          <button type="button" className="ghost-btn" onClick={onCancel}>
+            {confirmation.cancelText || "Go Back"}
+          </button>
+          <button type="button" className={confirmClassName} onClick={onConfirm}>
+            {confirmation.confirmText || "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DuplicateWarningModal({
   open,
   duplicateSummary,
@@ -1026,6 +1092,7 @@ export default function RunPage() {
   const [duplicateSummary, setDuplicateSummary] = useState(null);
   const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
   const [pendingDuplicateConversations, setPendingDuplicateConversations] = useState([]);
+  const [safetyConfirmation, setSafetyConfirmation] = useState(null);
 
   const [workflowRunId, setWorkflowRunId] = useState("");
   const [workflowRun, setWorkflowRun] = useState(null);
@@ -1896,7 +1963,7 @@ export default function RunPage() {
     });
   }
 
-  function handleCancelFetch() {
+  function performCancelFetch() {
     cancelRequestedRef.current = true;
 
     if (fetchAbortRef.current) fetchAbortRef.current.abort();
@@ -1915,7 +1982,7 @@ export default function RunPage() {
     }
   }
 
-  function handleCancelAudit() {
+  function performCancelAudit() {
     cancelRequestedRef.current = true;
 
     if (runAbortRef.current) runAbortRef.current.abort();
@@ -1934,6 +2001,59 @@ export default function RunPage() {
         { quiet: true }
       );
     }
+  }
+
+  function handleCancelFetch() {
+    const fetchedCount = fetchedConversations.length || Number(fetchData?.meta?.fetchedCount || 0);
+
+    if (fetchLoading && fetchedCount >= CANCEL_FETCH_CONFIRM_THRESHOLD) {
+      openSafetyConfirmation({
+        action: "cancel_fetch",
+        tone: "danger",
+        badge: "Cancel Fetch?",
+        title: "Cancel The Active Fetch?",
+        countLabel: formatNumber(fetchedCount),
+        message:
+          "This fetch has already pulled conversations into the audit queue. Cancelling now stops the live fetch, but the rows already fetched may remain available in the current workflow.",
+        details: [
+          { label: "Fetched So Far", value: `${formatNumber(fetchedCount)} conversation(s)`, helper: "These may remain in the queue after cancellation." },
+          { label: "Workflow State", value: workflowRunId ? "Database-backed" : "Local only", helper: workflowRunId ? "The workflow cancellation will be logged." : "No workflow id is currently attached." },
+        ],
+        note: "Before rerunning this same range, check the queue and Results to avoid duplicate operational work.",
+        confirmText: "Cancel Fetch",
+        cancelText: "Keep Fetching",
+      });
+      return;
+    }
+
+    performCancelFetch();
+  }
+
+  function handleCancelAudit() {
+    const totalCount = auditProgress.total || queuedConversationCount || fetchedConversations.length;
+
+    if (runLoading) {
+      openSafetyConfirmation({
+        action: "cancel_audit",
+        tone: "danger",
+        badge: "Cancel Audit?",
+        title: "Cancel The Running Audit?",
+        countLabel: totalCount ? formatNumber(totalCount) : "Live",
+        message:
+          "Completed batches may already be saved in Results. Cancelling now stops the remaining batches but does not undo rows that were already stored.",
+        details: [
+          { label: "Handled", value: `${formatNumber(auditProgress.handled || 0)} of ${formatNumber(totalCount || 0)}`, helper: "Already completed batches may be saved." },
+          { label: "Saved Rows", value: formatNumber(auditProgress.savedRows || 0), helper: "Check Results before rerunning the same queue." },
+          { label: "Current Batch", value: auditProgress.totalBatches ? `${formatNumber(auditProgress.batchIndex)} of ${formatNumber(auditProgress.totalBatches)}` : "Preparing", helper: "Cancellation happens between active requests where possible." },
+        ],
+        note: "Use this only when you intentionally want to stop the current audit run.",
+        confirmText: "Cancel Audit",
+        cancelText: "Keep Auditing",
+      });
+      return;
+    }
+
+    performCancelAudit();
   }
 
   function getQueuedConversations(conversations) {
@@ -2511,19 +2631,79 @@ export default function RunPage() {
     setSelectedQueueIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
   }
 
-  function removeSelectedFromQueue() {
+  function performRemoveSelectedFromQueue() {
     if (!selectedQueueIds.length) return;
     const selected = new Set(selectedQueueIds);
     const nextConversations = fetchedConversations.filter((item) => !selected.has(conversationIdOf(item)));
     applyQueueUpdate(nextConversations, formatNumber(selectedQueueIds.length) + " selected conversation(s) removed from the audit queue.");
   }
 
-  function clearFetchedQueue() {
+  function performClearFetchedQueue() {
     if (!fetchedConversations.length) return;
     applyQueueUpdate([], "Fetched queue cleared. Fetch again to rebuild the audit queue.");
   }
 
+  function removeSelectedFromQueue() {
+    if (!selectedQueueIds.length) return;
+
+    openSafetyConfirmation({
+      action: "remove_selected",
+      tone: "warning",
+      badge: "Remove Selected?",
+      title: "Remove Selected Conversations?",
+      countLabel: formatNumber(selectedQueueIds.length),
+      message:
+        "These conversations will be removed from the current audit queue before the audit runs. This does not delete Intercom conversations or stored Results rows.",
+      details: [
+        { label: "Selected", value: `${formatNumber(selectedQueueIds.length)} conversation(s)`, helper: "Only selected queue rows will be removed." },
+        { label: "Queue After Removal", value: `${formatNumber(Math.max(0, fetchedConversations.length - selectedQueueIds.length))} conversation(s)`, helper: workflowRunId ? "The database-backed queue will be synced." : "This update will apply locally." },
+      ],
+      note: "Use this when you want to skip specific fetched conversations from the next audit.",
+      confirmText: "Remove Selected",
+      cancelText: "Keep Queue",
+    });
+  }
+
+  function clearFetchedQueue() {
+    if (!fetchedConversations.length) return;
+
+    openSafetyConfirmation({
+      action: "clear_queue",
+      tone: "danger",
+      badge: "Clear Queue?",
+      title: "Clear The Fetched Queue?",
+      countLabel: formatNumber(fetchedConversations.length),
+      message:
+        "This will remove every fetched conversation currently shown in the Run Audit queue. You will need to fetch again to rebuild the queue.",
+      details: [
+        { label: "Fetched Queue", value: `${formatNumber(fetchedConversations.length)} conversation(s)`, helper: "All queued rows will be removed from this workflow view." },
+        { label: "Audit Queue", value: `${formatNumber(queuedConversationCount)} conversation(s)`, helper: "No Intercom data or existing Results rows are deleted." },
+      ],
+      note: "This is useful before changing filters, but avoid clearing if you still need this queue for the next audit.",
+      confirmText: "Clear Queue",
+      cancelText: "Keep Queue",
+    });
+  }
+
   async function handleFetchConversations() {
+    const canResumeExistingFetch = Boolean(
+      workflowRun?.id &&
+        workflowRun?.status === "fetching" &&
+        workflowRun?.safe_payload?.fetch_pagination?.fetchState
+    );
+
+    if (!canResumeExistingFetch) {
+      const confirmation = buildLargeFetchConfirmation();
+      if (confirmation) {
+        openSafetyConfirmation(confirmation);
+        return;
+      }
+    }
+
+    await executeFetchConversations();
+  }
+
+  async function executeFetchConversations() {
     const restoreCandidateFetchData = fetchData;
     const restoreCandidateWorkflowRun = workflowRun;
     const restoreCandidateWorkflowRunId = workflowRunId;
@@ -2808,6 +2988,33 @@ export default function RunPage() {
 
 
   async function handleRunAudit() {
+    const queueCount = queuedConversationCount || getQueuedConversations(fetchedConversations).length;
+
+    if (queueCount >= LARGE_QUEUE_CONFIRM_THRESHOLD) {
+      openSafetyConfirmation({
+        action: "run_large_audit",
+        tone: "warning",
+        badge: "Large Audit Queue",
+        title: "Run Audit On A Large Queue?",
+        countLabel: formatNumber(queueCount),
+        message:
+          "This audit will process a large queue in batches. It may take several minutes, and completed batches may be saved to Results even if the run is later cancelled.",
+        details: [
+          { label: "Audit Queue", value: `${formatNumber(queueCount)} conversation(s)`, helper: `${formatNumber(AUDIT_BATCH_SIZE)} conversation(s) per batch.` },
+          { label: "Estimated Batches", value: formatNumber(Math.ceil(queueCount / AUDIT_BATCH_SIZE)), helper: "Progress updates after each batch finishes." },
+          { label: "Duplicate Handling", value: "Checked Before Audit", helper: "Manual runs pause if existing Results rows are detected." },
+        ],
+        note: "Use Run Audit only when this queue is ready. You can remove selected conversations before starting.",
+        confirmText: "Run Audit",
+        cancelText: "Review Queue",
+      });
+      return;
+    }
+
+    await executeRunAudit();
+  }
+
+  async function executeRunAudit() {
     await startBatchAudit({ duplicateMode: "", autoTriggered: false });
   }
 
@@ -2937,6 +3144,84 @@ export default function RunPage() {
     run: runData?.meta?.auditedCount > 0 ? "done" : runLoading ? "active" : "idle",
   };
 
+  function buildLargeFetchConfirmation() {
+    const dayCount = getDateRangeDayCount(startDate, endDate);
+    const parsedLimit = Number(limitCount);
+    const limiterOff = !limiterEnabled;
+    const highLimit = limiterEnabled && Number.isFinite(parsedLimit) && parsedLimit > LARGE_FETCH_LIMIT_THRESHOLD;
+    const anyRating = !conversationRatings.length;
+    const allAgents = !selectedSupervisorTeamIds.length && !selectedEmployeeNames.length && !selectedIntercomAgentNames.length;
+    const longRange = dayCount >= LARGE_FETCH_RANGE_DAYS;
+
+    if (!(limiterOff || highLimit) || !(longRange || anyRating || allAgents)) {
+      return null;
+    }
+
+    return {
+      action: "large_fetch",
+      tone: "warning",
+      badge: "Large Fetch Detected",
+      title: "Large Fetch Detected",
+      countLabel: limiterOff ? "All" : formatNumber(parsedLimit),
+      message:
+        "This may fetch a high number of Intercom conversations and take several minutes. You can cancel anytime, but this may create a large audit queue.",
+      details: [
+        { label: "Date Range", value: `${startDate} to ${endDate}`, helper: dayCount ? `${formatNumber(dayCount)} day(s) selected` : "Custom range selected" },
+        { label: "Limiter", value: limiterOff ? "Off" : `Up to ${formatNumber(parsedLimit)} conversation(s)`, helper: limiterOff ? "All eligible conversations can be fetched." : "High limit selected." },
+        { label: "Ratings", value: anyRating ? "Any Rating" : describeSelection(conversationRatings, "Any Rating"), helper: anyRating ? "The rating filter is broad." : "Using selected conversation ratings." },
+        { label: "Agent Scope", value: allAgents ? "All Employees" : selectedFilterSummary.employees, helper: allAgents ? "No Employee, Intercom Agent, or Supervisor Team filter is narrowing this fetch." : selectedFilterSummary.agents },
+        { label: "Auto-run", value: autoRunAfterFetch ? "On" : "Off", helper: autoRunAfterFetch ? "Audit will start automatically after fetch completes." : "Audit will wait for a manual start." },
+      ],
+      note: "Use Start Fetch only when this broad range is intentional. Choose Go Back to narrow the date range, enable the limiter, or select a team/employee first.",
+      confirmText: "Start Fetch",
+      cancelText: "Go Back",
+    };
+  }
+
+  function openSafetyConfirmation(config) {
+    setSafetyConfirmation({ ...config, openedAt: Date.now() });
+  }
+
+  function closeSafetyConfirmation() {
+    setSafetyConfirmation(null);
+  }
+
+  async function handleSafetyConfirmationConfirm() {
+    const confirmation = safetyConfirmation;
+    if (!confirmation?.action) return;
+
+    setSafetyConfirmation(null);
+
+    if (confirmation.action === "large_fetch") {
+      await executeFetchConversations();
+      return;
+    }
+
+    if (confirmation.action === "remove_selected") {
+      performRemoveSelectedFromQueue();
+      return;
+    }
+
+    if (confirmation.action === "clear_queue") {
+      performClearFetchedQueue();
+      return;
+    }
+
+    if (confirmation.action === "cancel_fetch") {
+      if (fetchLoading) performCancelFetch();
+      return;
+    }
+
+    if (confirmation.action === "cancel_audit") {
+      if (runLoading) performCancelAudit();
+      return;
+    }
+
+    if (confirmation.action === "run_large_audit") {
+      await executeRunAudit();
+    }
+  }
+
   return (
     <main className="run-page">
       <style>{runStyles}</style>
@@ -2948,6 +3233,12 @@ export default function RunPage() {
         onCancel={handleDuplicateCancel}
         onSkip={handleDuplicateSkip}
         onOverwrite={handleDuplicateOverwrite}
+      />
+
+      <SafetyConfirmationModal
+        confirmation={safetyConfirmation}
+        onCancel={closeSafetyConfirmation}
+        onConfirm={handleSafetyConfirmationConfirm}
       />
 
       <section className="run-intro-strip surface-card">
@@ -3833,6 +4124,12 @@ const runStyles = `
     color: #fde68a;
     border: 1px solid rgba(245, 158, 11, 0.24);
     background: rgba(245, 158, 11, 0.1);
+  }
+
+  .modal-badge.danger {
+    color: #fecaca;
+    border: 1px solid rgba(244, 63, 94, 0.28);
+    background: rgba(244, 63, 94, 0.12);
   }
 
   .state-pill.danger,
@@ -5193,6 +5490,18 @@ const runStyles = `
     background: rgba(245, 158, 11, 0.08);
   }
 
+  .modal-count.danger {
+    color: #fecaca;
+    border-color: rgba(244, 63, 94, 0.28);
+    background: rgba(244, 63, 94, 0.1);
+  }
+
+  .modal-count.notice {
+    color: #dbeafe;
+    border-color: rgba(59, 130, 246, 0.24);
+    background: rgba(59, 130, 246, 0.1);
+  }
+
   .duplicate-modal h2 {
     margin-bottom: 10px;
     font-size: 34px;
@@ -5206,15 +5515,41 @@ const runStyles = `
     font-size: 15px;
   }
 
-  .modal-note-grid {
+  .modal-note-grid,
+  .safety-detail-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 16px;
   }
 
+  .safety-detail-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
   .modal-note-card {
     padding: 16px;
+  }
+
+  .safety-modal {
+    width: min(820px, 100%);
+  }
+
+  .safety-detail-card span {
+    display: block;
+    margin-bottom: 6px;
+    color: #8ea0d6;
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .safety-hint {
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(129, 140, 248, 0.16);
+    background: rgba(99, 102, 241, 0.08);
   }
 
   .modal-note-card strong,
