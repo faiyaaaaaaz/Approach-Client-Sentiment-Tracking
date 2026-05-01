@@ -1,3 +1,4 @@
+import "./globals.css";
 import AppShellClient from "./components/AppShellClient";
 
 export const metadata = {
