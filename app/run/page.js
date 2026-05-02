@@ -578,15 +578,16 @@ function queueItemMatchesSupervisorTeam(item, supervisorTeam, identity) {
     identity?.agentName,
     identity?.employeeName,
     identity?.employeeEmail,
-    identity?.teamName,
   ].map(normalizeRunKey).filter(Boolean);
 
-  return (Array.isArray(supervisorTeam.members) ? supervisorTeam.members : []).some((member) => {
+  const members = Array.isArray(supervisorTeam.members) ? supervisorTeam.members : [];
+  if (!members.length) return false;
+
+  return members.some((member) => {
     const memberKeys = [
       member?.intercom_agent_name,
       member?.employee_name,
       member?.employee_email,
-      member?.team_name,
     ].map(normalizeRunKey).filter(Boolean);
 
     return memberKeys.some((key) => compareKeys.includes(key));
@@ -2002,6 +2003,33 @@ export default function RunPage() {
     }
 
     loadAgentMappingsForFilters(session);
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    let lastRefreshAt = 0;
+
+    function refreshMappingsAfterAdminChange() {
+      const now = Date.now();
+      if (now - lastRefreshAt < 5000) return;
+      lastRefreshAt = now;
+      loadAgentMappingsForFilters(session);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshMappingsAfterAdminChange();
+      }
+    }
+
+    window.addEventListener("focus", refreshMappingsAfterAdminChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", refreshMappingsAfterAdminChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [session?.access_token]);
 
   useEffect(() => {
