@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
@@ -54,6 +54,18 @@ const API_KEY_TYPES = [
   },
 ];
 
+const ACTIVITY_DATE_PRESET_OPTIONS = [
+  { key: "all", label: "All Time" },
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "past_7_days", label: "Past 7 Days" },
+  { key: "past_30_days", label: "Past 30 Days" },
+  { key: "this_month", label: "This Month" },
+  { key: "custom", label: "Custom" },
+];
+
+const ACTIVITY_LIMIT_OPTIONS = [50, 100, 150, 300, 500, 1000];
+
 
 function withTimeout(promise, label, timeoutMs = TIMEOUT_MS) {
   let timeoutId;
@@ -98,6 +110,177 @@ function formatDateTime(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function normalizeToStartOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDateInput(date) {
+  const local = normalizeToStartOfDay(date);
+  const year = local.getFullYear();
+  const month = String(local.getMonth() + 1).padStart(2, "0");
+  const day = String(local.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return normalizeToStartOfDay(next);
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getActivityPresetRange(key) {
+  const today = normalizeToStartOfDay(new Date());
+
+  switch (key) {
+    case "today":
+      return { startDate: formatDateInput(today), endDate: formatDateInput(today) };
+    case "yesterday": {
+      const yesterday = shiftDays(today, -1);
+      return { startDate: formatDateInput(yesterday), endDate: formatDateInput(yesterday) };
+    }
+    case "past_7_days":
+      return { startDate: formatDateInput(shiftDays(today, -6)), endDate: formatDateInput(today) };
+    case "past_30_days":
+      return { startDate: formatDateInput(shiftDays(today, -29)), endDate: formatDateInput(today) };
+    case "this_month":
+      return { startDate: formatDateInput(startOfMonth(today)), endDate: formatDateInput(today) };
+    default:
+      return { startDate: "", endDate: "" };
+  }
+}
+
+function activityDateLabel(startDate, endDate, presetKey) {
+  const preset = ACTIVITY_DATE_PRESET_OPTIONS.find((item) => item.key === presetKey)?.label || "Custom";
+  if (!startDate && !endDate) return preset === "Custom" ? "All Time" : preset;
+  if (startDate && endDate) return `${startDate} to ${endDate}`;
+  if (startDate) return `From ${startDate}`;
+  return `Until ${endDate}`;
+}
+
+function formatActivityPath(path) {
+  const text = normalizeText(path);
+  if (!text) return "No path saved";
+  if (text === "/") return "Dashboard";
+  return text
+    .replace(/^\//, "")
+    .replaceAll("/", " / ")
+    .replaceAll("-", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function summarizeActivityLog(row) {
+  const actor = normalizeText(row?.actor_name) || normalizeText(row?.actor_email) || "A user";
+  const action = normalizeText(row?.action_type);
+  const pathLabel = formatActivityPath(row?.request_path);
+
+  if (action === "page_viewed") return `${actor} opened ${pathLabel}.`;
+  if (action === "session_ended") return `${actor} signed out.`;
+  if (normalizeText(row?.description)) return row.description;
+
+  const label = normalizeText(row?.action_label) || activityActionLabel(action);
+  return `${actor} performed ${label}.`;
+}
+
+function summarizeActivityTarget(row) {
+  return normalizeText(row?.target_label) || normalizeText(row?.target_id) || normalizeText(row?.target_type) || "No direct target";
+}
+
+function safeJsonPreview(value) {
+  if (!value || typeof value !== "object") return "No structured data saved.";
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_error) {
+    return "Could not render structured data.";
+  }
+}
+
+function HelpTip({ text }) {
+  return (
+    <span className="help-tip" tabIndex={0} aria-label={text}>
+      ?
+      <em>{text}</em>
+    </span>
+  );
+}
+
+function AdminActivityDateRangePicker({ startDate, endDate, presetKey, onApplyPreset, onApplyCustom }) {
+  const [open, setOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState(startDate || "");
+  const [draftEnd, setDraftEnd] = useState(endDate || "");
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftStart(startDate || "");
+    setDraftEnd(endDate || "");
+  }, [open, startDate, endDate]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  function applyPreset(key) {
+    onApplyPreset(key);
+    if (key !== "custom") setOpen(false);
+  }
+
+  function applyCustom() {
+    onApplyCustom(draftStart, draftEnd);
+    setOpen(false);
+  }
+
+  return (
+    <label className="admin-date-range-field" ref={wrapRef}>
+      <span>
+        Date Range
+        <HelpTip text="Choose the log date range before applying filters. For larger windows, increase the log limit too." />
+      </span>
+      <button type="button" className="admin-date-button" onClick={() => setOpen((prev) => !prev)}>
+        <strong>{ACTIVITY_DATE_PRESET_OPTIONS.find((item) => item.key === presetKey)?.label || "Custom"}</strong>
+        <small>{activityDateLabel(startDate, endDate, presetKey)}</small>
+        <b>{open ? "Up" : "Down"}</b>
+      </button>
+
+      {open ? (
+        <div className="admin-date-popover">
+          <div className="admin-date-presets">
+            {ACTIVITY_DATE_PRESET_OPTIONS.map((item) => (
+              <button key={item.key} type="button" className={item.key === presetKey ? "active" : ""} onClick={() => applyPreset(item.key)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="admin-date-custom">
+            <label>
+              <span>Start</span>
+              <input type="date" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} />
+            </label>
+            <label>
+              <span>End</span>
+              <input type="date" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} />
+            </label>
+            <button type="button" className="primary-btn small-date-apply" onClick={applyCustom}>Apply Custom Range</button>
+          </div>
+        </div>
+      ) : null}
+    </label>
+  );
 }
 
 function buildFallbackProfile(user) {
@@ -613,6 +796,8 @@ export default function AdminPage() {
   const [activityFilters, setActivityFilters] = useState(createEmptyActivityFilters());
   const [activityLimit, setActivityLimit] = useState(150);
   const [activityVisibleCount, setActivityVisibleCount] = useState(25);
+  const [activityDatePreset, setActivityDatePreset] = useState("all");
+  const [expandedActivityLogId, setExpandedActivityLogId] = useState("");
 
   const isAdmin = canManageAdmin(profile);
   const canManageUsersNow = canManageUsers(profile);
@@ -643,6 +828,25 @@ export default function AdminPage() {
     setActivityFilters((prev) => ({
       ...prev,
       [key]: value,
+    }));
+  }
+
+  function applyActivityPreset(key) {
+    setActivityDatePreset(key);
+    const range = getActivityPresetRange(key);
+    setActivityFilters((prev) => ({
+      ...prev,
+      start_date: range.startDate,
+      end_date: range.endDate,
+    }));
+  }
+
+  function applyCustomActivityRange(startDate, endDate) {
+    setActivityDatePreset("custom");
+    setActivityFilters((prev) => ({
+      ...prev,
+      start_date: startDate || "",
+      end_date: endDate || "",
     }));
   }
 
@@ -943,6 +1147,7 @@ export default function AdminPage() {
       setActivityLogs(Array.isArray(data.logs) ? data.logs : []);
       setActivitySessions(Array.isArray(data.sessions) ? data.sessions : []);
       setActivityVisibleCount(25);
+      setExpandedActivityLogId("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load system activity logs.";
       setActivityError(message);
@@ -966,6 +1171,7 @@ export default function AdminPage() {
 
   function handleClearActivityFilters() {
     const nextFilters = createEmptyActivityFilters();
+    setActivityDatePreset("all");
     setActivityFilters(nextFilters);
     handleRefreshActivityLogs(nextFilters);
   }
@@ -2362,7 +2568,7 @@ export default function AdminPage() {
                   <p className="eyebrow">Master Admin Only</p>
                   <h2>System Activity Logs</h2>
                   <p className="muted">
-                    Review Sign-Ins, Session Activity, Admin Actions, And System Changes With Timestamps.
+                    Review sign-ins, page visits, admin changes, and session history with clearer event details.
                   </p>
                 </div>
 
@@ -2411,26 +2617,16 @@ export default function AdminPage() {
               </div>
 
               <div className="filter-grid activity-filter-grid">
-                <label>
-                  <span>Start Date</span>
-                  <input
-                    type="date"
-                    value={activityFilters.start_date}
-                    onChange={(event) => updateActivityFilter("start_date", event.target.value)}
-                  />
-                </label>
+                <AdminActivityDateRangePicker
+                  startDate={activityFilters.start_date}
+                  endDate={activityFilters.end_date}
+                  presetKey={activityDatePreset}
+                  onApplyPreset={applyActivityPreset}
+                  onApplyCustom={applyCustomActivityRange}
+                />
 
                 <label>
-                  <span>End Date</span>
-                  <input
-                    type="date"
-                    value={activityFilters.end_date}
-                    onChange={(event) => updateActivityFilter("end_date", event.target.value)}
-                  />
-                </label>
-
-                <label>
-                  <span>User Email</span>
+                  <span>User Email <HelpTip text="Filter logs by the user who performed the action. Use the full email for the most accurate result." /></span>
                   <input
                     value={activityFilters.email}
                     onChange={(event) => updateActivityFilter("email", normalizeEmail(event.target.value))}
@@ -2439,7 +2635,7 @@ export default function AdminPage() {
                 </label>
 
                 <label>
-                  <span>Action</span>
+                  <span>Action <HelpTip text="The event type captured by the system, such as page view, prompt save, mapping update, or sign-out." /></span>
                   <select
                     value={activityFilters.action_type}
                     onChange={(event) => updateActivityFilter("action_type", event.target.value)}
@@ -2454,7 +2650,7 @@ export default function AdminPage() {
                 </label>
 
                 <label>
-                  <span>Status</span>
+                  <span>Status <HelpTip text="Info is normal tracking. Failed means an action did not complete. Warning means the event needs attention." /></span>
                   <select
                     value={activityFilters.status}
                     onChange={(event) => updateActivityFilter("status", event.target.value)}
@@ -2468,7 +2664,7 @@ export default function AdminPage() {
                 </label>
 
                 <label>
-                  <span>Area</span>
+                  <span>Area <HelpTip text="The product area where the event happened, such as Navigation, Admin, Mapping, Prompt, or Authentication." /></span>
                   <select
                     value={activityFilters.area}
                     onChange={(event) => updateActivityFilter("area", event.target.value)}
@@ -2483,7 +2679,7 @@ export default function AdminPage() {
                 </label>
 
                 <label className="activity-search-field">
-                  <span>Search</span>
+                  <span>Search <HelpTip text="Search logs by user name, email, page path, action, target, or detail. Search now runs before the row limit is applied." /></span>
                   <input
                     value={activityFilters.search}
                     onChange={(event) => updateActivityFilter("search", event.target.value)}
@@ -2492,15 +2688,14 @@ export default function AdminPage() {
                 </label>
 
                 <label>
-                  <span>Limit</span>
+                  <span>Limit <HelpTip text="Maximum log rows returned for the selected date range and filters. Use 500 or 1000 for longer investigations." /></span>
                   <select
                     value={activityLimit}
                     onChange={(event) => setActivityLimit(Number(event.target.value))}
                   >
-                    <option value={50}>50 Rows</option>
-                    <option value={100}>100 Rows</option>
-                    <option value={150}>150 Rows</option>
-                    <option value={300}>300 Rows</option>
+                    {ACTIVITY_LIMIT_OPTIONS.map((limit) => (
+                      <option key={limit} value={limit}>{formatNumber(limit)} Rows</option>
+                    ))}
                   </select>
                 </label>
 
@@ -2543,43 +2738,81 @@ export default function AdminPage() {
                       </thead>
 
                       <tbody>
-                        {visibleActivityLogs.map((row) => (
-                          <tr key={row.id}>
-                            <td>
-                              <strong>{formatDateTime(row.created_at)}</strong>
-                              {row.session_id ? <small>Session {String(row.session_id).slice(0, 8)}</small> : null}
-                            </td>
+                        {visibleActivityLogs.map((row) => {
+                          const expanded = expandedActivityLogId === row.id;
+                          return (
+                            <Fragment key={row.id}>
+                              <tr>
+                                <td>
+                                  <strong>{formatDateTime(row.created_at)}</strong>
+                                  {row.session_id ? <small>Session {String(row.session_id).slice(0, 8)}</small> : null}
+                                </td>
 
-                            <td>
-                              <strong>{row.actor_name || row.actor_email || "Unknown User"}</strong>
-                              <small>{row.actor_email || "No email"}</small>
-                              <em>{roleLabel(row.actor_role)}</em>
-                            </td>
+                                <td>
+                                  <strong>{row.actor_name || row.actor_email || "Unknown User"}</strong>
+                                  <small>{row.actor_email || "No email"}</small>
+                                  <em>{roleLabel(row.actor_role)}</em>
+                                </td>
 
-                            <td>
-                              <strong>{row.action_label || activityActionLabel(row.action_type)}</strong>
-                              <small>{row.action_type || "activity"}</small>
-                            </td>
+                                <td>
+                                  <strong>{row.action_label || activityActionLabel(row.action_type)}</strong>
+                                  <small>{row.action_type || "activity"}</small>
+                                </td>
 
-                            <td>{row.area || "-"}</td>
+                                <td>{row.area || "-"}</td>
 
-                            <td>
-                              <span className={`status ${row.status === "failed" ? "inactive" : "active"}`}>
-                                {activityActionLabel(row.status || "info")}
-                              </span>
-                            </td>
+                                <td>
+                                  <span className={`status ${row.status === "failed" ? "inactive" : row.status === "warning" ? "inactive" : "active"}`}>
+                                    {activityActionLabel(row.status || "info")}
+                                  </span>
+                                </td>
 
-                            <td>
-                              <strong>{row.target_label || row.target_id || "-"}</strong>
-                              {row.target_type ? <small>{row.target_type}</small> : null}
-                            </td>
+                                <td>
+                                  <strong>{summarizeActivityTarget(row)}</strong>
+                                  {row.target_type ? <small>{row.target_type}</small> : null}
+                                </td>
 
-                            <td>
-                              <span>{row.description || "-"}</span>
-                              {row.request_path ? <small>{row.request_path}</small> : null}
-                            </td>
-                          </tr>
-                        ))}
+                                <td>
+                                  <span>{summarizeActivityLog(row)}</span>
+                                  {row.request_path ? <small>{row.request_path}</small> : null}
+                                  <button
+                                    type="button"
+                                    className="activity-detail-toggle"
+                                    onClick={() => setExpandedActivityLogId(expanded ? "" : row.id)}
+                                  >
+                                    {expanded ? "Hide Details" : "Show Details"}
+                                  </button>
+                                </td>
+                              </tr>
+
+                              {expanded ? (
+                                <tr className="activity-detail-row">
+                                  <td colSpan={7}>
+                                    <div className="activity-detail-card">
+                                      <div>
+                                        <span>Full Description</span>
+                                        <p>{row.description || summarizeActivityLog(row)}</p>
+                                      </div>
+                                      <div>
+                                        <span>Request Path</span>
+                                        <p>{row.request_path || "No path saved."}</p>
+                                      </div>
+                                      <div>
+                                        <span>IP / Browser</span>
+                                        <p>{row.ip_address || "No IP saved."}</p>
+                                        <small>{row.user_agent || "No browser details saved."}</small>
+                                      </div>
+                                      <div className="activity-json-card">
+                                        <span>Safe Metadata</span>
+                                        <pre>{safeJsonPreview(row.metadata)}</pre>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
@@ -2618,8 +2851,9 @@ export default function AdminPage() {
                 <aside className="session-panel">
                   <div className="section-head compact-head">
                     <div>
-                      <p className="eyebrow">Session Watch</p>
+                      <p className="eyebrow">Session Activity</p>
                       <h3>Recent Sessions</h3>
+                      <p className="session-help-text">Recent sign-in sessions for the same date range and search filters.</p>
                     </div>
                   </div>
 
@@ -3106,7 +3340,15 @@ export default function AdminPage() {
                         ))}
 
                         {(team.members || []).length > 10 ? (
-                          <span>+{formatNumber((team.members || []).length - 10)} more</span>
+                          <span className="member-more-chip" tabIndex={0}>
+                            +{formatNumber((team.members || []).length - 10)} more
+                            <em>
+                              {(team.members || [])
+                                .slice(10)
+                                .map((member) => member.employee_name || member.employee_email || "Unnamed member")
+                                .join(", ")}
+                            </em>
+                          </span>
                         ) : null}
 
                         {(team.members || []).length === 0 ? <span>No members assigned</span> : null}
@@ -3660,7 +3902,7 @@ export default function AdminPage() {
 
             <div className="filter-grid">
               <label>
-                <span>Search</span>
+                <span>Search <HelpTip text="Search by Intercom agent, mapped employee, email, team, notes, or quality state." /></span>
                 <input
                   value={mappingSearch}
                   onChange={(event) => setMappingSearch(event.target.value)}
@@ -3669,7 +3911,7 @@ export default function AdminPage() {
               </label>
 
               <label>
-                <span>Status</span>
+                <span>Status <HelpTip text="Filter active or inactive mapping records. Active mappings are used by future audits." /></span>
                 <select
                   value={mappingStatusFilter}
                   onChange={(event) => setMappingStatusFilter(event.target.value)}
@@ -3681,7 +3923,7 @@ export default function AdminPage() {
               </label>
 
               <label>
-                <span>Quality</span>
+                <span>Quality <HelpTip text="Mapping quality explains whether a mapping is healthy, missing email/team data, inactive, or simply has no stored usage yet." /></span>
                 <select
                   value={mappingQualityFilter}
                   onChange={(event) => setMappingQualityFilter(event.target.value)}
@@ -3836,6 +4078,29 @@ export default function AdminPage() {
                     </div>
 
                     <p>{item?.change_note || item?.notes || "No change note."}</p>
+                    <dl className="history-meta-grid">
+                      <div>
+                        <dt>Performer</dt>
+                        <dd>{item?.changed_by_name || item?.changed_by_email || item?.created_by_email || "Not saved"}</dd>
+                      </div>
+                      <div>
+                        <dt>Saved At</dt>
+                        <dd>{formatDateTime(item?.created_at || item?.updated_at)}</dd>
+                      </div>
+                    </dl>
+                    {item?.id ? (
+                      <details className="history-details">
+                        <summary>Show Details</summary>
+                        <pre>{safeJsonPreview({
+                          id: item.id,
+                          prompt_type: item.prompt_type,
+                          changed_by: item.changed_by_email || item.created_by_email || item.updated_by_email || null,
+                          created_at: item.created_at,
+                          updated_at: item.updated_at,
+                          note: item.change_note || item.notes || null,
+                        })}</pre>
+                      </details>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -4873,6 +5138,37 @@ const adminStyles = `
     font-weight: 800;
   }
 
+  .member-more-chip {
+    position: relative;
+    cursor: help;
+    border-color: rgba(34, 211, 238, 0.26) !important;
+    background: rgba(34, 211, 238, 0.1) !important;
+  }
+
+  .member-more-chip em {
+    position: fixed;
+    z-index: 999999;
+    width: min(380px, calc(100vw - 44px));
+    transform: translate(-12px, -100%);
+    opacity: 0;
+    pointer-events: none;
+    padding: 12px;
+    border-radius: 14px;
+    color: #eef3ff;
+    border: 1px solid rgba(147, 197, 253, 0.26);
+    background: #0b1122;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.58);
+    font-size: 13px;
+    font-style: normal;
+    line-height: 1.6;
+    white-space: normal;
+  }
+
+  .member-more-chip:hover em,
+  .member-more-chip:focus em {
+    opacity: 1;
+  }
+
   .rule-list {
     display: grid;
     gap: 12px;
@@ -5171,6 +5467,183 @@ const adminStyles = `
     line-height: 1.6;
   }
 
+  .history-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 12px 0 0;
+  }
+
+  .history-meta-grid div,
+  .history-details {
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+  }
+
+  .history-meta-grid dt {
+    color: #8ea0d6;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .history-meta-grid dd {
+    margin: 5px 0 0;
+    color: #f5f7ff;
+    font-weight: 850;
+    overflow-wrap: anywhere;
+  }
+
+  .history-details {
+    margin-top: 12px;
+  }
+
+  .history-details summary {
+    cursor: pointer;
+    color: #dbeafe;
+    font-weight: 900;
+  }
+
+  .history-details pre {
+    margin-top: 10px;
+  }
+
+
+  .help-tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 7px;
+    border-radius: 999px;
+    color: #dbeafe;
+    border: 1px solid rgba(147, 197, 253, 0.26);
+    background: rgba(59, 130, 246, 0.12);
+    font-size: 12px;
+    font-weight: 950;
+    cursor: help;
+    vertical-align: middle;
+  }
+
+  .help-tip em {
+    position: fixed;
+    z-index: 999999;
+    width: min(360px, calc(100vw - 40px));
+    transform: translate(-12px, -100%);
+    opacity: 0;
+    pointer-events: none;
+    padding: 12px 13px;
+    border-radius: 14px;
+    color: #eef3ff;
+    border: 1px solid rgba(147, 197, 253, 0.26);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 36%),
+      #0b1122;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.58);
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 1.55;
+    letter-spacing: 0;
+    text-transform: none;
+    transition: opacity 0.16s ease;
+  }
+
+  .help-tip:hover em,
+  .help-tip:focus em {
+    opacity: 1;
+  }
+
+  .admin-date-button {
+    width: 100%;
+    min-height: 50px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    color: #e7ecff;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 16px;
+    background: rgba(5, 8, 18, 0.9);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .admin-date-button strong {
+    white-space: nowrap;
+  }
+
+  .admin-date-button small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #9fb5ff;
+    font-weight: 850;
+  }
+
+  .admin-date-button b {
+    color: #8ea0d6;
+    font-size: 13px;
+  }
+
+  .admin-date-popover {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 10px);
+    z-index: 9000;
+    width: min(620px, calc(100vw - 48px));
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+    border-radius: 22px;
+    border: 1px solid rgba(147, 197, 253, 0.24);
+    background:
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 34%),
+      #0b1122;
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.72);
+  }
+
+  .admin-date-presets {
+    display: grid;
+    gap: 7px;
+  }
+
+  .admin-date-presets button {
+    min-height: 38px;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+    color: #dbe7ff;
+    font-weight: 900;
+    cursor: pointer;
+    text-align: left;
+    padding: 0 11px;
+  }
+
+  .admin-date-presets button.active,
+  .admin-date-presets button:hover {
+    border-color: rgba(96, 165, 250, 0.3);
+    background: rgba(59, 130, 246, 0.14);
+  }
+
+  .admin-date-custom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-content: start;
+  }
+
+  .small-date-apply {
+    grid-column: 1 / -1;
+    min-height: 42px;
+  }
 
   .activity-panel {
     margin-bottom: 18px;
@@ -5226,6 +5699,12 @@ const adminStyles = `
   .activity-filter-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
     margin-bottom: 16px;
+    align-items: end;
+  }
+
+  .admin-date-range-field {
+    position: relative;
+    grid-column: span 2;
   }
 
   .activity-search-field {
@@ -5240,7 +5719,7 @@ const adminStyles = `
 
   .activity-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
     align-items: start;
   }
@@ -5272,6 +5751,74 @@ const adminStyles = `
     font-weight: 800;
   }
 
+  .activity-detail-toggle {
+    display: inline-flex;
+    margin-top: 8px;
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(59, 130, 246, 0.11);
+    color: #dbeafe;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .activity-detail-row td {
+    padding-top: 0;
+    background: rgba(255, 255, 255, 0.02) !important;
+  }
+
+  .activity-detail-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    background: rgba(15, 23, 42, 0.68);
+  }
+
+  .activity-detail-card div {
+    min-width: 0;
+  }
+
+  .activity-detail-card span {
+    display: block;
+    margin-bottom: 7px;
+    color: #9fb4ff;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .activity-detail-card p,
+  .activity-detail-card small {
+    display: block;
+    margin: 0;
+    color: #dbe7ff;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .activity-json-card {
+    grid-column: 1 / -1;
+  }
+
+  .activity-json-card pre,
+  .history-details pre {
+    margin: 0;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    color: #dbe7ff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
 
   .activity-log-pagination {
     display: flex;
@@ -5296,10 +5843,9 @@ const adminStyles = `
   }
 
   .session-panel {
-    position: sticky;
-    top: 96px;
-    max-height: 640px;
-    overflow: hidden;
+    position: static;
+    max-height: none;
+    overflow: visible;
     border-radius: 24px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background:
@@ -5317,12 +5863,20 @@ const adminStyles = `
     font-size: 22px;
   }
 
+  .session-help-text {
+    margin: 6px 0 0;
+    color: #a9b4d0;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
   .session-list {
     display: grid;
-    gap: 10px;
-    max-height: 548px;
-    overflow: auto;
-    padding-right: 4px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .session-card {
@@ -5476,8 +6030,17 @@ const adminStyles = `
     .permission-grid,
     .api-meta-grid,
     .key-record,
-    .profile-card {
+    .profile-card,
+    .activity-filter-grid,
+    .activity-detail-card,
+    .admin-date-popover,
+    .history-meta-grid {
       grid-template-columns: 1fr;
+    }
+
+    .admin-date-range-field,
+    .activity-search-field {
+      grid-column: auto;
     }
 
     .section-head,
