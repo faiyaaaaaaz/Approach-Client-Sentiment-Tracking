@@ -4127,7 +4127,6 @@ const resultsStyles = `
   .results-date-popover-actions .primary-btn { background: #15803d; color: #fff; }
   @media (max-width: 780px) { .results-date-popover { width: min(94vw, 520px); } .results-date-popover-body, .results-calendar-months-grid { grid-template-columns: 1fr; } }
 
-`;
   @media (max-width: 760px) {
     .results-loading-page {
       padding: 20px;
@@ -4174,3 +4173,4 @@ const resultsStyles = `
     }
   }
 
+`;
