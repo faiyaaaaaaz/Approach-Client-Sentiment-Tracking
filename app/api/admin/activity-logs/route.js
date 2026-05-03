@@ -35,6 +35,25 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function formatPagePath(value) {
+  const text = normalizeText(value);
+  if (!text || text === "/") return "Dashboard";
+  return text
+    .replace(/^\//, "")
+    .replaceAll("/", " / ")
+    .replaceAll("-", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function normalizePagePath(value) {
+  const text = normalizeText(value);
+  if (!text) return "/";
+  return text.startsWith("/") ? text : `/${text}`;
+}
+
 function normalizeSearchTerm(value) {
   return normalizeText(value).replace(/[%,]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -494,11 +513,14 @@ export async function POST(request) {
     }
 
     if (actionType !== "session_heartbeat") {
+      const pagePath = normalizePagePath(body.page || body.pathname || body.route || "/");
+      const pageLabel = formatPagePath(pagePath);
+      const incomingMetadata = safeJsonObject(body.metadata);
       const label = actionType === "session_ended" ? "User Signed Out" : "Page Viewed";
       const description =
         actionType === "session_ended"
           ? `${actorName} signed out.`
-          : `${actorName} viewed ${normalizeText(body.page || "a page")}.`;
+          : `${actorName} opened ${pageLabel}.`;
 
       await writeActivityLog(auth.adminClient, {
         actor_user_id: auth.user.id,
@@ -508,9 +530,16 @@ export async function POST(request) {
         action_type: actionType,
         action_label: label,
         area: actionType === "session_ended" ? "Authentication" : "Navigation",
+        target_type: actionType === "session_ended" ? "session" : "page",
+        target_id: actionType === "session_ended" ? sessionId : pagePath,
+        target_label: actionType === "session_ended" ? "User Session" : pageLabel,
         status: "info",
         description,
-        metadata: safeJsonObject(body.metadata),
+        metadata: {
+          ...incomingMetadata,
+          page: pagePath,
+          source: "client_activity_tracker",
+        },
         request_path: meta.request_path,
         ip_address: meta.ip_address,
         user_agent: meta.user_agent,
