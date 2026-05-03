@@ -6234,7 +6234,7 @@ const dashboardStyles = `
 
   .donut-segment {
     stroke-width: 42;
-    stroke-linecap: round;
+    stroke-linecap: butt;
     filter: drop-shadow(0 0 7px rgba(148, 163, 184, 0.12));
     transition: opacity 0.18s ease, stroke-width 0.18s ease, filter 0.18s ease;
   }
