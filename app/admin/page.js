@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
@@ -350,10 +351,81 @@ function CalendarIcon() {
 }
 
 function HelpTip({ text }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 340, placement: "top" });
+  const buttonRef = useRef(null);
+
+  function updateTooltipPosition() {
+    if (!buttonRef.current || typeof window === "undefined") return;
+
+    const rect = buttonRef.current.getBoundingClientRect();
+    const tooltipWidth = Math.min(360, Math.max(280, window.innerWidth - 32));
+    const left = Math.min(
+      Math.max(16, rect.left + rect.width / 2 - tooltipWidth / 2),
+      window.innerWidth - tooltipWidth - 16
+    );
+    const hasRoomAbove = rect.top > 130;
+    const top = hasRoomAbove ? rect.top - 12 : rect.bottom + 12;
+
+    setPosition({
+      top,
+      left,
+      width: tooltipWidth,
+      placement: hasRoomAbove ? "top" : "bottom",
+    });
+  }
+
+  function showTooltip() {
+    updateTooltipPosition();
+    setOpen(true);
+  }
+
+  function hideTooltip() {
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function syncPosition() {
+      updateTooltipPosition();
+    }
+
+    window.addEventListener("scroll", syncPosition, true);
+    window.addEventListener("resize", syncPosition);
+
+    return () => {
+      window.removeEventListener("scroll", syncPosition, true);
+      window.removeEventListener("resize", syncPosition);
+    };
+  }, [open]);
+
   return (
-    <span className="help-tip" tabIndex={0} aria-label={text}>
-      ?
-      <em>{text}</em>
+    <span className="help-tip-wrap">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="help-tip"
+        aria-label={text}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
+        onFocus={showTooltip}
+        onBlur={hideTooltip}
+      >
+        ?
+      </button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className={`help-tip-popover ${position.placement}`}
+              role="tooltip"
+              style={{ top: position.top, left: position.left, width: position.width }}
+            >
+              {text}
+            </div>,
+            document.body
+          )
+        : null}
     </span>
   );
 }
@@ -4992,12 +5064,16 @@ const adminStyles = `
 
   label span,
   .filter-grid label span {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 18px;
     margin-bottom: 8px;
     color: #8ea0d6;
     font-size: 13px;
     font-weight: 900;
     letter-spacing: 0.14em;
+    line-height: 1.1;
     text-transform: uppercase;
   }
 
@@ -5737,51 +5813,76 @@ const adminStyles = `
   }
 
 
+  .help-tip-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+  }
+
   .help-tip {
-    position: relative;
+    appearance: none;
+    -webkit-appearance: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 18px;
-    margin-left: 7px;
+    min-width: 18px;
+    padding: 0;
     border-radius: 999px;
     color: #dbeafe;
-    border: 1px solid rgba(147, 197, 253, 0.26);
-    background: rgba(59, 130, 246, 0.12);
-    font-size: 12px;
+    border: 1px solid rgba(147, 197, 253, 0.32);
+    background: rgba(59, 130, 246, 0.15);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    font-family: inherit;
+    font-size: 11px;
     font-weight: 950;
+    line-height: 1;
+    letter-spacing: 0;
     cursor: help;
     vertical-align: middle;
   }
 
-  .help-tip em {
+  .help-tip:hover,
+  .help-tip:focus-visible {
+    color: #ffffff;
+    border-color: rgba(147, 197, 253, 0.58);
+    background: rgba(37, 99, 235, 0.34);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 10px 26px rgba(15, 23, 42, 0.32);
+  }
+
+  .help-tip-popover {
     position: fixed;
-    z-index: 999999;
-    width: min(360px, calc(100vw - 40px));
-    transform: translate(-12px, -100%);
-    opacity: 0;
+    z-index: 2147483647;
     pointer-events: none;
-    padding: 12px 13px;
+    padding: 12px 14px;
     border-radius: 14px;
     color: #eef3ff;
-    border: 1px solid rgba(147, 197, 253, 0.26);
+    border: 1px solid rgba(147, 197, 253, 0.3);
     background:
-      radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 36%),
-      #0b1122;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.58);
+      radial-gradient(circle at top right, rgba(124, 58, 237, 0.2), transparent 38%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(7, 12, 28, 0.98));
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.64), 0 0 0 1px rgba(255, 255, 255, 0.04);
     font-size: 13px;
     font-style: normal;
     font-weight: 800;
     line-height: 1.55;
     letter-spacing: 0;
     text-transform: none;
-    transition: opacity 0.16s ease;
+    white-space: normal;
   }
 
-  .help-tip:hover em,
-  .help-tip:focus em {
-    opacity: 1;
+  .help-tip-popover.top {
+    transform: translateY(-100%);
+  }
+
+  .help-tip-popover.bottom {
+    transform: none;
   }
 
   .admin-date-range-field {
