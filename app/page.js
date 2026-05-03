@@ -866,43 +866,43 @@ function buildConicGradient(segments) {
 }
 
 function resultTypeColor(label) {
-  if (label === "Opportunity") return "#f59e0b";
-  if (label === "Positive") return "#10b981";
-  if (label === "Risk") return "#ef4444";
-  return "#8b5cf6";
+  if (label === "Opportunity") return "#d8a63a";
+  if (label === "Positive") return "#55bfa4";
+  if (label === "Risk") return "#d9667d";
+  return "#7f78d8";
 }
 
 function reviewSentimentColor(label) {
-  if (label === "Highly Likely Positive Review") return "#10b981";
-  if (label === "Likely Positive Review") return "#22c55e";
-  if (label === "Missed Opportunity") return "#f59e0b";
-  if (label === "Negative Outcome - No Review Request") return "#a855f7";
-  if (label === "Likely Negative Review") return "#f97316";
-  if (label === "Highly Likely Negative Review") return "#ef4444";
-  return "#6366f1";
+  if (label === "Highly Likely Positive Review") return "#55bfa4";
+  if (label === "Likely Positive Review") return "#87ad5d";
+  if (label === "Missed Opportunity") return "#d8a63a";
+  if (label === "Negative Outcome - No Review Request") return "#b66fc2";
+  if (label === "Likely Negative Review") return "#d77a50";
+  if (label === "Highly Likely Negative Review") return "#d9667d";
+  return "#7f78d8";
 }
 
 function clientSentimentColor(label) {
-  if (label === "Very Positive") return "#10b981";
-  if (label === "Positive") return "#22c55e";
-  if (label === "Slightly Positive") return "#14b8a6";
-  if (label === "Neutral") return "#8b5cf6";
-  if (label === "Slightly Negative") return "#f59e0b";
-  if (label === "Negative") return "#f97316";
-  if (label === "Very Negative") return "#ef4444";
-  return "#6366f1";
+  if (label === "Very Positive") return "#55bfa4";
+  if (label === "Positive") return "#5fb989";
+  if (label === "Slightly Positive") return "#5aaaa3";
+  if (label === "Neutral") return "#7f78d8";
+  if (label === "Slightly Negative") return "#d8a63a";
+  if (label === "Negative") return "#d77a50";
+  if (label === "Very Negative") return "#d9667d";
+  return "#7f78d8";
 }
 
 function resolutionStatusColor(label) {
-  if (label === "Resolved") return "#10b981";
-  if (label === "Pending") return "#f59e0b";
-  if (label === "Unclear") return "#8b5cf6";
-  if (label === "Unresolved") return "#ef4444";
-  return "#6366f1";
+  if (label === "Resolved") return "#55bfa4";
+  if (label === "Pending") return "#d8a63a";
+  if (label === "Unclear") return "#7f78d8";
+  if (label === "Unresolved") return "#d9667d";
+  return "#6699d8";
 }
 
 function chartColor(label, kind, index = 0) {
-  const fallback = ["#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f59e0b", "#ec4899", "#6366f1"];
+  const fallback = ["#55bfa4", "#87ad5d", "#6699d8", "#7f78d8", "#d8a63a", "#b66fc2", "#d9667d"];
   if (kind === "client") return clientSentimentColor(label);
   if (kind === "resolution") return resolutionStatusColor(label);
   if (kind === "review") return reviewSentimentColor(label);
@@ -912,27 +912,28 @@ function chartColor(label, kind, index = 0) {
 
 function chartGradient(label, kind, index = 0) {
   const color = chartColor(label, kind, index);
+
   if (kind === "client") {
-    if (["Very Positive", "Positive", "Slightly Positive"].includes(label)) return `linear-gradient(90deg, ${color}, #06b6d4)`;
-    if (label === "Neutral") return `linear-gradient(90deg, ${color}, #6366f1)`;
-    return `linear-gradient(90deg, ${color}, #ef4444)`;
+    if (["Very Positive", "Positive", "Slightly Positive"].includes(label)) return `linear-gradient(90deg, ${color}, #60bfb7)`;
+    if (label === "Neutral") return `linear-gradient(90deg, ${color}, #6699d8)`;
+    return `linear-gradient(90deg, ${color}, #d77a50)`;
   }
 
   if (kind === "resolution") {
-    if (label === "Resolved") return "linear-gradient(90deg, #10b981, #06b6d4)";
-    if (label === "Pending") return "linear-gradient(90deg, #f59e0b, #f97316)";
-    if (label === "Unclear") return "linear-gradient(90deg, #8b5cf6, #ec4899)";
-    return "linear-gradient(90deg, #ef4444, #7f1d1d)";
+    if (label === "Resolved") return "linear-gradient(90deg, #55bfa4, #60bfb7)";
+    if (label === "Pending") return "linear-gradient(90deg, #d8a63a, #d77a50)";
+    if (label === "Unclear") return "linear-gradient(90deg, #7f78d8, #b66fc2)";
+    return "linear-gradient(90deg, #d9667d, #b4535f)";
   }
 
   if (kind === "review") {
-    if (label.includes("Positive")) return `linear-gradient(90deg, ${color}, #06b6d4)`;
-    if (label === "Missed Opportunity") return "linear-gradient(90deg, #f59e0b, #ef4444)";
-    if (label.includes("Negative")) return `linear-gradient(90deg, ${color}, #7f1d1d)`;
-    return `linear-gradient(90deg, ${color}, #8b5cf6)`;
+    if (label.includes("Positive")) return `linear-gradient(90deg, ${color}, #60bfb7)`;
+    if (label === "Missed Opportunity") return "linear-gradient(90deg, #d8a63a, #d77a50)";
+    if (label.includes("Negative")) return `linear-gradient(90deg, ${color}, #b4535f)`;
+    return `linear-gradient(90deg, ${color}, #7f78d8)`;
   }
 
-  return `linear-gradient(90deg, ${color}, #8b5cf6)`;
+  return `linear-gradient(90deg, ${color}, #6699d8)`;
 }
 
 function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
@@ -1988,7 +1989,7 @@ function DonutChart({ entries, total, onSelect, kind = "result" }) {
               onBlur={() => setHovered(null)}
               onClick={() => onSelect(segment)}
             >
-              <i style={{ background: segment.color }} />
+              <i style={{ background: segment.color, boxShadow: `0 0 16px ${segment.color}66` }} />
               <strong title={segment.label}>{segment.label}</strong>
               <span>
                 {formatNumber(segment.count)} · {formatPercent(segment.percent)}
@@ -6158,6 +6159,219 @@ const dashboardStyles = `
     .conversation-message,
     .conversation-message.system { max-width: 100%; }
     .conversation-preview-verdict-head { align-items: flex-start; flex-direction: column; }
+  }
+
+
+  /* Dashboard Chart Visual Polish: visual-only chart card, donut, legend, and bar refinements. */
+  .chart-card {
+    border-color: rgba(148, 163, 184, 0.14);
+    background:
+      radial-gradient(circle at 0% 0%, rgba(94, 234, 212, 0.055), transparent 28%),
+      radial-gradient(circle at 100% 0%, rgba(129, 140, 248, 0.07), transparent 30%),
+      linear-gradient(180deg, rgba(13, 20, 38, 0.96), rgba(6, 10, 24, 0.985));
+    box-shadow:
+      0 26px 82px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  }
+
+  .chart-card::before {
+    background: rgba(94, 234, 212, 0.045);
+    filter: blur(50px);
+  }
+
+  .chart-card:hover {
+    border-color: rgba(125, 211, 252, 0.2);
+    box-shadow:
+      0 30px 96px rgba(0, 0, 0, 0.48),
+      0 0 0 1px rgba(94, 234, 212, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.065);
+  }
+
+  .chart-head {
+    margin-bottom: 20px;
+  }
+
+  .chart-head h3 {
+    letter-spacing: -0.035em;
+  }
+
+  .chart-head p {
+    color: #9fafcf;
+  }
+
+  .chart-card .card-action {
+    border-color: rgba(125, 211, 252, 0.2);
+    background:
+      linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.72));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  }
+
+  .chart-card:hover .card-action {
+    border-color: rgba(94, 234, 212, 0.34);
+    background:
+      linear-gradient(135deg, rgba(8, 47, 73, 0.88), rgba(15, 23, 42, 0.82));
+  }
+
+  .donut-layout {
+    gap: 28px;
+  }
+
+  .donut {
+    width: 292px;
+    height: 292px;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.9) 0 46%, transparent 47%),
+      radial-gradient(circle at 50% 50%, rgba(94, 234, 212, 0.08), transparent 64%);
+    box-shadow:
+      0 22px 56px rgba(0, 0, 0, 0.4),
+      0 0 42px rgba(94, 234, 212, 0.055);
+  }
+
+  .donut-base-ring {
+    stroke: rgba(148, 163, 184, 0.11);
+    stroke-width: 40;
+  }
+
+  .donut-segment {
+    stroke-width: 42;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 7px rgba(148, 163, 184, 0.12));
+    transition: opacity 0.18s ease, stroke-width 0.18s ease, filter 0.18s ease;
+  }
+
+  .donut-segment:hover,
+  .donut-segment:focus {
+    opacity: 1;
+    stroke-width: 48;
+    filter: drop-shadow(0 0 13px rgba(125, 211, 252, 0.22));
+  }
+
+  .donut-hole {
+    width: 54%;
+    height: 54%;
+    background:
+      radial-gradient(circle at 50% 18%, rgba(96, 165, 250, 0.12), transparent 34%),
+      linear-gradient(180deg, rgba(12, 18, 34, 0.99), rgba(4, 8, 19, 1));
+    border-color: rgba(148, 163, 184, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 14px 38px rgba(0, 0, 0, 0.34);
+  }
+
+  .donut-hole strong {
+    font-size: 38px;
+  }
+
+  .donut-hole span {
+    color: #9fb5d9;
+  }
+
+  .donut-legend {
+    gap: 11px;
+  }
+
+  .donut-legend button {
+    min-height: 46px;
+    padding: 11px 13px;
+    border-radius: 16px;
+    border-color: rgba(148, 163, 184, 0.13);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.022));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+
+  .donut-legend button:hover,
+  .donut-legend button:focus-visible {
+    border-color: rgba(125, 211, 252, 0.28);
+    background:
+      radial-gradient(circle at 0% 50%, rgba(94, 234, 212, 0.08), transparent 36%),
+      linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.028));
+  }
+
+  .donut-legend i {
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+
+  .donut-legend strong {
+    color: #f3f7ff;
+    font-weight: 920;
+  }
+
+  .donut-legend span {
+    color: #c6d1ee;
+    font-weight: 900;
+  }
+
+  .bar-list {
+    gap: 14px;
+  }
+
+  .bar-item {
+    border-radius: 18px;
+    border-color: rgba(148, 163, 184, 0.13);
+    background:
+      radial-gradient(circle at 0% 50%, rgba(94, 234, 212, 0.035), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.042), rgba(255, 255, 255, 0.02));
+    padding: 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .bar-item:hover,
+  .bar-item:focus-visible {
+    border-color: rgba(125, 211, 252, 0.28);
+    background:
+      radial-gradient(circle at 0% 50%, rgba(94, 234, 212, 0.08), transparent 35%),
+      linear-gradient(180deg, rgba(59, 130, 246, 0.085), rgba(255, 255, 255, 0.024));
+  }
+
+  .bar-line {
+    align-items: flex-start;
+    gap: 18px;
+  }
+
+  .bar-line strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.28;
+    color: #f3f7ff;
+  }
+
+  .bar-line span {
+    color: #d5def7;
+  }
+
+  .bar-track {
+    height: 14px;
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.035));
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.32);
+  }
+
+  .bar-fill {
+    position: relative;
+    min-width: 8px;
+    box-shadow: 0 0 16px rgba(94, 234, 212, 0.12);
+  }
+
+  .chart-hover-card {
+    border-color: rgba(125, 211, 252, 0.26);
+    background:
+      radial-gradient(circle at top right, rgba(94, 234, 212, 0.10), transparent 34%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(5, 8, 18, 0.98));
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.64),
+      0 0 0 1px rgba(255, 255, 255, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .overview-feature-grid .donut-layout,
+  .sentiment-resolution-grid .donut-layout {
+    align-items: center;
   }
 
 `;
