@@ -3361,19 +3361,39 @@ const dashboardStyles = `
   }
 
   .dashboard-loader-logo {
-    width: 146px;
-    height: 146px;
+    width: 190px;
+    height: 190px;
     display: block;
     place-items: center;
-    border-radius: 42px;
-    border: 1px solid rgba(125, 211, 252, 0.22);
+    border-radius: 44px;
+    border: 1px solid rgba(147, 197, 253, 0.2);
     background:
-      radial-gradient(circle at 28% 22%, rgba(255,255,255,0.24), transparent 22%),
+      radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.2), transparent 20%),
       linear-gradient(145deg, rgba(5, 12, 31, 0.98), rgba(15, 23, 42, 0.94));
     box-shadow:
-      0 28px 72px rgba(18, 31, 67, 0.48),
-      0 0 52px rgba(34, 211, 238, 0.18),
-      inset 0 1px 0 rgba(255,255,255,0.12);
+      0 28px 74px rgba(15, 23, 42, 0.6),
+      0 0 46px rgba(34, 211, 238, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  .dashboard-loader-logo::before,
+  .dashboard-loader-logo::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    border-radius: 999px;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+  }
+
+  .dashboard-loader-logo::before {
+    inset: 28px 26px 30px 20px;
+    animation: dashboardOrbitTilt 5.8s ease-in-out infinite;
+  }
+
+  .dashboard-loader-logo::after {
+    inset: 45px 18px 38px 42px;
+    border-color: rgba(244, 114, 182, 0.18);
+    animation: dashboardOrbitTiltReverse 4.8s ease-in-out infinite;
   }
 
   .dashboard-loader-halo,
@@ -3385,10 +3405,11 @@ const dashboardStyles = `
   }
 
   .dashboard-loader-halo {
-    inset: 12px;
+    inset: 20px;
     border-radius: 34px;
-    background: radial-gradient(circle at center, rgba(34, 211, 238, 0.16), rgba(139, 92, 246, 0.12), transparent 72%);
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.14), rgba(139, 92, 246, 0.12), transparent 70%);
     filter: blur(10px);
+    animation: dashboardGlowPulse 2.4s ease-in-out infinite;
   }
 
   .dashboard-loader-link {
@@ -3400,17 +3421,17 @@ const dashboardStyles = `
   }
 
   .dashboard-loader-link.link-a {
-    left: 46px;
-    top: 61px;
-    width: 56px;
-    transform: rotate(20deg);
+    left: 82px;
+    top: 72px;
+    width: 50px;
+    transform: rotate(-28deg);
   }
 
   .dashboard-loader-link.link-b {
-    left: 72px;
-    top: 84px;
-    width: 48px;
-    transform: rotate(36deg);
+    left: 116px;
+    top: 106px;
+    width: 42px;
+    transform: rotate(50deg);
   }
 
   .dashboard-loader-node {
@@ -3422,20 +3443,20 @@ const dashboardStyles = `
   }
 
   .dashboard-loader-node.node-a {
-    left: 48px;
-    top: 56px;
+    left: 82px;
+    top: 76px;
   }
 
   .dashboard-loader-node.node-b {
-    left: 96px;
-    top: 73px;
-    background: #c4b5fd;
-    box-shadow: 0 0 18px rgba(196, 181, 253, 0.8);
+    left: 122px;
+    top: 52px;
+    background: #7dd3fc;
+    box-shadow: 0 0 18px rgba(125, 211, 252, 0.8);
   }
 
   .dashboard-loader-node.node-c {
-    left: 112px;
-    top: 103px;
+    left: 134px;
+    top: 124px;
     background: #f9a8d4;
     box-shadow: 0 0 18px rgba(249, 168, 212, 0.8);
   }
@@ -3451,27 +3472,30 @@ const dashboardStyles = `
   }
 
   .dashboard-loader-gear.gear-a {
-    left: 24px;
-    top: 28px;
-    font-size: 68px;
-    color: #dbeafe;
-    animation: dashboardGearSpin 4.8s linear infinite;
+    left: 34px;
+    top: 60px;
+    font-size: 86px;
+    color: #8b5cf6;
+    filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.34));
+    animation: dashboardGearSpin 5s linear infinite;
   }
 
   .dashboard-loader-gear.gear-b {
-    left: 72px;
-    top: 49px;
-    font-size: 50px;
-    color: #c4b5fd;
-    animation: dashboardGearSpinReverse 4s linear infinite;
+    left: 90px;
+    top: 30px;
+    font-size: 76px;
+    color: #38bdf8;
+    filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.32));
+    animation: dashboardGearSpinReverse 4.2s linear infinite;
   }
 
   .dashboard-loader-gear.gear-c {
-    left: 100px;
-    top: 81px;
-    font-size: 38px;
-    color: #f9a8d4;
-    animation: dashboardGearSpin 3.4s linear infinite;
+    left: 104px;
+    top: 104px;
+    font-size: 54px;
+    color: #ec4899;
+    filter: drop-shadow(0 0 18px rgba(236, 72, 153, 0.3));
+    animation: dashboardGearSpin 3.3s linear infinite;
   }
 
   .dashboard-loader-card p {
@@ -5939,6 +5963,10 @@ const dashboardStyles = `
     from { transform: rotate(360deg); }
     to { transform: rotate(0deg); }
   }
+
+  @keyframes dashboardGlowPulse { 0%, 100% { opacity: 0.72; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.04); } }
+  @keyframes dashboardOrbitTilt { 0%, 100% { transform: rotate(-10deg) scale(0.98); opacity: 0.58; } 50% { transform: rotate(9deg) scale(1.02); opacity: 0.92; } }
+  @keyframes dashboardOrbitTiltReverse { 0%, 100% { transform: rotate(16deg) scale(1.02); opacity: 0.58; } 50% { transform: rotate(-11deg) scale(0.98); opacity: 0.88; } }
 
 
   @media (max-width: 900px) {
