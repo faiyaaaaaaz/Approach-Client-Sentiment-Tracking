@@ -516,7 +516,7 @@ function ResultsCalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate })
   return (
     <div className="results-calendar-month-card">
       <h4>{formatMonthTitle(monthDate)}</h4>
-      <div className="results-calendar-weekdays">{["SU", "MO", "TU", "WE", "TH", "FR", "SA"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="results-calendar-weekdays notranslate" translate="no">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="notranslate" translate="no">{day}</span>)}</div>
       <div className="results-calendar-day-grid">
         {days.map(({ date, muted }) => {
           const isStart = draftStart && sameCalendarDay(date, draftStart);
@@ -4117,7 +4117,7 @@ const resultsStyles = `
   .results-calendar-months-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .results-calendar-month-card h4 { margin: 0 0 10px; text-align: center; font-size: 17px; }
   .results-calendar-weekdays, .results-calendar-day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-  .results-calendar-weekdays span { color: #94a3b8; text-align: center; font-size: 13px; font-weight: 900; }
+  .results-calendar-weekdays span { color: #94a3b8; text-align: center; font-size: 13px; font-weight: 900; letter-spacing: 0.01em; text-transform: none; }
   .results-calendar-day { min-height: 34px; border: 0; border-radius: 10px; color: #0f172a; background: transparent; cursor: pointer; font-weight: 800; }
   .results-calendar-day.muted { color: #cbd5e1; }
   .results-calendar-day.in-range { background: #e8f5ec; }
