@@ -230,8 +230,8 @@ function AdminActivityCalendarMonth({ monthDate, draftStart, draftEnd, onSelectD
   return (
     <div className="admin-calendar-month-card">
       <h4>{formatActivityMonthTitle(monthDate)}</h4>
-      <div className="admin-calendar-weekdays">
-        {["SU", "MO", "TU", "WE", "TH", "FR", "SA"].map((day) => <span key={day}>{day}</span>)}
+      <div className="admin-calendar-weekdays notranslate" translate="no">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="notranslate" translate="no">{day}</span>)}
       </div>
       <div className="admin-calendar-day-grid">
         {days.map(({ date, muted }) => {
@@ -6073,6 +6073,8 @@ const adminStyles = `
     text-align: center;
     font-size: 13px;
     font-weight: 900;
+    letter-spacing: 0.01em;
+    text-transform: none;
   }
 
   .admin-calendar-day {
