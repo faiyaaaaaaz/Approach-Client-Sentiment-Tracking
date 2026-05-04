@@ -256,7 +256,7 @@ function CalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
   return (
     <div className="calendar-month-card">
       <h4>{formatMonthTitle(monthDate)}</h4>
-      <div className="calendar-weekdays">{["SU", "MO", "TU", "WE", "TH", "FR", "SA"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="calendar-weekdays notranslate" translate="no">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="notranslate" translate="no">{day}</span>)}</div>
       <div className="calendar-day-grid">
         {days.map(({ date, muted }) => {
           const isStart = draftStart && sameCalendarDay(date, draftStart);
@@ -6202,7 +6202,7 @@ const runStyles = `
   .date-preset-column button.active,
   .date-preset-column button:hover,
   .calendar-nav-row button:hover { background: #dcfce7 !important; color: #14532d !important; border-color: rgba(22, 163, 74, 0.28) !important; }
-  .calendar-weekdays span { color: #94a3b8 !important; }
+  .calendar-weekdays span { color: #94a3b8 !important; letter-spacing: 0.01em !important; text-transform: none !important; }
   .calendar-day { color: #0f172a !important; background: transparent !important; }
   .calendar-day.muted { color: #cbd5e1 !important; }
   .calendar-day.in-range { background: #e8f5ec !important; }
