@@ -1170,6 +1170,7 @@ export default function RunPage() {
   const [showAllResults, setShowAllResults] = useState(false);
   const [queueExpanded, setQueueExpanded] = useState(false);
   const [queueSearchText, setQueueSearchText] = useState("");
+  const [queueView, setQueueView] = useState("remaining");
   const [selectedQueueIds, setSelectedQueueIds] = useState([]);
   const [previewConversationId, setPreviewConversationId] = useState("");
   const [previewConversationItem, setPreviewConversationItem] = useState(null);
@@ -1230,7 +1231,54 @@ export default function RunPage() {
     ? fetchData.debug.dailySummary
     : [];
 
-  const filteredFetchedQueue = useMemo(() => {
+  const results = Array.isArray(runData?.results) ? runData.results : [];
+  const successCount = results.filter((item) => !item?.error).length;
+  const errorCount = results.filter((item) => item?.error).length;
+  const visibleResults = showAllResults ? results : results.slice(0, 8);
+
+  const queuedConversationsForRun = useMemo(
+    () => getQueuedConversations(fetchedConversations),
+    [fetchedConversations, limiterEnabled, limitCount]
+  );
+
+  const queuedConversationIds = useMemo(
+    () => queuedConversationsForRun.map(conversationIdOf).filter(Boolean),
+    [queuedConversationsForRun]
+  );
+
+  const queuedConversationIdSet = useMemo(() => new Set(queuedConversationIds), [queuedConversationIds]);
+
+  const queuedConversationOrder = useMemo(() => {
+    const map = new Map();
+    queuedConversationsForRun.forEach((item, index) => {
+      const id = conversationIdOf(item);
+      if (id) map.set(id, index);
+    });
+    return map;
+  }, [queuedConversationsForRun]);
+
+  const failedConversationIds = useMemo(
+    () => new Set(results.filter((item) => item?.error).map((item) => String(item?.conversationId || item?.conversation_id || item?.id || "").trim()).filter(Boolean)),
+    [results]
+  );
+
+  const handledQueueCount = Math.min(
+    queuedConversationsForRun.length,
+    Math.max(
+      0,
+      Number(
+        runLoading
+          ? auditProgress.handled
+          : runData?.meta?.handledCount ?? (runData ? queuedConversationsForRun.length : 0)
+      ) || 0
+    )
+  );
+  const remainingQueueCount = Math.max(0, queuedConversationsForRun.length - handledQueueCount);
+  const handledQueueDisplayCount = Math.max(0, handledQueueCount);
+  const skippedQueueDisplayCount = Number(runData?.meta?.skippedCount || auditProgress.skippedRows || 0);
+  const failedQueueDisplayCount = Number(runData?.meta?.errorCount || auditProgress.failedRows || errorCount || 0);
+
+  const searchedFetchedQueue = useMemo(() => {
     const search = queueSearchText.trim().toLowerCase();
     if (!search) return fetchedConversations;
     return fetchedConversations.filter((item) => {
@@ -1239,14 +1287,42 @@ export default function RunPage() {
     });
   }, [fetchedConversations, queueSearchText]);
 
+  const queueStatusRecords = useMemo(() => {
+    return searchedFetchedQueue.map((item) => {
+      const id = conversationIdOf(item);
+      const queueIndex = queuedConversationOrder.has(id) ? queuedConversationOrder.get(id) : -1;
+      const isInAuditQueue = queuedConversationIdSet.has(id);
+      let queueStatus = "not_queued";
+
+      if (isInAuditQueue) {
+        if (failedConversationIds.has(id)) queueStatus = "failed";
+        else if (queueIndex >= 0 && queueIndex < handledQueueCount) queueStatus = "handled";
+        else queueStatus = "remaining";
+      }
+
+      return { ...item, queueStatus };
+    });
+  }, [searchedFetchedQueue, queuedConversationOrder, queuedConversationIdSet, failedConversationIds, handledQueueCount]);
+
+  const filteredFetchedQueue = useMemo(() => {
+    if (queueView === "remaining") return queueStatusRecords.filter((item) => item.queueStatus === "remaining");
+    if (queueView === "handled") return queueStatusRecords.filter((item) => item.queueStatus === "handled" || item.queueStatus === "failed");
+    if (queueView === "failed") return queueStatusRecords.filter((item) => item.queueStatus === "failed");
+    if (queueView === "not_queued") return queueStatusRecords.filter((item) => item.queueStatus === "not_queued");
+    return queueStatusRecords;
+  }, [queueStatusRecords, queueView]);
+
   const visibleFetchedQueue = queueExpanded ? filteredFetchedQueue : filteredFetchedQueue.slice(0, 8);
   const selectedQueueSet = useMemo(() => new Set(selectedQueueIds), [selectedQueueIds]);
   const allVisibleQueueSelected = visibleFetchedQueue.length > 0 && visibleFetchedQueue.every((item) => selectedQueueSet.has(conversationIdOf(item)));
 
-  const results = Array.isArray(runData?.results) ? runData.results : [];
-  const successCount = results.filter((item) => !item?.error).length;
-  const errorCount = results.filter((item) => item?.error).length;
-  const visibleResults = showAllResults ? results : results.slice(0, 8);
+  const queueViewLabelMap = {
+    remaining: "Remaining Queue",
+    handled: "Handled Conversations",
+    failed: "Failed Conversations",
+    not_queued: "Not Queued",
+    all: "All Fetched Conversations",
+  };
   const selectedPresetLabel =
     DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
   const activeAgentMappings = useMemo(
@@ -1329,10 +1405,7 @@ export default function RunPage() {
     }),
     [conversationRatings, selectedSupervisorTeamIds, selectedEmployeeNames, selectedIntercomAgentNames]
   );
-  const queuedConversationCount = useMemo(
-    () => getQueuedConversations(fetchedConversations).length,
-    [fetchedConversations, limiterEnabled, limitCount]
-  );
+  const queuedConversationCount = queuedConversationsForRun.length;
 
   const runReadinessItems = [
     {
@@ -1355,9 +1428,11 @@ export default function RunPage() {
     },
     {
       label: "Queue",
-      value: queuedConversationCount ? `${formatNumber(queuedConversationCount)} Ready` : "Waiting",
-      helper: `${formatNumber(fetchedConversations.length)} fetched from Intercom`,
-      tone: queuedConversationCount ? "success" : "neutral",
+      value: queuedConversationCount ? `${formatNumber(remainingQueueCount)} Remaining` : "Waiting",
+      helper: queuedConversationCount
+        ? `${formatNumber(handledQueueDisplayCount)} handled of ${formatNumber(queuedConversationCount)} queued`
+        : `${formatNumber(fetchedConversations.length)} fetched from Intercom`,
+      tone: remainingQueueCount ? "success" : handledQueueDisplayCount ? "notice" : "neutral",
     },
     {
       label: "Duplicate Handling",
@@ -1367,9 +1442,9 @@ export default function RunPage() {
     },
     {
       label: "Audit Engine",
-      value: runLoading ? "Running" : runData?.meta?.auditedCount ? "Completed" : "Ready",
+      value: runLoading ? "Running" : runData ? "Completed" : "Ready",
       helper: runLoading ? auditProgress.detail : `${formatNumber(runData?.meta?.auditedCount || 0)} saved result row(s)`,
-      tone: runLoading ? "notice" : runData?.meta?.auditedCount ? "success" : "neutral",
+      tone: runLoading ? "notice" : runData ? "success" : "neutral",
     },
   ];
 
@@ -1614,6 +1689,7 @@ export default function RunPage() {
     setRunError("");
     setRunSuccess("");
     setShowAllResults(false);
+    setQueueView("remaining");
     setDuplicateWarningOpen(false);
     setDuplicateSummary(null);
     setDuplicateDecisionLoading(false);
@@ -2750,6 +2826,7 @@ export default function RunPage() {
       },
     }));
     setSelectedQueueIds([]);
+    setQueueView("remaining");
     addLog(message, "notice");
     syncWorkflowQueue(safeList, message);
   }
@@ -3256,16 +3333,16 @@ export default function RunPage() {
       tone: fetchData?.meta?.fetchedCount ? "success" : "neutral",
     },
     {
-      label: "Audit Queue",
-      value: queuedConversationCount ? formatNumber(queuedConversationCount) : "0",
-      subtext: limiterEnabled ? "Conversations ready after limiter" : "Conversations ready to audit",
-      tone: queuedConversationCount ? "notice" : "neutral",
+      label: "Remaining Queue",
+      value: formatNumber(remainingQueueCount || 0),
+      subtext: queuedConversationCount ? `${formatNumber(handledQueueDisplayCount)} of ${formatNumber(queuedConversationCount)} handled` : "No audit queue yet",
+      tone: remainingQueueCount ? "notice" : handledQueueDisplayCount ? "success" : "neutral",
     },
     {
-      label: "Completed rows",
-      value: runData?.meta?.auditedCount ? formatNumber(runData.meta.auditedCount) : "0",
-      subtext: runData?.partial ? "Partial saved rows" : "Rows returned from latest run",
-      tone: runData?.meta?.auditedCount ? (runData?.partial ? "warning" : "success") : "neutral",
+      label: "Handled",
+      value: formatNumber(handledQueueDisplayCount || 0),
+      subtext: runData?.partial ? "Partial workflow handled" : "Conversations processed from queue",
+      tone: handledQueueDisplayCount ? (runData?.partial ? "warning" : "success") : "neutral",
     },
     {
       label: "Auto-Run",
@@ -3278,9 +3355,12 @@ export default function RunPage() {
   const workflowStatus = {
     setup: startDate && endDate ? "done" : "active",
     fetch: fetchData?.meta?.fetchedCount > 0 ? "done" : fetchLoading ? "active" : "idle",
-    review:
-      duplicateWarningOpen || queuedConversationCount > 0 || runLoading || runData ? "active" : "idle",
-    run: runData?.meta?.auditedCount > 0 ? "done" : runLoading ? "active" : "idle",
+    review: runLoading || runData || (queuedConversationCount > 0 && remainingQueueCount === 0)
+      ? "done"
+      : duplicateWarningOpen || queuedConversationCount > 0
+        ? "active"
+        : "idle",
+    run: runData ? "done" : runLoading ? "active" : "idle",
   };
 
   function buildLargeFetchConfirmation() {
@@ -3567,7 +3647,7 @@ export default function RunPage() {
           <div><span>Supervisor Scope</span><strong>{selectedFilterSummary.supervisorTeams}</strong></div>
           <div><span>Employees</span><strong>{selectedFilterSummary.employees}</strong></div>
           <div><span>Intercom Agents</span><strong>{selectedFilterSummary.agents}</strong></div>
-          <div><span>Queue</span><strong>{formatNumber(queuedConversationCount)} ready</strong></div>
+          <div><span>Queue</span><strong>{formatNumber(remainingQueueCount)} remaining / {formatNumber(queuedConversationCount)} queued</strong></div>
         </div>
 
         {(fetchError || fetchSuccess || runError || runSuccess || authMessage || mappingFilterError || mappingFilterLoading) ? (
@@ -3631,13 +3711,21 @@ export default function RunPage() {
             <WorkflowStep
               number="3"
               title="Review Queue"
-              body={queuedConversationCount ? `${formatNumber(queuedConversationCount)} conversation(s) are ready for audit.` : "Review fetched conversations before starting the audit."}
+              body={queuedConversationCount
+                ? remainingQueueCount
+                  ? `${formatNumber(remainingQueueCount)} conversation(s) still waiting. ${formatNumber(handledQueueDisplayCount)} handled.`
+                  : `All ${formatNumber(queuedConversationCount)} queued conversation(s) have been handled.`
+                : "Review fetched conversations before starting the audit."}
               status={workflowStatus.review}
             />
             <WorkflowStep
               number="4"
               title="Audit"
-              body={runData?.meta?.auditedCount ? `${formatNumber(runData.meta.auditedCount)} result row(s) returned in the latest run.` : "Run Audit will process the selected queue in safe batches."}
+              body={runData
+                ? `${formatNumber(runData.meta?.auditedCount || 0)} saved, ${formatNumber(runData.meta?.skippedCount || 0)} skipped, ${formatNumber(errorCount || 0)} error(s).`
+                : runLoading
+                  ? `${formatNumber(auditProgress.handled || 0)} of ${formatNumber(auditProgress.total || queuedConversationCount)} handled so far.`
+                  : "Run Audit will process the selected queue in safe batches."}
               status={workflowStatus.run}
             />
           </div>
@@ -3732,8 +3820,12 @@ export default function RunPage() {
               <strong>{formatNumber(queuedConversationCount || 0)}</strong>
             </div>
           <div>
+              <span>Remaining</span>
+              <strong>{formatNumber(remainingQueueCount || 0)}</strong>
+            </div>
+          <div>
               <span>Handled</span>
-              <strong>{formatNumber(runData?.meta?.handledCount || 0)}</strong>
+              <strong>{formatNumber(handledQueueDisplayCount || 0)}</strong>
             </div>
           <div>
               <span>Saved</span>
@@ -3748,6 +3840,21 @@ export default function RunPage() {
               <strong>{formatNumber(errorCount || 0)}</strong>
             </div>
           </div>
+
+          {runData ? (
+            <div className="completion-report-card">
+              <div>
+                <span className="mini-label">Completion Report</span>
+                <strong>{remainingQueueCount === 0 ? "All queued conversations were handled." : `${formatNumber(remainingQueueCount)} conversation(s) remain in the queue.`}</strong>
+              </div>
+              <div className="completion-report-grid">
+                <span>Date Range <b>{startDate} to {endDate}</b></span>
+                <span>Duplicate Handling <b>{runData?.meta?.duplicateModeApplied || "none"}</b></span>
+                <span>Storage <b>{runData?.meta?.storageStatus || "-"}</b></span>
+                <span>Batches <b>{formatNumber(runData?.meta?.totalBatches || 0)}</b></span>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="surface-card log-panel">
@@ -3779,26 +3886,50 @@ export default function RunPage() {
       <section className="surface-card preview-panel fetched-queue-panel compact-preview-panel">
         <div className="section-head">
           <div>
-            <span className="mini-label">Fetched Conversation Preview</span>
-            <h2>Fetched Queue</h2>
-            <p className="soft-copy">Review, preview, remove, or skip conversations before starting the GPT audit.</p>
+            <span className="mini-label">Audit Queue Review</span>
+            <h2>{queueViewLabelMap[queueView] || "Audit Queue"}</h2>
+            <p className="soft-copy">Track what is still waiting, what has already been handled, and what needs attention.</p>
           </div>
           <div className="header-right-meta">
             <span className="count-pill">{formatNumber(fetchedConversations.length)} fetched</span>
-            <span className="count-pill muted">{formatNumber(queuedConversationCount)} in audit queue</span>
+            <span className="count-pill muted">{formatNumber(remainingQueueCount)} remaining</span>
+            <span className="count-pill muted">{formatNumber(handledQueueDisplayCount)} handled</span>
             <span className="count-pill muted">{formatNumber(selectedQueueIds.length)} selected</span>
           </div>
         </div>
 
         {!fetchData ? (
-          <div className="empty-box">Fetch Conversations first. The queue table will appear here.</div>
+          <div className="empty-box">Fetch Conversations first. The audit queue tracker will appear here.</div>
         ) : fetchedConversations.length === 0 ? (
           <div className="empty-box">No conversations are currently queued. Fetch again or adjust filters.</div>
         ) : (
           <>
+            <div className="queue-status-tabs" role="tablist" aria-label="Audit queue status views">
+              {[
+                { key: "remaining", label: "Remaining", count: remainingQueueCount },
+                { key: "handled", label: "Handled", count: handledQueueDisplayCount },
+                { key: "failed", label: "Failed", count: failedQueueDisplayCount },
+                { key: "all", label: "All Fetched", count: fetchedConversations.length },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={queueView === tab.key ? "active" : ""}
+                  onClick={() => {
+                    setQueueView(tab.key);
+                    setSelectedQueueIds([]);
+                    setQueueExpanded(false);
+                  }}
+                >
+                  <span>{tab.label}</span>
+                  <strong>{formatNumber(tab.count)}</strong>
+                </button>
+              ))}
+            </div>
+
             <div className="fetched-queue-toolbar">
               <label className="queue-search-field">
-                <span>Search Fetched Conversations</span>
+                <span>Search Queue</span>
                 <input
                   value={queueSearchText}
                   onChange={(event) => setQueueSearchText(event.target.value)}
@@ -3806,7 +3937,7 @@ export default function RunPage() {
                 />
               </label>
               <div className="queue-toolbar-actions">
-                <button type="button" className="secondary-btn" onClick={toggleAllVisibleQueueSelection}>
+                <button type="button" className="secondary-btn" onClick={toggleAllVisibleQueueSelection} disabled={!visibleFetchedQueue.length}>
                   {allVisibleQueueSelected ? "Clear Visible" : "Select Visible"}
                 </button>
                 <button type="button" className="secondary-btn" onClick={() => setSelectedQueueIds([])} disabled={!selectedQueueIds.length}>
@@ -3821,8 +3952,9 @@ export default function RunPage() {
               </div>
             </div>
 
-            <div className="queue-table-wrap">
-              <table className="queue-table">
+            {filteredFetchedQueue.length ? (
+              <div className="queue-table-wrap">
+                <table className="queue-table">
                 <thead>
                   <tr>
                     <th><input className="queue-select" type="checkbox" checked={allVisibleQueueSelected} onChange={toggleAllVisibleQueueSelection} /></th>
@@ -3831,6 +3963,7 @@ export default function RunPage() {
                     <th>Client</th>
                     <th>Rating</th>
                     <th>Replied</th>
+                    <th>Queue Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -3838,13 +3971,14 @@ export default function RunPage() {
                   {visibleFetchedQueue.map((item, index) => {
                     const id = conversationIdOf(item);
                     return (
-                      <tr key={id || `queue-${index}`}>
+                      <tr key={id || `queue-${index}`} className={`queue-row-${item.queueStatus || "unknown"}`}>
                         <td><input className="queue-select" type="checkbox" checked={selectedQueueSet.has(id)} onChange={() => toggleQueueSelection(id)} /></td>
                         <td><strong>{id || "-"}</strong><small>Fetched from Intercom</small></td>
                         <td>{item?.agentName || "Unassigned"}</td>
                         <td>{item?.clientEmail || "-"}</td>
                         <td>{item?.conversationRating || item?.csatScore || "-"}</td>
                         <td>{formatClock(item?.repliedAt)}</td>
+                        <td><span className={`queue-status-pill ${item.queueStatus || "not_queued"}`}>{item.queueStatus === "remaining" ? "Remaining" : item.queueStatus === "handled" ? "Handled" : item.queueStatus === "failed" ? "Failed" : "Not Queued"}</span></td>
                         <td>
                           <div className="queue-action-cell">
                             <button type="button" className="queue-action-btn preview" onClick={() => openConversationPreview(item)} disabled={!id}>Preview</button>
@@ -3855,11 +3989,18 @@ export default function RunPage() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+            ) : (
+              <div className="empty-box queue-empty-state">
+                {queueView === "remaining" && queuedConversationCount && remainingQueueCount === 0
+                  ? "All queued conversations have been handled. Use Handled or All Fetched to review them."
+                  : "No conversations match this queue view or search."}
+              </div>
+            )}
 
             <div className="queue-table-footer">
-              <span className="soft-copy">Showing {formatNumber(visibleFetchedQueue.length)} of {formatNumber(filteredFetchedQueue.length)} filtered conversation(s).</span>
+              <span className="soft-copy">Showing {formatNumber(visibleFetchedQueue.length)} of {formatNumber(filteredFetchedQueue.length)} {queueViewLabelMap[queueView]?.toLowerCase() || "queue row(s)"}. {remainingQueueCount === 0 && queuedConversationCount ? "All queued conversations have been handled." : ""}</span>
               {filteredFetchedQueue.length > 8 ? (
                 <button type="button" className="secondary-btn" onClick={() => setQueueExpanded((prev) => !prev)}>
                   {queueExpanded ? "Show Less" : `Show More (${formatNumber(filteredFetchedQueue.length - visibleFetchedQueue.length)} more)`}
@@ -6794,6 +6935,25 @@ const runStyles = `
   .queue-action-btn.intercom { border-color: rgba(167,139,250,.32); background: linear-gradient(135deg, rgba(49,46,129,.95), rgba(91,33,182,.92)); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px rgba(76,29,149,.22); }
   .queue-action-btn.intercom:hover { border-color: rgba(196,181,253,.5); background: linear-gradient(135deg, rgba(76,29,149,.96), rgba(147,51,234,.3)); }
   .queue-table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+
+  .queue-status-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; }
+  .queue-status-tabs button { min-height: 42px; padding: 0 14px; display: inline-flex; align-items: center; gap: 9px; border-radius: 999px; border: 1px solid rgba(148,163,184,.16); background: rgba(15,23,42,.76); color: #cbd5e1; font: inherit; font-size: 14px; font-weight: 900; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
+  .queue-status-tabs button:hover { transform: translateY(-1px); border-color: rgba(56,189,248,.34); }
+  .queue-status-tabs button.active { color: #eff6ff; border-color: rgba(34,211,238,.38); background: linear-gradient(135deg, rgba(8,47,73,.86), rgba(49,46,129,.72)); box-shadow: 0 12px 30px rgba(34,211,238,.12); }
+  .queue-status-tabs strong { min-width: 28px; min-height: 26px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(255,255,255,.08); color: #ffffff; font-size: 13px; }
+  .queue-status-pill { min-height: 30px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 999px; font-size: 13px; font-weight: 950; border: 1px solid rgba(148,163,184,.18); background: rgba(148,163,184,.08); color: #dbeafe; white-space: nowrap; }
+  .queue-status-pill.remaining { border-color: rgba(59,130,246,.28); background: rgba(59,130,246,.12); color: #bfdbfe; }
+  .queue-status-pill.handled { border-color: rgba(16,185,129,.28); background: rgba(16,185,129,.12); color: #bbf7d0; }
+  .queue-status-pill.failed { border-color: rgba(244,63,94,.3); background: rgba(244,63,94,.13); color: #fecaca; }
+  .queue-status-pill.not_queued { border-color: rgba(245,158,11,.28); background: rgba(245,158,11,.1); color: #fde68a; }
+  .queue-row-handled { background: rgba(16,185,129,.025); }
+  .queue-row-failed { background: rgba(244,63,94,.04); }
+  .queue-empty-state { margin-top: 0; border-style: dashed; border-color: rgba(34,211,238,.16); background: rgba(8,47,73,.08); }
+  .completion-report-card { margin-top: 14px; padding: 15px; border-radius: 18px; border: 1px solid rgba(16,185,129,.18); background: linear-gradient(135deg, rgba(6,78,59,.2), rgba(15,23,42,.72)); }
+  .completion-report-card > div:first-child strong { display: block; font-size: 16px; line-height: 1.45; color: #eafff7; }
+  .completion-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .completion-report-grid span { min-height: 42px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.035); color: #9fb2ee; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .1em; }
+  .completion-report-grid b { display: block; margin-top: 4px; color: #ffffff; font-size: 13px; letter-spacing: normal; text-transform: none; }
   .ai-working-inline { display: inline-flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(148,163,184,.24); background: rgba(15,23,42,.78); color: #e5e7eb; font-size: 15px; font-weight: 900; box-shadow: 0 12px 34px rgba(0,0,0,.24); }
   .gear-loader { position: relative; width: 42px; height: 28px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
   .gear-loader::before, .gear-loader::after { content: "⚙︎"; position: absolute; font-family: Arial, Helvetica, sans-serif; line-height: 1; color: #d1d5db; text-shadow: 0 8px 18px rgba(0,0,0,.48); animation: gearSpin 1.8s linear infinite; }
