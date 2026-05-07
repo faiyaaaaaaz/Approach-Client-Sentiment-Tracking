@@ -958,7 +958,7 @@ function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
 function createWeeklyDefaultFilters() {
   const filters = createBaseFilters("past_12_weeks", true);
   filters.reviewSentiments = ["Missed Opportunity"];
-  filters.clientSentiments = ["Very Positive"];
+  filters.clientSentiments = ["Very Positive", "Positive"];
   return filters;
 }
 
@@ -2236,7 +2236,7 @@ function WeeklyAgentTable({
           <p>Performance Timeline Table</p>
           <div className="title-with-help">
             <h2>Agent Performance By Timeframe</h2>
-            <InfoTip text="This table breaks the selected date range into Daily, Weekly, Monthly, or Yearly columns. Weekly is the default. The default filters remain Review = Missed Opportunity and Client = Very Positive so the table starts with a focused missed-opportunity view." />
+            <InfoTip text="This table breaks the selected date range into Daily, Weekly, Monthly, or Yearly columns. Weekly is the default. The table is fixed to Missed Opportunity reviews with Very Positive and Positive client sentiment by default." />
           </div>
           <span>Click an employee or any timeframe cell to open the underlying conversations.</span>
         </div>
@@ -2256,19 +2256,13 @@ function WeeklyAgentTable({
             </select>
           </label>
 
-          <label>
+          <div className="weekly-fixed-scope">
             <span className="label-with-help">
-              Metric
-              <InfoTip text={`Change the table metric anytime. The table is currently grouped by ${timeframeLabel.toLowerCase()} columns. The default setup counts Missed Opportunities where the client sentiment is Very Positive.`} />
+              Focus
+              <InfoTip text={`This timeframe table is intentionally fixed to Missed Opportunity reviews with Very Positive and Positive client sentiment. Use the table filters to adjust team, employee, date range, review, client, resolution, or type if needed.`} />
             </span>
-            <select value={metric} onChange={(event) => setMetric(event.target.value)}>
-              {WEEKLY_METRIC_OPTIONS.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <strong>Missed Opportunity · Very Positive + Positive</strong>
+          </div>
 
           <button type="button" className="secondary-btn" onClick={() => downloadWeeklyCsv(tableRows, periods, metric, metricLabel, timeframeLabel)}>
             Export Table CSV
@@ -2904,22 +2898,32 @@ export default function DashboardPage() {
               </article>
 
               <ChartCard
-                title="Review Approach Breakdown"
-                subtitle="Distribution By Review Approach"
+                title="Missed Opportunities By Client Sentiment"
+                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities Grouped By Client Sentiment`}
                 larger
-                help="Shows how the filtered conversations are distributed across review approach outcomes, including positive review signals, missed opportunities, and negative review risks."
-                onDrill={() => openDetail("Review Approach Drill In", "All Review Approaches", filteredRows, globalFilters)}
+                help="Shows which client sentiment groups contain missed opportunities, so supervisors can see where stronger review handling is needed."
+                onDrill={() =>
+                  openDetail(
+                    "Missed Opportunities Drill In",
+                    "All Client Sentiments",
+                    missedRows,
+                    detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
+                  )
+                }
               >
                 <DonutChart
-                  entries={reviewEntries}
-                  total={filteredRows.length}
-                  kind="review"
+                  entries={missedClientEntries}
+                  total={missedRows.length}
+                  kind="client"
                   onSelect={(entry) =>
                     openDetail(
-                      "Review Approach Drill In",
+                      "Missed Opportunities Drill In",
                       entry.label,
                       entry.rows,
-                      detailFiltersWith(globalFilters, { reviewSentiments: [entry.label] })
+                      detailFiltersWith(globalFilters, {
+                        reviewSentiments: ["Missed Opportunity"],
+                        clientSentiments: [entry.label],
+                      })
                     )
                   }
                 />
@@ -2974,31 +2978,21 @@ export default function DashboardPage() {
 
             <section className="chart-grid breakdown-grid">
               <ChartCard
-                title="Missed Opportunities By Client Sentiment"
-                subtitle={`${formatNumber(missedRows.length)} Missed Opportunities Grouped By Client Sentiment`}
-                help="Shows which client sentiment groups contain missed opportunities, so supervisors can see where stronger review handling is needed."
-                onDrill={() =>
-                  openDetail(
-                    "Missed Opportunities Drill In",
-                    "All Client Sentiments",
-                    missedRows,
-                    detailFiltersWith(globalFilters, { reviewSentiments: ["Missed Opportunity"] })
-                  )
-                }
+                title="Review Approach Breakdown"
+                subtitle="Distribution By Review Approach"
+                help="Shows how the filtered conversations are distributed across review approach outcomes, including positive review signals, missed opportunities, and negative review risks."
+                onDrill={() => openDetail("Review Approach Drill In", "All Review Approaches", filteredRows, globalFilters)}
               >
                 <DonutChart
-                  entries={missedClientEntries}
-                  total={missedRows.length}
-                  kind="client"
+                  entries={reviewEntries}
+                  total={filteredRows.length}
+                  kind="review"
                   onSelect={(entry) =>
                     openDetail(
-                      "Missed Opportunities Drill In",
+                      "Review Approach Drill In",
                       entry.label,
                       entry.rows,
-                      detailFiltersWith(globalFilters, {
-                        reviewSentiments: ["Missed Opportunity"],
-                        clientSentiments: [entry.label],
-                      })
+                      detailFiltersWith(globalFilters, { reviewSentiments: [entry.label] })
                     )
                   }
                 />
@@ -4794,6 +4788,25 @@ const dashboardStyles = `
 
   .weekly-controls label {
     min-width: 260px;
+  }
+
+  .weekly-fixed-scope {
+    display: grid;
+    gap: 8px;
+    min-width: 260px;
+  }
+
+  .weekly-fixed-scope strong {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(115, 135, 190, 0.22);
+    background: linear-gradient(135deg, rgba(9, 18, 38, 0.95), rgba(18, 28, 55, 0.86));
+    color: #f7fbff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
   }
 
   .weekly-table-wrap {
