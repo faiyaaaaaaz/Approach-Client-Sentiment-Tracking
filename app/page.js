@@ -32,6 +32,8 @@ const CLIENT_SENTIMENT_ORDER = [
   "Very Negative",
 ];
 
+const CRITICAL_CLIENT_SENTIMENTS = ["Very Positive", "Positive"];
+
 const RESOLUTION_ORDER = ["Resolved", "Pending", "Unclear", "Unresolved"];
 
 const RESULT_TYPE_OPTIONS = ["Positive", "Opportunity", "Risk", "Other"];
@@ -427,6 +429,20 @@ function buildMetricTrend(currentValue, previousValue, options = {}) {
 
 function sameText(value, expected) {
   return normalizeText(value, "") === expected;
+}
+
+function isCriticalClientSentiment(row) {
+  return CRITICAL_CLIENT_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment));
+}
+
+function isCriticalMiss(row) {
+  return sameText(row?.review_sentiment, "Missed Opportunity") && isCriticalClientSentiment(row);
+}
+
+function getCriticalMissRate(rows) {
+  const handled = Array.isArray(rows) ? rows.length : 0;
+  if (!handled) return 0;
+  return (rows.filter(isCriticalMiss).length / handled) * 100;
 }
 
 function deriveResultType(reviewSentiment) {
@@ -1422,6 +1438,7 @@ function buildLeaderboard(rows) {
       handled: 0,
       likelyPositive: 0,
       missed: 0,
+      criticalMiss: 0,
       veryPositive: 0,
       likelyNegative: 0,
       unresolved: 0,
@@ -1432,6 +1449,7 @@ function buildLeaderboard(rows) {
 
     if (isLikelyPositiveReview(row)) current.likelyPositive += 1;
     if (sameText(row?.review_sentiment, "Missed Opportunity")) current.missed += 1;
+    if (isCriticalMiss(row)) current.criticalMiss += 1;
     if (sameText(row?.client_sentiment, "Very Positive")) current.veryPositive += 1;
     if (isLikelyNegativeReview(row)) current.likelyNegative += 1;
     if (sameText(row?.resolution_status, "Unresolved")) current.unresolved += 1;
@@ -1446,6 +1464,7 @@ function buildLeaderboard(rows) {
       ...item,
       likelyPositiveRate: item.handled ? (item.likelyPositive / item.handled) * 100 : 0,
       missedRate: item.handled ? (item.missed / item.handled) * 100 : 0,
+      criticalMissRate: item.handled ? (item.criticalMiss / item.handled) * 100 : 0,
       likelyNegativeRate: item.handled ? (item.likelyNegative / item.handled) * 100 : 0,
       resolutionRate: item.handled ? ((item.handled - item.unresolved) / item.handled) * 100 : 0,
     }))
@@ -2824,9 +2843,7 @@ export default function DashboardPage() {
     (row) => sameText(row.review_sentiment, "Missed Opportunity")
   ).length;
 
-  const veryPositiveCount = filteredRows.filter(
-    (row) => sameText(row.client_sentiment, "Very Positive")
-  ).length;
+  const criticalMissRate = getCriticalMissRate(filteredRows);
 
   const resolvedCount = filteredRows.filter(
     (row) => sameText(row.resolution_status, "Resolved")
@@ -2838,7 +2855,7 @@ export default function DashboardPage() {
 
   const previousTotal = previousRows.length;
   const previousMissedCount = previousRows.filter((row) => sameText(row.review_sentiment, "Missed Opportunity")).length;
-  const previousVeryPositiveCount = previousRows.filter((row) => sameText(row.client_sentiment, "Very Positive")).length;
+  const previousCriticalMissRate = getCriticalMissRate(previousRows);
   const previousResolvedCount = previousRows.filter((row) => sameText(row.resolution_status, "Resolved")).length;
   const previousUnresolvedCount = previousRows.filter((row) => sameText(row.resolution_status, "Unresolved")).length;
   const currentResolutionRate = total ? (resolvedCount / total) * 100 : 0;
@@ -2949,17 +2966,24 @@ export default function DashboardPage() {
             }
           />
           <KPIStat
-            label="Very Positive"
-            help="Conversations where the client sentiment was identified as Very Positive."
-            value={formatNumber(veryPositiveCount)}
-            trend={previousGlobalFilters ? buildMetricTrend(veryPositiveCount, previousVeryPositiveCount) : null}
-            accent="linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
+            label="Critical Miss Rate"
+            help="Missed Opportunity conversations where the client sentiment is Very Positive or Positive, divided by total handled conversations in the current filter. Rates above 5% are treated as red risk."
+            value={formatPercent(criticalMissRate)}
+            trend={previousGlobalFilters ? buildMetricTrend(criticalMissRate, previousCriticalMissRate, { type: "percent", inverse: true }) : null}
+            accent={
+              criticalMissRate > 5
+                ? "linear-gradient(135deg, rgba(239,68,68,0.28), rgba(236,72,153,0.16))"
+                : "linear-gradient(135deg, rgba(16,185,129,0.24), rgba(6,182,212,0.12))"
+            }
             onClick={() =>
               openDetail(
                 "KPI Drill In",
-                "Very Positive",
+                "Critical Miss Rate",
                 dedupedRows,
-                detailFiltersWith(globalFilters, { clientSentiments: ["Very Positive"] })
+                detailFiltersWith(globalFilters, {
+                  reviewSentiments: ["Missed Opportunity"],
+                  clientSentiments: CRITICAL_CLIENT_SENTIMENTS,
+                })
               )
             }
           />
@@ -3048,8 +3072,8 @@ export default function DashboardPage() {
                     <strong>{formatPercent(total ? (resolvedCount / total) * 100 : 0)}</strong>
                   </div>
                   <div>
-                    <span>Very Positive</span>
-                    <strong>{formatNumber(veryPositiveCount)}</strong>
+                    <span>Critical Miss Rate</span>
+                    <strong>{formatPercent(criticalMissRate)}</strong>
                   </div>
                   <div>
                     <span>Unresolved</span>
@@ -3222,6 +3246,7 @@ export default function DashboardPage() {
                 {[
                   {
                     title: "Top Likely Positive Reviews",
+                    help: "Ranks employees by Highly Likely Positive Review and Likely Positive Review outcomes in the current leaderboard filter scope.",
                     theme: "green",
                     rows: [...leaderboard].sort((a, b) => b.likelyPositive - a.likelyPositive).slice(0, 5),
                     value: (row) => formatNumber(row.likelyPositive),
@@ -3230,22 +3255,27 @@ export default function DashboardPage() {
                   },
                   {
                     title: "Top Missed Opportunities",
+                    help: "Ranks employees by Missed Opportunity conversations where the client sentiment was Very Positive or Positive. This is the default critical missed-opportunity scope.",
                     theme: "red",
-                    rows: [...leaderboard].sort((a, b) => b.missed - a.missed).slice(0, 5),
-                    value: (row) => formatNumber(row.missed),
-                    filterOverrides: { reviewSentiments: ["Missed Opportunity"] },
-                    rowsFor: (row) => row.rows.filter((item) => item.review_sentiment === "Missed Opportunity"),
+                    rows: [...leaderboard].sort((a, b) => b.criticalMiss - a.criticalMiss || b.handled - a.handled).slice(0, 5),
+                    value: (row) => formatNumber(row.criticalMiss),
+                    detail: (row) => `${row.team || "-"} · ${formatNumber(row.handled)} Handled`,
+                    filterOverrides: { reviewSentiments: ["Missed Opportunity"], clientSentiments: CRITICAL_CLIENT_SENTIMENTS },
+                    rowsFor: (row) => row.rows.filter(isCriticalMiss),
                   },
                   {
-                    title: "Top Very Positive",
-                    theme: "green",
-                    rows: [...leaderboard].sort((a, b) => b.veryPositive - a.veryPositive).slice(0, 5),
-                    value: (row) => formatNumber(row.veryPositive),
-                    filterOverrides: { clientSentiments: ["Very Positive"] },
-                    rowsFor: (row) => row.rows.filter((item) => item.client_sentiment === "Very Positive"),
+                    title: "Top Critical Miss Rates",
+                    help: "Ranks employees by Critical Miss Rate: Missed Opportunity conversations with Very Positive or Positive client sentiment divided by total handled conversations. Above 5% is red risk.",
+                    theme: "red",
+                    rows: [...leaderboard].sort((a, b) => b.criticalMissRate - a.criticalMissRate || b.criticalMiss - a.criticalMiss || b.handled - a.handled).slice(0, 5),
+                    value: (row) => formatPercent(row.criticalMissRate),
+                    detail: (row) => `${formatNumber(row.criticalMiss)} Critical Miss${row.criticalMiss === 1 ? "" : "es"} · ${formatNumber(row.handled)} Handled`,
+                    filterOverrides: { reviewSentiments: ["Missed Opportunity"], clientSentiments: CRITICAL_CLIENT_SENTIMENTS },
+                    rowsFor: (row) => row.rows.filter(isCriticalMiss),
                   },
                   {
                     title: "Top Likely Negative Reviews",
+                    help: "Ranks employees by Highly Likely Negative Review and Likely Negative Review outcomes in the current leaderboard filter scope.",
                     theme: "red",
                     rows: [...leaderboard].sort((a, b) => b.likelyNegative - a.likelyNegative).slice(0, 5),
                     value: (row) => formatNumber(row.likelyNegative),
@@ -3254,7 +3284,10 @@ export default function DashboardPage() {
                   },
                 ].map((block) => (
                   <div key={block.title} className={`mini-rank-card ${block.theme}`}>
-                    <h3>{block.title}</h3>
+                    <div className="mini-rank-heading">
+                      <h3>{block.title}</h3>
+                      {block.help ? <InfoTip text={block.help} /> : null}
+                    </div>
                     {block.rows.length ? (
                       block.rows.map((row) => (
                         <button
@@ -3264,9 +3297,7 @@ export default function DashboardPage() {
                         >
                           <strong>{row.employee}</strong>
                           <span>{block.value(row)}</span>
-                          <small>
-                            {row.team || "-"} · {formatNumber(row.handled)} Handled
-                          </small>
+                          <small>{block.detail ? block.detail(row) : `${row.team || "-"} · ${formatNumber(row.handled)} Handled`}</small>
                         </button>
                       ))
                     ) : (
@@ -3285,7 +3316,7 @@ export default function DashboardPage() {
                       <th>Handled</th>
                       <th>Likely Positive</th>
                       <th>Missed</th>
-                      <th>Very Positive</th>
+                      <th>Critical Miss Rate</th>
                       <th>Likely Negative</th>
                       <th>Resolution Rate</th>
                       <th>Drill In</th>
@@ -3304,7 +3335,7 @@ export default function DashboardPage() {
                         <td>{formatNumber(row.handled)}</td>
                         <td className="good">{formatNumber(row.likelyPositive)}</td>
                         <td className="bad">{formatNumber(row.missed)}</td>
-                        <td className="good">{formatNumber(row.veryPositive)}</td>
+                        <td className={row.criticalMissRate > 5 ? "bad" : "good"}>{formatPercent(row.criticalMissRate)} · {formatNumber(row.criticalMiss)}</td>
                         <td className="bad">{formatNumber(row.likelyNegative)}</td>
                         <td>{formatPercent(row.resolutionRate)}</td>
                         <td>
@@ -4812,6 +4843,14 @@ const dashboardStyles = `
     background:
       radial-gradient(circle at top left, rgba(239, 68, 68, 0.13), transparent 36%),
       linear-gradient(180deg, rgba(239, 68, 68, 0.09), rgba(255, 255, 255, 0.025));
+  }
+
+  .mini-rank-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 26px;
   }
 
   .mini-rank-card h3 {
