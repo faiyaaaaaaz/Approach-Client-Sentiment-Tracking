@@ -430,6 +430,100 @@ function HelpTip({ text }) {
   );
 }
 
+function MoreMembersChip({ members = [], count = 0 }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 320, placement: "top" });
+  const chipRef = useRef(null);
+
+  const hiddenMembers = useMemo(
+    () =>
+      (members || [])
+        .map((member) => member?.employee_name || member?.employee_email || member?.intercom_agent_name || "Unnamed member")
+        .filter(Boolean),
+    [members]
+  );
+
+  const tooltipText = hiddenMembers.join(", ");
+
+  function updateTooltipPosition() {
+    if (!chipRef.current || typeof window === "undefined") return;
+
+    const rect = chipRef.current.getBoundingClientRect();
+    const tooltipWidth = Math.min(360, Math.max(260, window.innerWidth - 32));
+    const left = Math.min(
+      Math.max(16, rect.left + rect.width / 2 - tooltipWidth / 2),
+      window.innerWidth - tooltipWidth - 16
+    );
+    const hasRoomAbove = rect.top > 150;
+    const top = hasRoomAbove ? rect.top - 10 : rect.bottom + 10;
+
+    setPosition({
+      top,
+      left,
+      width: tooltipWidth,
+      placement: hasRoomAbove ? "top" : "bottom",
+    });
+  }
+
+  function showTooltip() {
+    updateTooltipPosition();
+    setOpen(true);
+  }
+
+  function hideTooltip() {
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function syncPosition() {
+      updateTooltipPosition();
+    }
+
+    window.addEventListener("scroll", syncPosition, true);
+    window.addEventListener("resize", syncPosition);
+
+    return () => {
+      window.removeEventListener("scroll", syncPosition, true);
+      window.removeEventListener("resize", syncPosition);
+    };
+  }, [open]);
+
+  if (!count || !hiddenMembers.length) return null;
+
+  return (
+    <>
+      <button
+        ref={chipRef}
+        type="button"
+        className="member-more-chip"
+        aria-label={`Show ${formatNumber(count)} hidden team member${count === 1 ? "" : "s"}: ${tooltipText}`}
+        title={tooltipText}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
+        onFocus={showTooltip}
+        onBlur={hideTooltip}
+      >
+        +{formatNumber(count)} more
+      </button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className={`member-more-popover ${position.placement}`}
+              role="tooltip"
+              style={{ top: position.top, left: position.left, width: position.width }}
+            >
+              <strong>Hidden Team Members</strong>
+              <div>{tooltipText}</div>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
+
 function AdminActivityDateRangePicker({ startDate, endDate, presetKey, onApplyPreset, onApplyCustom }) {
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(() => toActivityDate(startDate));
@@ -3607,15 +3701,10 @@ export default function AdminPage() {
                         ))}
 
                         {(team.members || []).length > 10 ? (
-                          <span className="member-more-chip" tabIndex={0}>
-                            +{formatNumber((team.members || []).length - 10)} more
-                            <em>
-                              {(team.members || [])
-                                .slice(10)
-                                .map((member) => member.employee_name || member.employee_email || "Unnamed member")
-                                .join(", ")}
-                            </em>
-                          </span>
+                          <MoreMembersChip
+                            members={(team.members || []).slice(10)}
+                            count={(team.members || []).length - 10}
+                          />
                         ) : null}
 
                         {(team.members || []).length === 0 ? <span>No members assigned</span> : null}
@@ -5440,34 +5529,63 @@ const adminStyles = `
   }
 
   .member-more-chip {
-    position: relative;
-    cursor: help;
-    border-color: rgba(34, 211, 238, 0.26) !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 10px;
+    border-radius: 999px;
+    color: #dbe7ff;
+    border: 1px solid rgba(34, 211, 238, 0.26) !important;
     background: rgba(34, 211, 238, 0.1) !important;
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: help;
   }
 
-  .member-more-chip em {
+  .member-more-chip:hover,
+  .member-more-chip:focus-visible {
+    color: #ffffff;
+    border-color: rgba(34, 211, 238, 0.5) !important;
+    background: rgba(34, 211, 238, 0.16) !important;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.14), 0 10px 26px rgba(15, 23, 42, 0.34);
+  }
+
+  .member-more-popover {
     position: fixed;
-    z-index: 999999;
-    width: min(380px, calc(100vw - 44px));
-    transform: translate(-12px, -100%);
-    opacity: 0;
+    z-index: 2147483647;
     pointer-events: none;
-    padding: 12px;
+    padding: 12px 14px;
     border-radius: 14px;
     color: #eef3ff;
-    border: 1px solid rgba(147, 197, 253, 0.26);
-    background: #0b1122;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.58);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+    background:
+      radial-gradient(circle at top right, rgba(34, 211, 238, 0.16), transparent 38%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(7, 12, 28, 0.98));
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.64), 0 0 0 1px rgba(255, 255, 255, 0.04);
     font-size: 13px;
     font-style: normal;
-    line-height: 1.6;
+    font-weight: 800;
+    line-height: 1.55;
     white-space: normal;
   }
 
-  .member-more-chip:hover em,
-  .member-more-chip:focus em {
-    opacity: 1;
+  .member-more-popover.top {
+    transform: translateY(-100%);
+  }
+
+  .member-more-popover.bottom {
+    transform: none;
+  }
+
+  .member-more-popover strong {
+    display: block;
+    margin-bottom: 5px;
+    color: #93c5fd;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
 
   .rule-list {
