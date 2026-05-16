@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const INTERCOM_API_BASE = "https://api.intercom.io";
-const INTERCOM_PREVIEW_TIMEOUT_MS = 25000;
+const INTERCOM_PREVIEW_TIMEOUT_MS = 55000;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -247,35 +247,89 @@ function buildMessage({ id, author, body, createdAt, messageType, sourceType, fa
   };
 }
 
+function getConversationSource(conversation) {
+  return (
+    conversation?.source ||
+    conversation?.conversation_message ||
+    conversation?.conversationMessage ||
+    conversation?.message ||
+    null
+  );
+}
+
+function getConversationParts(conversation) {
+  const candidates = [
+    conversation?.conversation_parts?.conversation_parts,
+    conversation?.conversation_parts?.data,
+    conversation?.conversation_parts,
+    conversation?.parts?.parts,
+    conversation?.parts?.data,
+    conversation?.parts,
+    conversation?.messages,
+    conversation?.conversation_messages,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+}
+
+function getPartBody(part) {
+  return (
+    part?.body ??
+    part?.text ??
+    part?.content ??
+    part?.message ??
+    part?.description ??
+    part?.summary ??
+    part?.redacted ??
+    part?.event_description ??
+    ""
+  );
+}
+
+function getPartCreatedAt(part, conversation) {
+  return (
+    part?.created_at ??
+    part?.updated_at ??
+    part?.createdAt ??
+    part?.updatedAt ??
+    conversation?.created_at ??
+    conversation?.updated_at ??
+    null
+  );
+}
+
 function buildTranscript(conversation) {
   const messages = [];
+  const source = getConversationSource(conversation);
 
-  if (conversation?.source) {
+  if (source) {
     messages.push(
       buildMessage({
-        id: conversation.source.id || "source",
-        author: conversation.source.author || conversation.author,
-        body: conversation.source.body || conversation.source.delivered_as,
-        createdAt: conversation.created_at,
-        messageType: conversation.source.type || "conversation_start",
+        id: source.id || conversation?.id || "source",
+        author: source.author || conversation?.author || conversation?.contacts?.contacts?.[0],
+        body: source.body || source.text || source.content || source.message || source.subject || source.title,
+        createdAt: source.created_at || source.createdAt || conversation?.created_at,
+        messageType: source.type || source.delivered_as || "conversation_start",
         sourceType: "conversation_start",
-        fallbackBody: buildSourceFallbackBody(conversation.source),
+        fallbackBody: buildSourceFallbackBody(source),
       })
     );
   }
 
-  const parts = Array.isArray(conversation?.conversation_parts?.conversation_parts)
-    ? conversation.conversation_parts.conversation_parts
-    : [];
+  const parts = getConversationParts(conversation);
 
   for (const part of parts) {
     messages.push(
       buildMessage({
         id: part?.id,
-        author: part?.author,
-        body: part?.body,
-        createdAt: part?.created_at,
-        messageType: part?.part_type || part?.type || "conversation_part",
+        author: part?.author || part?.user || part?.contact || part?.admin,
+        body: getPartBody(part),
+        createdAt: getPartCreatedAt(part, conversation),
+        messageType: part?.part_type || part?.type || part?.message_type || "conversation_part",
         fallbackBody: buildPartFallbackBody(part),
       })
     );
