@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
@@ -1316,7 +1316,7 @@ async function readApiJson(response) {
   }
 }
 
-export default function AdminPage() {
+function AdminPageContent() {
   const searchParams = useSearchParams();
   const mappingFormRef = useRef(null);
   const roleFormRef = useRef(null);
@@ -7573,3 +7573,11 @@ const adminStyles = `
     overflow: auto;
   }
 `;
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<main className="admin-page"><section className="admin-hero"><p>Loading Admin Control Center...</p></section></main>}>
+      <AdminPageContent />
+    </Suspense>
+  );
+}
