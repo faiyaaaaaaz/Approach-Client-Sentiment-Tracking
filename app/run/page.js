@@ -119,6 +119,17 @@ function normalizeRunKey(value) {
   return normalizeRunText(value).toLowerCase();
 }
 
+function parseSpecificConversationIds(value) {
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[\s,]+/)
+        .map((item) => item.trim())
+        .filter((item) => /^\d{5,}$/.test(item))
+    )
+  ).slice(0, 50);
+}
+
 function uniqueSortedText(values) {
   return Array.from(new Set((values || []).map(normalizeRunText).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
@@ -1309,6 +1320,7 @@ export default function RunPage() {
   const [selectedSupervisorTeamIds, setSelectedSupervisorTeamIds] = useState([]);
   const [selectedEmployeeNames, setSelectedEmployeeNames] = useState([]);
   const [selectedIntercomAgentNames, setSelectedIntercomAgentNames] = useState([]);
+  const [specificConversationIdsInput, setSpecificConversationIdsInput] = useState("");
   const [agentMappings, setAgentMappings] = useState([]);
   const [supervisorTeams, setSupervisorTeams] = useState([]);
   const [mappingFilterError, setMappingFilterError] = useState("");
@@ -1490,6 +1502,11 @@ export default function RunPage() {
     not_queued: "Not Queued",
     all: "All Fetched Conversations",
   };
+  const specificConversationIds = useMemo(
+    () => parseSpecificConversationIds(specificConversationIdsInput),
+    [specificConversationIdsInput]
+  );
+  const hasSpecificConversationIds = specificConversationIds.length > 0;
   const selectedPresetLabel =
     DATE_PRESET_OPTIONS.find((item) => item.key === selectedDatePreset)?.label || "Custom";
   const activeAgentMappings = useMemo(
@@ -1569,8 +1586,11 @@ export default function RunPage() {
         : "All Supervisor Teams",
       employees: selectedEmployeeNames.length ? `${selectedEmployeeNames.length} Employee(s)` : "All Employees",
       agents: selectedIntercomAgentNames.length ? `${selectedIntercomAgentNames.length} Intercom Agent(s)` : "All Intercom Agents",
+      specificConversations: specificConversationIds.length
+        ? `${specificConversationIds.length} Specific Conversation ID(s)`
+        : "Date/filter mode",
     }),
-    [conversationRatings, selectedSupervisorTeamIds, selectedEmployeeNames, selectedIntercomAgentNames]
+    [conversationRatings, selectedSupervisorTeamIds, selectedEmployeeNames, selectedIntercomAgentNames, specificConversationIds]
   );
   const queuedConversationCount = queuedConversationsForRun.length;
 
@@ -3069,6 +3089,11 @@ export default function RunPage() {
   }
 
   async function handleFetchConversations() {
+    if (hasSpecificConversationIds) {
+      await executeFetchConversations();
+      return;
+    }
+
     const canResumeExistingFetch = Boolean(
       workflowRun?.id &&
         workflowRun?.status === "fetching" &&
@@ -3108,12 +3133,17 @@ export default function RunPage() {
     setDuplicateDecisionLoading(false);
     setPendingDuplicateConversations([]);
 
-    if (!startDate || !endDate) {
-      setFetchError("Please choose both a start date and an end date.");
+    if (!hasSpecificConversationIds && (!startDate || !endDate)) {
+      setFetchError("Please choose both a start date and an end date, or enter one or more specific conversation IDs.");
       return;
     }
 
-    if (limiterEnabled) {
+    if (specificConversationIdsInput.trim() && !hasSpecificConversationIds) {
+      setFetchError("Enter valid numeric Intercom conversation IDs separated by commas.");
+      return;
+    }
+
+    if (!hasSpecificConversationIds && limiterEnabled) {
       const parsedLimit = Number(limitCount);
       if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
         setFetchError("Please enter a valid limiter number greater than 0.");
@@ -3146,9 +3176,11 @@ export default function RunPage() {
     setOperationStatus("fetching");
 
     addLog(
-      canResumeExistingFetch
-        ? `Resuming paginated fetch for ${startDate} to ${endDate}.`
-        : `Paginated fetch started for ${startDate} to ${endDate}.`,
+      hasSpecificConversationIds
+        ? `Specific conversation fetch started for ${specificConversationIds.length} conversation ID(s).`
+        : canResumeExistingFetch
+          ? `Resuming paginated fetch for ${startDate} to ${endDate}.`
+          : `Paginated fetch started for ${startDate} to ${endDate}.`,
       "info"
     );
 
@@ -3169,19 +3201,20 @@ export default function RunPage() {
         const workflowStart = await postWorkflowAction(
           "start_workflow",
           {
-            startDate,
-            endDate,
-            limiterEnabled,
-            limitCount: limiterEnabled ? limitCount : null,
+            startDate: hasSpecificConversationIds ? null : startDate,
+            endDate: hasSpecificConversationIds ? null : endDate,
+            limiterEnabled: hasSpecificConversationIds ? false : limiterEnabled,
+            limitCount: hasSpecificConversationIds ? null : limiterEnabled ? limitCount : null,
             autoRunAfterFetch,
             batchSize: AUDIT_BATCH_SIZE,
-            selectedDatePreset,
+            selectedDatePreset: hasSpecificConversationIds ? "specific_conversation_ids" : selectedDatePreset,
             filters: {
               conversationRatings,
               supervisorTeamIds: selectedSupervisorTeamIds,
               employeeNames: selectedEmployeeNames,
               intercomAgentNames: selectedIntercomAgentNames,
-              fetchMode: "paginated",
+              conversationIds: specificConversationIds,
+              fetchMode: hasSpecificConversationIds ? "specific_conversation_ids" : "paginated",
             },
           },
           { quiet: false }
@@ -3216,16 +3249,17 @@ export default function RunPage() {
             Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({
-            startDate,
-            endDate,
-            limiterEnabled,
-            limitCount,
+            startDate: hasSpecificConversationIds ? "" : startDate,
+            endDate: hasSpecificConversationIds ? "" : endDate,
+            limiterEnabled: hasSpecificConversationIds ? false : limiterEnabled,
+            limitCount: hasSpecificConversationIds ? null : limitCount,
             conversationRatings,
             supervisorTeamIds: selectedSupervisorTeamIds,
             employeeNames: selectedEmployeeNames,
             intercomAgentNames: selectedIntercomAgentNames,
+            conversationIds: specificConversationIds,
             fetchState,
-            alreadyFetchedCount: accumulatedConversations.length,
+            alreadyFetchedCount: hasSpecificConversationIds ? 0 : accumulatedConversations.length,
           }),
           signal: controller.signal,
           cache: "no-store",
@@ -3712,6 +3746,20 @@ export default function RunPage() {
             />
           </div>
 
+          <label className="audit-command-control conversation-id-control">
+            <span className="mini-label inline-label">Specific Conversation ID(s) <HelpTip text="Optional. Enter one or more Intercom conversation IDs separated by commas. When this field has valid IDs, Fetch ignores the date range and other filters and returns only these conversations." /></span>
+            <textarea
+              value={specificConversationIdsInput}
+              onChange={(event) => {
+                setSpecificConversationIdsInput(event.target.value);
+                resetRunStateForInputChange();
+              }}
+              placeholder="Example: 215474306770307, 215474156103997"
+              rows={3}
+            />
+            <small>{hasSpecificConversationIds ? `${specificConversationIds.length} conversation ID(s) ready. Other filters will be ignored for this fetch.` : "Leave empty to use the normal date and filter fetch."}</small>
+          </label>
+
           <div className="audit-command-toggle">
             <div>
               <span className="mini-label inline-label">Limiter <HelpTip text="When enabled, only the selected number of fetched conversations is included in the audit queue. When disabled, all eligible fetched conversations are queued." /></span>
@@ -3781,7 +3829,7 @@ export default function RunPage() {
                 type="button"
                 className="primary-btn fetch-main-btn"
                 onClick={handleFetchConversations}
-                disabled={!canRunTests || !session?.user || !startDate || !endDate || runLoading}
+                disabled={!canRunTests || !session?.user || runLoading || (!hasSpecificConversationIds && (!startDate || !endDate))}
               >
                 Fetch Conversations
               </button>
@@ -3809,8 +3857,9 @@ export default function RunPage() {
         </div>
 
         <div className="run-setup-strip">
-          <div><span>Date Range</span><strong>{startDate && endDate ? `${startDate} to ${endDate}` : "Not selected"}</strong></div>
-          <div><span>Ratings</span><strong>{selectedFilterSummary.conversationRatings}</strong></div>
+          <div><span>Date Range</span><strong>{hasSpecificConversationIds ? "Ignored for specific IDs" : startDate && endDate ? `${startDate} to ${endDate}` : "Not selected"}</strong></div>
+          <div><span>Conversation IDs</span><strong>{selectedFilterSummary.specificConversations}</strong></div>
+          <div><span>Ratings</span><strong>{hasSpecificConversationIds ? "Ignored for specific IDs" : selectedFilterSummary.conversationRatings}</strong></div>
           <div><span>Supervisor Scope</span><strong>{selectedFilterSummary.supervisorTeams}</strong></div>
           <div><span>Employees</span><strong>{selectedFilterSummary.employees}</strong></div>
           <div><span>Intercom Agents</span><strong>{selectedFilterSummary.agents}</strong></div>
@@ -7005,6 +7054,28 @@ const runStyles = `
     }
   }
 
+
+  .conversation-id-control textarea {
+    width: 100%;
+    min-height: 82px;
+    resize: vertical;
+    border: 1px solid rgba(148, 163, 255, 0.24);
+    border-radius: 16px;
+    padding: 12px 14px;
+    background: rgba(2, 6, 23, 0.62);
+    color: #f8fbff;
+    outline: none;
+    font: inherit;
+  }
+
+  .conversation-id-control small {
+    display: block;
+    margin-top: 8px;
+    color: #9fb5ff;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   @media (max-width: 1080px) {
     .stats-grid:not(.inline-run-stats),
     .hero-quick-grid,
@@ -7482,6 +7553,28 @@ const runStyles = `
   .conversation-preview-error small { display: block; }
   .conversation-preview-error strong { color: #fecaca; margin-bottom: 8px; }
   .conversation-preview-error span { color: #f8fbff; margin-bottom: 6px; }
+
+  .conversation-id-control textarea {
+    width: 100%;
+    min-height: 82px;
+    resize: vertical;
+    border: 1px solid rgba(148, 163, 255, 0.24);
+    border-radius: 16px;
+    padding: 12px 14px;
+    background: rgba(2, 6, 23, 0.62);
+    color: #f8fbff;
+    outline: none;
+    font: inherit;
+  }
+
+  .conversation-id-control small {
+    display: block;
+    margin-top: 8px;
+    color: #9fb5ff;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   @media (max-width: 1080px) {
     .conversation-preview-modal { width: calc(100vw - 20px); height: calc(100dvh - 20px); max-height: calc(100dvh - 20px); border-radius: 28px; }
     .conversation-preview-body { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
