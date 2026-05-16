@@ -3691,7 +3691,7 @@ export default function RunPage() {
         <div className="audit-command-head compact-command-head">
           <div>
             <span className="mini-label">Audit Command Center</span>
-            <h2>Setup workflow rules, filters, and execution controls.</h2>
+            <h2>Audit Command Center</h2>
           </div>
           <div className="audit-command-status">
             <span className={`state-pill ${operationTone}`}>{operationLabel}</span>
@@ -3701,10 +3701,6 @@ export default function RunPage() {
 
         <div className="audit-command-grid">
           <div className="audit-command-column audit-command-column-target">
-            <div className="audit-column-heading">
-              <span className="mini-label">Column 1: Core Target Configuration</span>
-              <strong>Width: ~25%</strong>
-            </div>
 
             <div className="audit-command-control date-control-wide">
               <RunDateRangePicker
@@ -3733,10 +3729,6 @@ export default function RunPage() {
           </div>
 
           <div className="audit-command-column audit-command-column-filters">
-            <div className="audit-column-heading">
-              <span className="mini-label">Column 2: Granular Filters</span>
-              <strong>Width: ~45%</strong>
-            </div>
 
             <div className="audit-filter-matrix">
               <div className="audit-command-control rating-control">
@@ -3790,10 +3782,6 @@ export default function RunPage() {
           </div>
 
           <div className="audit-command-column audit-command-column-actions">
-            <div className="audit-column-heading">
-              <span className="mini-label">Column 3: Rules & Action Matrix</span>
-              <strong>Width: ~30%</strong>
-            </div>
 
             <div className="audit-toggle-stack">
               <div className="audit-command-toggle">
@@ -7517,6 +7505,346 @@ const runStyles = `
     .conversation-message,
     .conversation-message.system { max-width: 100%; }
     .conversation-preview-verdict-head { align-items: flex-start; flex-direction: column; }
+  }
+
+
+  /* Corrected compact Audit Command Center: user-facing UI only */
+  .audit-command-panel {
+    padding: 0 !important;
+    overflow: visible !important;
+    border-color: rgba(51, 65, 85, 0.72) !important;
+    background: #0d1220 !important;
+    box-shadow: none !important;
+  }
+
+  .audit-command-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    margin: 0 !important;
+    padding: 10px 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.055) !important;
+    background: #101625 !important;
+  }
+
+  .audit-command-head h2 {
+    margin: 2px 0 0 !important;
+    color: #e7ecf8 !important;
+    font-size: 13px !important;
+    line-height: 1.25 !important;
+    letter-spacing: 0 !important;
+    font-weight: 900 !important;
+  }
+
+  .audit-command-head p { display: none !important; }
+
+  .audit-command-status {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    white-space: nowrap !important;
+  }
+
+  .audit-command-status small {
+    color: #8b98b6 !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+  }
+
+  .audit-command-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1.5fr 1fr !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+    padding: 8px !important;
+    background: #080d18 !important;
+  }
+
+  .audit-command-column {
+    position: relative !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(255, 255, 255, 0.065) !important;
+    background: #111625 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .audit-command-column-filters,
+  .audit-command-column-actions {
+    background: #111625 !important;
+  }
+
+  .audit-column-heading { display: none !important; }
+
+  .audit-filter-matrix {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    height: 100% !important;
+  }
+
+  .audit-toggle-stack {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .audit-command-control,
+  .audit-command-toggle,
+  .audit-command-actions {
+    position: relative !important;
+    min-width: 0 !important;
+    padding: 8px !important;
+    border-radius: 9px !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .audit-command-toggle {
+    min-height: 62px !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    align-items: center !important;
+    background: #151b2a !important;
+  }
+
+  .audit-command-toggle.auto.active {
+    border-color: rgba(16, 185, 129, 0.22) !important;
+    background: rgba(6, 78, 59, 0.22) !important;
+  }
+
+  .audit-command-toggle strong {
+    color: #f5f7fb !important;
+    font-size: 12px !important;
+    line-height: 1.15 !important;
+    font-weight: 900 !important;
+  }
+
+  .audit-command-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    margin-top: auto !important;
+    background: #111625 !important;
+  }
+
+  .audit-command-actions .primary-btn,
+  .audit-command-actions .secondary-btn,
+  .audit-command-actions .danger-btn {
+    width: 100% !important;
+    min-height: 38px !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+    box-shadow: none !important;
+  }
+
+  .fetch-main-btn {
+    color: #f8fbff !important;
+    border: 1px solid rgba(99, 102, 241, 0.28) !important;
+    background: #4f46c8 !important;
+  }
+
+  .fetch-main-btn:hover:not(:disabled) { background: #5b55d6 !important; }
+
+  .run-main-btn {
+    color: #ffffff !important;
+    border-color: rgba(190, 24, 147, 0.28) !important;
+    background: #b4259b !important;
+  }
+
+  .run-main-btn:hover:not(:disabled) { background: #c52bad !important; }
+
+  .audit-command-panel .mini-label,
+  .audit-command-panel .label-with-tip,
+  .audit-command-panel .inline-label {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-bottom: 5px !important;
+    color: #9fb2df !important;
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+  }
+
+  .audit-command-panel label span:not(.run-help-tip):not(.label-with-tip):not(.inline-label) {
+    font-size: inherit !important;
+    letter-spacing: inherit !important;
+    margin-bottom: 0 !important;
+  }
+
+  .run-help-tip {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 14px !important;
+    height: 14px !important;
+    border-radius: 999px !important;
+    border: 1px solid rgba(125, 211, 252, 0.34) !important;
+    background: rgba(14, 165, 233, 0.12) !important;
+    color: #a9d8ff !important;
+    cursor: help !important;
+    z-index: 20 !important;
+    flex: 0 0 auto !important;
+    margin: 0 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+  }
+
+  .run-help-tip b {
+    display: block !important;
+    font-size: 10px !important;
+    line-height: 1 !important;
+    font-weight: 950 !important;
+  }
+
+  .run-help-tip i {
+    position: absolute !important;
+    left: 50% !important;
+    bottom: calc(100% + 9px) !important;
+    width: min(320px, 72vw) !important;
+    transform: translateX(-50%) translateY(4px) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(125, 211, 252, 0.22) !important;
+    background: #06101f !important;
+    color: #dbeafe !important;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.56) !important;
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+    font-style: normal !important;
+    font-weight: 800 !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    white-space: normal !important;
+    z-index: 100000 !important;
+    transition: opacity 0.16s ease, transform 0.16s ease !important;
+  }
+
+  .run-help-tip:hover i,
+  .run-help-tip:focus i {
+    opacity: 1 !important;
+    transform: translateX(-50%) translateY(0) !important;
+  }
+
+  .audit-command-panel .run-multi-button,
+  .audit-command-panel .run-date-button {
+    min-height: 34px !important;
+    padding: 0 10px !important;
+    border-radius: 7px !important;
+    background: #090e1a !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .audit-command-panel .run-multi-button strong,
+  .audit-command-panel .run-date-button strong {
+    font-size: 12px !important;
+  }
+
+  .audit-command-panel .run-multi-button b,
+  .audit-command-panel .run-date-button b {
+    font-size: 10px !important;
+  }
+
+  .audit-command-panel .run-multi-pill-row i {
+    min-height: 22px !important;
+    padding: 0 8px !important;
+    border-radius: 6px !important;
+    background: rgba(148, 163, 184, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    color: #e5ecff !important;
+    font-size: 11px !important;
+    font-style: normal !important;
+  }
+
+  .conversation-id-control textarea {
+    width: 100% !important;
+    min-height: 74px !important;
+    resize: vertical !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+    padding: 10px 12px !important;
+    background: #0b101c !important;
+    color: #f8fbff !important;
+    outline: none !important;
+    font: inherit !important;
+    font-size: 12px !important;
+  }
+
+  .conversation-id-control small {
+    display: block !important;
+    margin-top: 7px !important;
+    color: #8fa3d6 !important;
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+    font-weight: 750 !important;
+  }
+
+  .run-setup-strip {
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin: 8px !important;
+  }
+
+  .run-setup-strip div {
+    min-width: 0 !important;
+    padding: 8px !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    background: #0f1523 !important;
+  }
+
+  .run-setup-strip span,
+  .run-setup-strip strong {
+    display: block !important;
+    min-width: 0 !important;
+  }
+
+  .run-setup-strip span {
+    color: #9fb2df !important;
+    font-size: 9px !important;
+    line-height: 1.1 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    margin-bottom: 4px !important;
+  }
+
+  .run-setup-strip strong {
+    color: #f8fbff !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+    font-weight: 900 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  @media (max-width: 1100px) {
+    .audit-command-grid,
+    .run-setup-strip {
+      grid-template-columns: 1fr !important;
+    }
+
+    .audit-filter-matrix,
+    .audit-toggle-stack {
+      grid-template-columns: 1fr !important;
+    }
   }
 
 `;
