@@ -1952,6 +1952,154 @@ const appShellStyles = `
     font-weight: 850;
   }
 
+  .admin-subnav {
+    position: relative;
+    margin-top: 8px;
+    padding: 12px 10px 14px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(125, 211, 252, 0.10);
+    background:
+      radial-gradient(circle at 14% 8%, rgba(34, 211, 238, 0.09), transparent 32%),
+      radial-gradient(circle at 88% 16%, rgba(139, 92, 246, 0.11), transparent 34%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(8, 13, 30, 0.42));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 18px 38px rgba(2, 6, 23, 0.2);
+  }
+
+  .admin-subnav::before {
+    content: "";
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    bottom: 18px;
+    width: 1px;
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.28), rgba(139, 92, 246, 0.16), rgba(236, 72, 153, 0.08));
+    opacity: 0.75;
+  }
+
+  .admin-subnav-group {
+    position: relative;
+    display: grid;
+    gap: 7px;
+    padding-left: 14px;
+  }
+
+  .admin-subnav-group + .admin-subnav-group {
+    margin-top: 13px;
+    padding-top: 13px;
+    border-top: 1px solid rgba(255, 255, 255, 0.055);
+  }
+
+  .admin-subnav-label {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 20px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.13);
+    background: rgba(15, 23, 42, 0.52);
+    color: #8fa7dc;
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .admin-subnav-link {
+    position: relative;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 43px;
+    padding: 6px 10px 6px 7px;
+    border-radius: 15px;
+    text-decoration: none;
+    color: #c7d5f6;
+    border: 1px solid rgba(255, 255, 255, 0.055);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.016));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    transition:
+      transform 0.16s ease,
+      border-color 0.16s ease,
+      background 0.16s ease,
+      box-shadow 0.16s ease,
+      color 0.16s ease;
+  }
+
+  .admin-subnav-link::after {
+    content: "";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    transform: translateY(-50%) rotate(45deg);
+    opacity: 0;
+    transition: opacity 0.16s ease, right 0.16s ease;
+  }
+
+  .admin-subnav-link span:not(.nav-link-icon) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-right: 8px;
+    font-size: 13px;
+    line-height: 1.15;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+
+  .admin-subnav-link .nav-link-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(11, 18, 35, 0.7));
+    border: 1px solid rgba(148, 163, 184, 0.1);
+  }
+
+  .admin-subnav-link:hover {
+    transform: translateX(3px);
+    color: #ffffff;
+    border-color: rgba(34, 211, 238, 0.22);
+    background:
+      linear-gradient(135deg, rgba(14, 116, 144, 0.18), rgba(91, 33, 182, 0.14)),
+      rgba(15, 23, 42, 0.76);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 12px 24px rgba(2, 6, 23, 0.24);
+  }
+
+  .admin-subnav-link:hover::after,
+  .admin-subnav-link.active::after {
+    opacity: 0.72;
+    right: 8px;
+  }
+
+  .admin-subnav-link.active {
+    color: #ffffff;
+    border-color: rgba(34, 211, 238, 0.32);
+    background:
+      radial-gradient(circle at 16% 18%, rgba(34, 211, 238, 0.2), transparent 44%),
+      linear-gradient(135deg, rgba(21, 94, 117, 0.33), rgba(88, 28, 135, 0.25));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 14px 34px rgba(8, 47, 73, 0.24),
+      0 0 0 1px rgba(34, 211, 238, 0.08);
+  }
+
+  .admin-subnav-link:hover .nav-link-icon,
+  .admin-subnav-link.active .nav-link-icon {
+    transform: translateY(-1px);
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.13), rgba(139, 92, 246, 0.1));
+    border-color: rgba(34, 211, 238, 0.16);
+  }
+
   .locked-nav {
     opacity: 0.72;
   }
