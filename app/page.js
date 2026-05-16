@@ -688,17 +688,21 @@ function ConversationPreviewModal({ conversationId, previewContext = null, onClo
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
         if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         const response = await fetch("/api/intercom/conversation-preview", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
           body: JSON.stringify({ conversationId }),
           cache: "no-store",
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
         if (!cancelled) setData(payload);
       } catch (previewError) {
-        if (!cancelled) setError(previewError instanceof Error ? previewError.message : "Preview is not available for this conversation.");
+        if (!cancelled) setError(previewError?.name === "AbortError" ? "Preview took too long to load. Please try again or open the conversation on Intercom." : (previewError instanceof Error ? previewError.message : "Preview is not available for this conversation."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2239,6 +2243,7 @@ function DetailModal({
   const [previewConversationId, setPreviewConversationId] = useState("");
   const [previewContext, setPreviewContext] = useState(null);
   const [expandedVerdicts, setExpandedVerdicts] = useState({});
+  const [activeDisputeRow, setActiveDisputeRow] = useState(null);
 
   useEffect(() => {
     if (!open) return;
@@ -2247,6 +2252,7 @@ function DetailModal({
     setPreviewConversationId("");
     setPreviewContext(null);
     setExpandedVerdicts({});
+    setActiveDisputeRow(null);
     setFilters(cloneFilters(initialFilters, "all", false));
   }, [open, title, value, initialFilters]);
 
@@ -2262,6 +2268,14 @@ function DetailModal({
 
   function toggleVerdict(key) {
     setExpandedVerdicts((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function openDisputePanel(row) {
+    setActiveDisputeRow(row || null);
+  }
+
+  function closeDisputePanel() {
+    setActiveDisputeRow(null);
   }
 
   const filteredRows = useMemo(() => {
@@ -2336,8 +2350,9 @@ function DetailModal({
           </label>
         </div>
 
-        <div className="modal-table-wrap">
-          <table>
+        <div className={`modal-content-split ${activeDisputeRow ? "has-dispute-panel" : ""}`}>
+          <div className="modal-table-wrap">
+            <table>
             <thead>
               <tr>
                 <th>Conversation</th>
@@ -2380,7 +2395,7 @@ function DetailModal({
                           onToggleVerdict={() => toggleVerdict(verdictKey)}
                           verdictVisible={isVerdictVisible}
                         />
-                        <DisputeVerdictButton result={row} />
+                        <DisputeVerdictButton result={row} onOpenRequest={() => openDisputePanel(row)} />
                       </td>
                     </tr>
                     {isVerdictVisible ? (
@@ -2400,12 +2415,25 @@ function DetailModal({
                 );
               })}
             </tbody>
-          </table>
+            </table>
 
-          {filteredRows.length > 500 ? (
-            <div className="table-note">
-              Showing First 500 Rows. Use Export CSV For The Full Filtered Drill-In.
-            </div>
+            {filteredRows.length > 500 ? (
+              <div className="table-note">
+                Showing First 500 Rows. Use Export CSV For The Full Filtered Drill-In.
+              </div>
+            ) : null}
+          </div>
+
+          {activeDisputeRow ? (
+            <aside className="drill-dispute-panel">
+              <DisputeVerdictButton
+                result={activeDisputeRow}
+                panelMode="inline"
+                hideButton
+                open={Boolean(activeDisputeRow)}
+                onOpenChange={(nextOpen) => { if (!nextOpen) closeDisputePanel(); }}
+              />
+            </aside>
           ) : null}
         </div>
 
@@ -2638,6 +2666,7 @@ export default function DashboardPage() {
   const [previewConversationId, setPreviewConversationId] = useState("");
   const [previewContext, setPreviewContext] = useState(null);
   const [expandedVerdicts, setExpandedVerdicts] = useState({});
+  const [activeDisputeRow, setActiveDisputeRow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rawRows, setRawRows] = useState([]);
   const [supervisorTeams, setSupervisorTeams] = useState([]);
@@ -2918,6 +2947,14 @@ export default function DashboardPage() {
 
   function toggleVerdict(key) {
     setExpandedVerdicts((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function openDisputePanel(row) {
+    setActiveDisputeRow(row || null);
+  }
+
+  function closeDisputePanel() {
+    setActiveDisputeRow(null);
   }
 
   function openDetail(title, value, rows, initialFilters = globalFilters) {
@@ -7041,6 +7078,26 @@ const dashboardStyles = `
     align-self: end;
   }
 
+  .modal-content-split {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .modal-content-split.has-dispute-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+  }
+
+  .drill-dispute-panel {
+    min-height: 0;
+    overflow: auto;
+    border-left: 1px solid rgba(148, 163, 184, 0.16);
+    padding: 14px;
+    background: rgba(9, 14, 30, 0.88);
+  }
+
   .modal-table-wrap {
     flex: 1 1 auto;
     max-height: none;
@@ -7089,6 +7146,18 @@ const dashboardStyles = `
   @media (max-width: 1260px) {
     .modal-filter-block {
       grid-template-columns: 1fr;
+    }
+
+    .modal-content-split.has-dispute-panel {
+      grid-template-columns: 1fr;
+      overflow: auto;
+    }
+
+    .drill-dispute-panel {
+      border-left: 0;
+      border-top: 1px solid rgba(148, 163, 184, 0.16);
+      order: -1;
+      max-height: 46vh;
     }
 
     .modal-filter-block .filter-row.first,
