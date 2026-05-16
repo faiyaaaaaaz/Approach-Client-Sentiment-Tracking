@@ -67,6 +67,15 @@ const ACTIVITY_DATE_PRESET_OPTIONS = [
 
 const ACTIVITY_LIMIT_OPTIONS = [50, 100, 150, 300, 500, 1000];
 
+const REVIEW_STATUS_OPTIONS = [
+  "Likely Negative Review",
+  "Likely Positive Review",
+  "Highly Likely Negative Review",
+  "Highly Likely Positive Review",
+  "Missed Opportunity",
+  "Negative Outcome - No Review Request",
+];
+
 
 function withTimeout(promise, label, timeoutMs = TIMEOUT_MS) {
   let timeoutId;
@@ -1173,6 +1182,11 @@ export default function AdminPage() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
   const [activityFilters, setActivityFilters] = useState(createEmptyActivityFilters());
+
+  const [disputeRows, setDisputeRows] = useState([]);
+  const [disputeLoading, setDisputeLoading] = useState(false);
+  const [disputeActionId, setDisputeActionId] = useState("");
+  const [disputeDrafts, setDisputeDrafts] = useState({});
   const [activityLimit, setActivityLimit] = useState(150);
   const [activityVisibleCount, setActivityVisibleCount] = useState(25);
   const [activityDatePreset, setActivityDatePreset] = useState("all");
@@ -1601,6 +1615,103 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   }
 
+
+  async function loadDisputesData(activeSession, silent = false) {
+    if (!activeSession?.access_token) {
+      setDisputeRows([]);
+      return [];
+    }
+
+    if (!silent) setDisputeLoading(true);
+
+    try {
+      const response = await withTimeout(
+        fetch(`/api/disputes?status=all`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+          cache: "no-store",
+        }),
+        "Load Dispute Management"
+      );
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not load disputes.");
+
+      const rows = Array.isArray(data.disputes) ? data.disputes : [];
+      setDisputeRows(rows);
+      return rows;
+    } finally {
+      if (!silent) setDisputeLoading(false);
+    }
+  }
+
+  function updateDisputeDraft(id, patch) {
+    setDisputeDrafts((prev) => ({
+      ...prev,
+      [id]: {
+        corrected_review_status: prev[id]?.corrected_review_status || "",
+        decision_note: prev[id]?.decision_note || "",
+        ...patch,
+      },
+    }));
+  }
+
+  async function reviewDispute(dispute, action) {
+    if (!session?.access_token) {
+      setPageError("Please sign in again before managing disputes.");
+      return;
+    }
+
+    const draft = disputeDrafts[dispute.id] || {};
+    const correctedStatus = draft.corrected_review_status || dispute.corrected_review_status || dispute.current_review_status || "";
+    const decisionNote = normalizeText(draft.decision_note);
+
+    if (action === "approve" && !correctedStatus) {
+      setPageError("Choose the corrected Review Status before approving the dispute.");
+      return;
+    }
+
+    if (action === "reject" && !decisionNote) {
+      setPageError("Add a decision note before rejecting the dispute.");
+      return;
+    }
+
+    setDisputeActionId(`${dispute.id}:${action}`);
+    setPageError("");
+    setPageSuccess("");
+
+    try {
+      const response = await withTimeout(
+        fetch(`/api/disputes/${dispute.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action,
+            corrected_review_status: correctedStatus,
+            decision_note: decisionNote,
+          }),
+        }),
+        "Review dispute"
+      );
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not update dispute.");
+
+      setDisputeRows((prev) => prev.map((row) => (row.id === data.dispute.id ? data.dispute : row)));
+      setPageSuccess(action === "approve" ? "Dispute approved and Review Status updated." : "Dispute rejected successfully.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not update dispute.");
+    } finally {
+      setDisputeActionId("");
+    }
+  }
+
   async function loadAll(activeSession, options = {}) {
     const silent = options.silent === true;
     const effectiveProfile = options.profile || profile;
@@ -1627,9 +1738,11 @@ export default function AdminPage() {
 
     if (canViewActivityLogs(effectiveProfile)) {
       jobs.push(loadActivityLogsData(activeSession, true));
+      jobs.push(loadDisputesData(activeSession, true));
     } else {
       setActivityLogs([]);
       setActivitySessions([]);
+      setDisputeRows([]);
     }
 
     const results = await Promise.allSettled(jobs);
@@ -2897,7 +3010,12 @@ export default function AdminPage() {
           <div className="admin-quick-nav" aria-label="Admin quick navigation">
             <a href="#live-prompt">Prompt</a>
             {canManageApiKeysNow ? <a href="#api-vault">API Vault</a> : null}
-            {canViewActivityLogsNow ? <a href="#system-activity-logs">Activity Logs</a> : null}
+            {canViewActivityLogsNow ? (
+              <>
+                <a href="#system-activity-logs">Activity Logs</a>
+                <a href="#dispute-management">Dispute Management</a>
+              </>
+            ) : null}
             <a href="#supervisor-teams">Supervisor Teams</a>
             <a href="#user-roles">Roles</a>
             <a href="#agent-mappings">Mappings</a>
@@ -3275,6 +3393,100 @@ export default function AdminPage() {
                   </div>
                 </aside>
               </div>
+            </section>
+          ) : null}
+
+          {canViewActivityLogsNow ? (
+            <section className="panel wide" id="dispute-management">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow">Master Admin Only</p>
+                  <h2>Dispute Management</h2>
+                  <p className="muted">Review Status disputes submitted from Dashboard or Results. Client Sentiment and Resolution Status are not changed here.</p>
+                </div>
+                <button type="button" className="secondary-btn" onClick={() => loadDisputesData(session, false)} disabled={disputeLoading}>
+                  {disputeLoading ? "Refreshing..." : "Refresh Disputes"}
+                </button>
+              </div>
+
+              {!disputeRows.length ? (
+                <div className="empty-box">No disputes found yet.</div>
+              ) : (
+                <div className="table-shell">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Submitted</th>
+                        <th>Conversation</th>
+                        <th>Employee</th>
+                        <th>Current Review Status</th>
+                        <th>Reason</th>
+                        <th>Status</th>
+                        <th>Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {disputeRows.map((dispute) => {
+                        const draft = disputeDrafts[dispute.id] || {};
+                        const isPending = dispute.status === "pending";
+                        const approveLoading = disputeActionId === `${dispute.id}:approve`;
+                        const rejectLoading = disputeActionId === `${dispute.id}:reject`;
+                        return (
+                          <tr key={dispute.id}>
+                            <td>
+                              <strong>{formatDateTime(dispute.created_at)}</strong>
+                              <small>{dispute.submitted_by_name || dispute.submitted_by_email || "-"}</small>
+                            </td>
+                            <td>
+                              <strong>{dispute.conversation_id || dispute.result_id || "-"}</strong>
+                              <small>{dispute.agent_name || "Unassigned"}</small>
+                            </td>
+                            <td>
+                              <strong>{dispute.employee_name || "Unmapped"}</strong>
+                              <small>{dispute.employee_email || dispute.team_name || "-"}</small>
+                            </td>
+                            <td><span className="pill warning">{dispute.current_review_status || "-"}</span></td>
+                            <td className="wide-cell"><span>{dispute.reason || "-"}</span></td>
+                            <td>
+                              <span className={`pill ${dispute.status === "approved" ? "success" : dispute.status === "rejected" ? "danger" : "warning"}`}>{dispute.status || "pending"}</span>
+                              {dispute.reviewed_at ? <small>{formatDateTime(dispute.reviewed_at)}</small> : null}
+                            </td>
+                            <td>
+                              {isPending ? (
+                                <div className="decision-stack">
+                                  <select
+                                    value={draft.corrected_review_status || dispute.current_review_status || ""}
+                                    onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
+                                  >
+                                    <option value="">Corrected Review Status</option>
+                                    {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                  </select>
+                                  <textarea
+                                    value={draft.decision_note || ""}
+                                    onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
+                                    placeholder="Decision note. Required for rejection. Recommended for approval."
+                                    rows={3}
+                                  />
+                                  <div className="table-actions">
+                                    <button type="button" className="primary-btn small-btn" onClick={() => reviewDispute(dispute, "approve")} disabled={Boolean(disputeActionId)}>{approveLoading ? "Approving..." : "Approve"}</button>
+                                    <button type="button" className="secondary-btn small-btn" onClick={() => reviewDispute(dispute, "reject")} disabled={Boolean(disputeActionId)}>{rejectLoading ? "Rejecting..." : "Reject"}</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="decision-readonly">
+                                  <strong>{dispute.corrected_review_status || "No verdict change"}</strong>
+                                  <small>{dispute.master_admin_decision_note || "No decision note."}</small>
+                                  <small>{dispute.reviewed_by_name || dispute.reviewed_by_email || "-"}</small>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           ) : null}
 
@@ -4534,6 +4746,17 @@ const adminStyles = `
   .history-card,
   .api-card,
   .role-form-card,
+
+  .decision-stack { display: grid; gap: 8px; min-width: 240px; }
+  .decision-stack select,
+  .decision-stack textarea { width: 100%; border: 1px solid rgba(148, 163, 255, 0.22); border-radius: 14px; padding: 10px 12px; background: rgba(2, 6, 23, 0.62); color: #fff; outline: none; }
+  .decision-readonly { display: grid; gap: 5px; min-width: 220px; }
+  .decision-readonly strong { color: #f8fbff; }
+  .decision-readonly small { color: #9fb5ff; }
+  .wide-cell { min-width: 280px; max-width: 420px; }
+  .wide-cell span { display: block; white-space: pre-wrap; color: #dbe7ff; font-size: 13px; line-height: 1.45; }
+  .small-btn { padding: 9px 12px; font-size: 12px; }
+
   .role-table-card,
   .profile-card,
   .member-picker,
