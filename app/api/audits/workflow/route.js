@@ -428,6 +428,10 @@ export async function POST(request) {
       const autoRunEnabled = Boolean(body.autoRunAfterFetch);
       const batchSize = toInt(body.batchSize, DEFAULT_BATCH_SIZE) || DEFAULT_BATCH_SIZE;
       const filters = body.filters && typeof body.filters === "object" ? body.filters : {};
+      const specificConversationIds = Array.isArray(filters.conversationIds) ? filters.conversationIds.filter(Boolean) : [];
+      const workflowTargetLabel = specificConversationIds.length
+        ? `${specificConversationIds.length} specific conversation ID(s)`
+        : `${startDate} to ${endDate}`;
 
       const { data: run, error } = await auth.adminClient
         .from("audit_workflow_runs")
@@ -438,7 +442,9 @@ export async function POST(request) {
           requested_by_role: auth.profile?.role || null,
           status: "fetching",
           stage: "fetch",
-          status_message: `Fetching conversations for ${startDate} to ${endDate}.`,
+          status_message: specificConversationIds.length
+            ? `Fetching ${specificConversationIds.length} specific conversation ID(s).`
+            : `Fetching conversations for ${startDate} to ${endDate}.`,
           start_date: startDate || null,
           end_date: endDate || null,
           limiter_enabled: limiterEnabled,
@@ -465,8 +471,10 @@ export async function POST(request) {
         actor_name: auth.profile?.full_name,
         actor_role: auth.profile?.role,
         stage: "fetch",
-        target_label: `${startDate} to ${endDate}`,
-        details: `Fetch started for ${startDate} to ${endDate}.`,
+        target_label: workflowTargetLabel,
+        details: specificConversationIds.length
+          ? `Fetch started for ${specificConversationIds.length} specific conversation ID(s).`
+          : `Fetch started for ${startDate} to ${endDate}.`,
         metadata: { limiterEnabled, limitCount, autoRunEnabled, batchSize, filters },
       });
 
@@ -475,7 +483,7 @@ export async function POST(request) {
         action_label: "Audit Workflow Started",
         status: "info",
         target_id: run.id,
-        target_label: `${startDate} to ${endDate}`,
+        target_label: workflowTargetLabel,
         description: `${auth.profile?.full_name || auth.email} started a database-backed Run Audit workflow.`,
         safe_after: { startDate, endDate, limiterEnabled, limitCount, autoRunEnabled, filters },
       });
