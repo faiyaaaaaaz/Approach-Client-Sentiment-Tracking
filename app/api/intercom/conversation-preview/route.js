@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const INTERCOM_API_BASE = "https://api.intercom.io";
-const INTERCOM_PREVIEW_TIMEOUT_MS = 55000;
+const INTERCOM_PREVIEW_TIMEOUT_MS = 54000;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -21,6 +21,17 @@ function json(data, init = {}) {
 function getEnv(name) {
   const value = process.env[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function buildIntercomConversationUrl(conversationId, { displayAsPlainText = true } = {}) {
+  const url = new URL(`${INTERCOM_API_BASE}/conversations/${encodeURIComponent(conversationId)}`);
+
+  // Intercom supports display_as=plaintext for Retrieve Conversation. It keeps the
+  // response easier to parse and avoids losing message bodies that are returned in
+  // plain-text form rather than HTML-rich form.
+  if (displayAsPlainText) url.searchParams.set("display_as", "plaintext");
+
+  return url.toString();
 }
 
 function normalizeText(value) {
@@ -302,6 +313,85 @@ function getPartCreatedAt(part, conversation) {
   );
 }
 
+function looksLikeMessageObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const hasBody = Boolean(
+    normalizeText(value.body) ||
+      normalizeText(value.text) ||
+      normalizeText(value.content) ||
+      normalizeText(value.message) ||
+      normalizeText(value.description) ||
+      normalizeText(value.summary) ||
+      normalizeText(value.event_description)
+  );
+
+  const hasTime = value.created_at !== undefined || value.createdAt !== undefined || value.updated_at !== undefined || value.updatedAt !== undefined;
+  const hasAuthor = Boolean(value.author || value.user || value.contact || value.admin || value.author_name || value.authorName);
+
+  return hasBody && (hasTime || hasAuthor);
+}
+
+function buildMessageFromUnknownObject(value, conversation) {
+  const author =
+    value?.author ||
+    value?.user ||
+    value?.contact ||
+    value?.admin ||
+    {
+      type: value?.author_type || value?.authorType || value?.type,
+      name: value?.author_name || value?.authorName || value?.name,
+      email: value?.author_email || value?.authorEmail || value?.email,
+    };
+
+  return buildMessage({
+    id: value?.id,
+    author,
+    body: getPartBody(value),
+    createdAt: getPartCreatedAt(value, conversation),
+    messageType: value?.part_type || value?.message_type || value?.type || "conversation_part",
+    fallbackBody: buildPartFallbackBody(value),
+  });
+}
+
+function collectNestedMessages(source, conversation, { maxDepth = 6 } = {}) {
+  const messages = [];
+  const seenObjects = new WeakSet();
+  const seenMessageKeys = new Set();
+  const blockedKeys = new Set(["contacts", "tags", "custom_attributes", "conversation_attributes", "statistics", "sla_applied", "linked_objects", "teammates"]);
+
+  const visit = (value, depth, parentKey = "") => {
+    if (depth > maxDepth || value === null || value === undefined) return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1, parentKey);
+      return;
+    }
+
+    if (typeof value !== "object") return;
+    if (seenObjects.has(value)) return;
+    seenObjects.add(value);
+
+    if (looksLikeMessageObject(value)) {
+      const message = buildMessageFromUnknownObject(value, conversation);
+      const key = `${message.id || ""}::${message.createdAt || ""}::${message.authorName || ""}::${message.body || ""}`;
+      if (!seenMessageKeys.has(key)) {
+        seenMessageKeys.add(key);
+        messages.push(message);
+      }
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      if (blockedKeys.has(key)) continue;
+      if (parentKey === "metadata") continue;
+      visit(child, depth + 1, key);
+    }
+  };
+
+  visit(source, 0);
+  return messages;
+}
+
 function buildTranscript(conversation) {
   const messages = [];
   const source = getConversationSource(conversation);
@@ -335,8 +425,20 @@ function buildTranscript(conversation) {
     );
   }
 
+  if (!messages.length) {
+    messages.push(...collectNestedMessages(conversation, conversation));
+  }
+
+  const seen = new Set();
+
   return messages
     .filter((message) => message.body || message.createdAt)
+    .filter((message) => {
+      const key = `${message.id || ""}::${message.createdAt || ""}::${message.authorName || ""}::${message.body || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .sort((a, b) => {
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -487,7 +589,7 @@ export async function POST(request) {
     }
 
     const intercomApiKey = await loadActiveApiKey(auth.adminClient);
-    const { response, text } = await fetchIntercomConversationWithTimeout(`${INTERCOM_API_BASE}/conversations/${encodeURIComponent(conversationId)}`, {
+    const { response, text } = await fetchIntercomConversationWithTimeout(buildIntercomConversationUrl(conversationId, { displayAsPlainText: true }), {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -523,6 +625,12 @@ export async function POST(request) {
       metadata: buildMetadata(conversation),
       messages,
       messageCount: messages.length,
+      diagnostics: {
+        source: "intercom_retrieve_conversation_plaintext",
+        hasSource: Boolean(getConversationSource(conversation)),
+        conversationPartsCount: getConversationParts(conversation).length,
+        conversationPartsTotalCount: conversation?.conversation_parts?.total_count ?? null,
+      },
     });
   } catch (error) {
     return json(
