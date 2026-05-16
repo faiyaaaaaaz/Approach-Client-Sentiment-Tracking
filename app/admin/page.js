@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
+import CalibrationSnippetsPanel from "../components/CalibrationSnippetsPanel";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
 const TIMEOUT_MS = 10000;
@@ -3014,6 +3015,7 @@ export default function AdminPage() {
               <>
                 <a href="#system-activity-logs">Activity Logs</a>
                 <a href="#dispute-management">Dispute Management</a>
+                <a href="#calibration-snippets">Calibration Snippets</a>
               </>
             ) : null}
             <a href="#supervisor-teams">Supervisor Teams</a>
@@ -3488,6 +3490,10 @@ export default function AdminPage() {
                 </div>
               )}
             </section>
+          ) : null}
+
+          {canViewActivityLogsNow ? (
+            <CalibrationSnippetsPanel session={session} />
           ) : null}
 
           <section className={canManageApiKeysNow ? "control-grid" : "control-grid single-column"}>
