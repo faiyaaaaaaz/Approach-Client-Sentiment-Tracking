@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
-import DisputeVerdictButton from "../components/DisputeVerdictButton";
+import DisputeVerdictButton, { canUserDisputeResult } from "../components/DisputeVerdictButton";
 import MasterVerdictEditButton from "../components/MasterVerdictEditButton";
 
 const INTERCOM_CONVERSATION_URL_PREFIX =
@@ -257,7 +257,7 @@ function compactPreviewEventText(message) {
   return previewText(message?.body, message?.messageType, "Conversation event.");
 }
 
-function ConversationPreviewModal({ conversationId, previewContext = null, onClose }) {
+function ConversationPreviewModal({ conversationId, previewContext = null, profile = null, supervisorTeams = [], onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
@@ -354,6 +354,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, onClo
     { title: "Intercom Attributes", subtitle: "Additional populated fields", rows: mergedMetadata.customAttributes || [] },
   ].filter((section) => section.rows.length);
   const tags = mergedMetadata.tags || [];
+  const canDisputePreview = canUserDisputeResult(profile, supervisorTeams, disputeResultContext);
 
   return createPortal(
     <div className="conversation-preview-backdrop" onClick={onClose}>
@@ -367,15 +368,17 @@ function ConversationPreviewModal({ conversationId, previewContext = null, onClo
             </span>
           </div>
           <div className="conversation-preview-actions">
-            <button
-              type="button"
-              className={`secondary-btn dispute-action ${disputeOpen ? "active" : ""} ${disputeSubmitted ? "submitted" : ""}`}
-              onClick={() => { if (!disputeSubmitted) setDisputeOpen((current) => !current); }}
-              disabled={disputeSubmitted}
-              title={disputeSubmitted ? "Dispute request submitted." : "Dispute this Review Status verdict."}
-            >
-              {disputeSubmitted ? "Dispute Request Submitted" : disputeOpen ? "Close Dispute" : "Dispute Verdict"}
-            </button>
+            {canDisputePreview || disputeSubmitted ? (
+              <button
+                type="button"
+                className={`secondary-btn dispute-action ${disputeOpen ? "active" : ""} ${disputeSubmitted ? "submitted" : ""}`}
+                onClick={() => { if (!disputeSubmitted) setDisputeOpen((current) => !current); }}
+                disabled={disputeSubmitted || !canDisputePreview}
+                title={disputeSubmitted ? "Dispute request submitted." : "Dispute this Review Status verdict."}
+              >
+                {disputeSubmitted ? "Dispute Request Submitted" : disputeOpen ? "Close Dispute" : "Dispute Verdict"}
+              </button>
+            ) : null}
             <a href={intercomConversationUrl(conversationId)} target="_blank" rel="noreferrer" className="secondary-btn">Open on Intercom</a>
             <button type="button" className="secondary-btn light-action" onClick={onClose}>Close</button>
           </div>
@@ -463,6 +466,8 @@ function ConversationPreviewModal({ conversationId, previewContext = null, onClo
                 <aside className="conversation-preview-dispute-panel">
                   <DisputeVerdictButton
                     result={disputeResultContext}
+                    profile={profile}
+                    supervisorTeams={supervisorTeams}
                     panelMode="inline"
                     hideButton
                     open={disputeOpen}
@@ -853,17 +858,13 @@ function buildFallbackProfile(user) {
 }
 
 function canManageResults(profile) {
-  const role = String(profile?.role || "").toLowerCase();
-
-  return Boolean(
-    profile?.is_active === true &&
-      (role === "master_admin" || role === "admin" || role === "co_admin")
-  );
+  const permissions = profile?.permissions || {};
+  return Boolean(profile?.is_active === true && permissions.results_delete === true);
 }
 
 function canEditVerdicts(profile) {
-  const role = String(profile?.role || "").toLowerCase();
-  return Boolean(profile?.is_active === true && role === "master_admin");
+  const permissions = profile?.permissions || {};
+  return Boolean(profile?.is_active === true && permissions.results_edit_verdict === true);
 }
 
 function getResultType(item) {
@@ -1260,16 +1261,24 @@ export default function ResultsPage() {
     const fallbackProfile = buildFallbackProfile(user);
 
     try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role, can_run_tests, is_active")
-        .eq("id", user.id)
-        .maybeSingle();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) return { profile: fallbackProfile, message: fallbackProfile ? "" : "Signed in, but profile loading failed." };
 
-      if (data) return { profile: data, message: "" };
+      const response = await fetch("/api/auth/profile", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.ok && payload?.profile) return { profile: payload.profile, message: "" };
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
 
-      return { profile: null, message: "Signed in, but no profile record is available." };
+      return { profile: null, message: payload?.error || "Signed in, but no profile record is available." };
     } catch (_error) {
       if (fallbackProfile) return { profile: fallbackProfile, message: "" };
       return { profile: null, message: "Signed in, but profile loading failed." };
@@ -2441,7 +2450,7 @@ export default function ResultsPage() {
                                   onToggleVerdict={() => toggleRowExpanded(item.id)}
                                   verdictVisible={isExpanded}
                                 />
-                                <DisputeVerdictButton result={item} />
+                                <DisputeVerdictButton result={item} profile={profile} supervisorTeams={supervisorTeams} />
                                 <MasterVerdictEditButton result={item} visible={canEditVerdicts(profile)} onChanged={applyResultUpdate} />
                               </>
                             ) : (
@@ -2449,7 +2458,7 @@ export default function ResultsPage() {
                                 <button type="button" className={`mini-verdict-btn ${isExpanded ? "active" : ""}`} onClick={() => toggleRowExpanded(item.id)}>
                                   {isExpanded ? "Hide AI Verdict" : "See AI Verdict"}
                                 </button>
-                                <DisputeVerdictButton result={item} />
+                                <DisputeVerdictButton result={item} profile={profile} supervisorTeams={supervisorTeams} />
                                 <MasterVerdictEditButton result={item} visible={canEditVerdicts(profile)} onChanged={applyResultUpdate} />
                               </>
                             )}
