@@ -960,6 +960,22 @@ function uniqueValues(rows, key) {
   ).sort((a, b) => a.localeCompare(b));
 }
 
+function parseConversationIdQuery(value) {
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[\s,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function rowConversationId(row) {
+  return String(row?.conversation_id || row?.conversationId || row?.id || "").trim();
+}
+
+
 function matchesMulti(selected, value) {
   if (!Array.isArray(selected) || selected.length === 0) return true;
 
@@ -1187,7 +1203,7 @@ function createBaseFilters(rangePreset = "past_30_days", cexOnly = true) {
 }
 
 function createWeeklyDefaultFilters() {
-  const filters = createBaseFilters("past_12_weeks", true);
+  const filters = createBaseFilters("past_4_weeks", true);
   filters.reviewSentiments = ["Missed Opportunity"];
   filters.clientSentiments = ["Very Positive", "Positive"];
   return filters;
@@ -2715,6 +2731,7 @@ export default function DashboardPage() {
   const [weeklyTimeframe, setWeeklyTimeframe] = useState("weekly");
   const [showJumpTop, setShowJumpTop] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(false);
+  const [dashboardConversationSearch, setDashboardConversationSearch] = useState("");
 
   const [detailState, setDetailState] = useState({
     open: false,
@@ -2893,6 +2910,26 @@ export default function DashboardPage() {
     [dashboardRows, globalFilters, supervisorLookup]
   );
 
+  const dashboardConversationIds = useMemo(
+    () => parseConversationIdQuery(dashboardConversationSearch),
+    [dashboardConversationSearch]
+  );
+
+  const dashboardConversationMatches = useMemo(() => {
+    if (!dashboardConversationIds.length) return [];
+    const wanted = new Set(dashboardConversationIds.map((id) => id.toLowerCase()));
+    return dedupeLatestByConversation(dashboardRows).filter((row) => {
+      const id = rowConversationId(row).toLowerCase();
+      return id && wanted.has(id);
+    });
+  }, [dashboardRows, dashboardConversationIds]);
+
+  const missingDashboardConversationIds = useMemo(() => {
+    if (!dashboardConversationIds.length) return [];
+    const found = new Set(dashboardConversationMatches.map((row) => rowConversationId(row).toLowerCase()).filter(Boolean));
+    return dashboardConversationIds.filter((id) => !found.has(id.toLowerCase()));
+  }, [dashboardConversationIds, dashboardConversationMatches]);
+
   const leaderboardFilteredRows = useMemo(
     () => dedupeLatestByConversation(filterRows(dashboardRows, leaderboardFilters, supervisorLookup)),
     [dashboardRows, leaderboardFilters, supervisorLookup]
@@ -3054,6 +3091,73 @@ export default function DashboardPage() {
           showMapping
           resetTo={() => createBaseFilters("past_30_days", true)}
         />
+
+        <section className="panel conversation-id-search-panel">
+          <div className="conversation-id-search-head">
+            <div>
+              <p>Conversation Lookup</p>
+              <h2>Search Specific Conversation ID</h2>
+              <span>Use this to find one or more stored conversations without changing the dashboard filters. Separate multiple IDs with commas.</span>
+            </div>
+            {dashboardConversationIds.length ? (
+              <button type="button" className="secondary-btn" onClick={() => setDashboardConversationSearch("")}>Clear Search</button>
+            ) : null}
+          </div>
+          <label className="conversation-id-search-box">
+            <span>Conversation ID(s)</span>
+            <textarea
+              value={dashboardConversationSearch}
+              onChange={(event) => setDashboardConversationSearch(event.target.value)}
+              placeholder="Example: 215474306770307, 215474156103997"
+              rows={2}
+            />
+          </label>
+          {dashboardConversationIds.length ? (
+            <div className="conversation-id-search-results">
+              <div className="conversation-id-search-summary">
+                <strong>{formatNumber(dashboardConversationMatches.length)} found</strong>
+                <span>{missingDashboardConversationIds.length ? `${formatNumber(missingDashboardConversationIds.length)} not found in your visible stored results.` : "All requested IDs were found in your visible stored results."}</span>
+              </div>
+              {missingDashboardConversationIds.length ? (
+                <div className="conversation-id-missing">Missing: {missingDashboardConversationIds.join(", ")}</div>
+              ) : null}
+              {dashboardConversationMatches.length ? (
+                <div className="table-wrap conversation-id-result-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Conversation</th>
+                        <th>Employee</th>
+                        <th>Review</th>
+                        <th>Client</th>
+                        <th>Resolution</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardConversationMatches.map((row, index) => (
+                        <tr key={`${rowConversationId(row)}-${index}`}>
+                          <td>
+                            <strong>{rowConversationId(row)}</strong>
+                            <small>{row.agent_name || "Unassigned"}<br />{row.client_email || "-"}</small>
+                          </td>
+                          <td>{row.employee_name || "Unmapped"}</td>
+                          <td>{row.review_sentiment || "-"}</td>
+                          <td>{row.client_sentiment || "-"}</td>
+                          <td>{row.resolution_status || "-"}</td>
+                          <td>
+                            <ConversationActionButtons conversationId={row.conversation_id} previewContext={row} onPreview={openConversationPreview} />
+                            <DisputeVerdictButton result={row} profile={profile} supervisorTeams={supervisorTeams} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
         <section className="kpi-grid">
           <KPIStat
@@ -3331,12 +3435,12 @@ export default function DashboardPage() {
             <section className="panel leaderboard-panel">
               <div className="section-title-row">
                 <div>
-                  <p>Performance Command</p>
+                  <p>Agent Performance Leaderboard</p>
                   <div className="title-with-help">
-                    <h2>Top Employees Overview</h2>
-                    <InfoTip text="This section ranks employees based on the current leaderboard filters. It helps supervisors quickly find high performers, missed opportunity concentration, and conversations that may need coaching." />
+                    <h2>Who Needs Coaching Attention?</h2>
+                    <InfoTip text="This table turns the current dashboard filters into an agent-level coaching view. It is useful for spotting high missed-opportunity counts, critical missed-opportunity rate, likely negative review risk, and resolution consistency." />
                   </div>
-                  <span>Performance snapshot by key review, sentiment, and resolution metrics. Use the filters below to change the ranking scope.</span>
+                  <span>Use this section to identify which agents need follow-up, not just who handled the most conversations. Click any agent or View to open the underlying records.</span>
                 </div>
 
                 <button type="button" className="secondary-btn" onClick={() => downloadCsv(leaderboardFilteredRows, "leaderboard-filtered-results.csv")}>
@@ -3484,11 +3588,11 @@ export default function DashboardPage() {
             <section className={explorerExpanded ? "panel explorer-panel expanded" : "panel explorer-panel"}>
               <div className="section-title-row">
                 <div>
-                  <p>Conversation Explorer</p>
-                  <h2>Latest Filtered Conversations</h2>
+                  <p>Conversation Records</p>
+                  <h2>Latest Conversations From Current Filters</h2>
                   <span>
-                    Showing {formatNumber(Math.min(explorerExpanded ? 100 : 12, filteredRows.length))} of{" "}
-                    {formatNumber(filteredRows.length)} Records From The Current Dashboard Filter.
+                    This is the raw conversation list behind the dashboard cards and charts. Showing {formatNumber(Math.min(explorerExpanded ? 100 : 12, filteredRows.length))} of{" "}
+                    {formatNumber(filteredRows.length)} matching records. Use Preview Conversation for the full context.
                   </span>
                 </div>
 
@@ -7181,6 +7285,101 @@ const dashboardStyles = `
     min-height: 30px;
     padding: 7px 10px;
     font-size: 12px;
+  }
+
+
+  .conversation-id-search-panel {
+    display: grid;
+    gap: 14px;
+    border-color: rgba(56, 189, 248, 0.18);
+    background: linear-gradient(135deg, rgba(6, 18, 36, 0.86), rgba(12, 16, 34, 0.94));
+  }
+
+  .conversation-id-search-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .conversation-id-search-head p {
+    margin: 0 0 4px;
+    color: #91b8ff;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .conversation-id-search-head h2 {
+    margin: 0;
+    font-size: 22px;
+  }
+
+  .conversation-id-search-head span,
+  .conversation-id-search-box span,
+  .conversation-id-search-summary span {
+    color: #a9b8d8;
+  }
+
+  .conversation-id-search-box {
+    display: grid;
+    gap: 8px;
+  }
+
+  .conversation-id-search-box span {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .conversation-id-search-box textarea {
+    width: 100%;
+    min-height: 68px;
+    resize: vertical;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 255, 0.18);
+    background: rgba(2, 6, 23, 0.62);
+    color: #f8fbff;
+    padding: 12px 14px;
+    outline: none;
+    font: inherit;
+  }
+
+  .conversation-id-search-results {
+    display: grid;
+    gap: 10px;
+  }
+
+  .conversation-id-search-summary {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .conversation-id-search-summary strong {
+    display: inline-flex;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    background: rgba(16, 185, 129, 0.12);
+    color: #a7f3d0;
+    font-size: 12px;
+  }
+
+  .conversation-id-missing {
+    border: 1px solid rgba(251, 191, 36, 0.22);
+    background: rgba(251, 191, 36, 0.08);
+    color: #fde68a;
+    border-radius: 14px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .conversation-id-result-wrap {
+    max-height: 360px;
   }
 
   @media (max-width: 1260px) {
