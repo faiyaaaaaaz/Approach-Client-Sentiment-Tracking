@@ -63,13 +63,29 @@ export default function CalibrationSnippetsPanel({ session }) {
   const [draft, setDraft] = useState(emptyDraft());
 
   const accessToken = session?.access_token || "";
-  const snippetDisputeIds = useMemo(
-    () => new Set(snippets.map((item) => item.source_dispute_id).filter(Boolean)),
-    [snippets]
-  );
+  const latestSnippetByDispute = useMemo(() => {
+    const map = new Map();
+    snippets.forEach((snippet) => {
+      const disputeId = snippet?.source_dispute_id;
+      if (!disputeId) return;
+      const existing = map.get(disputeId);
+      const currentTime = new Date(snippet?.updated_at || snippet?.created_at || 0).getTime();
+      const existingTime = new Date(existing?.updated_at || existing?.created_at || 0).getTime();
+      if (!existing || currentTime > existingTime) map.set(disputeId, snippet);
+    });
+    return map;
+  }, [snippets]);
+
   const unusedApprovedDisputes = useMemo(
-    () => approvedDisputes.filter((item) => item?.id && !snippetDisputeIds.has(item.id)),
-    [approvedDisputes, snippetDisputeIds]
+    () => approvedDisputes.filter((item) => {
+      if (!item?.id) return false;
+      const latestSnippet = latestSnippetByDispute.get(item.id);
+      if (!latestSnippet) return true;
+      const disputeUpdatedAt = new Date(item.updated_at || item.reviewed_at || item.created_at || 0).getTime();
+      const snippetUpdatedAt = new Date(latestSnippet.updated_at || latestSnippet.created_at || 0).getTime();
+      return disputeUpdatedAt > snippetUpdatedAt;
+    }),
+    [approvedDisputes, latestSnippetByDispute]
   );
   const activeCount = snippets.filter((item) => item.is_active).length;
 
@@ -337,6 +353,7 @@ export default function CalibrationSnippetsPanel({ session }) {
                   <div>
                     <strong>{dispute.conversation_id || dispute.result_id || "Conversation"}</strong>
                     <span>{dispute.current_review_status || "-"} → {dispute.corrected_review_status || "Corrected"}</span>
+                    {latestSnippetByDispute.has(dispute.id) ? <em className="snippet-refresh-note">Updated after previous snippet. Regenerate to use the latest dispute correction.</em> : null}
                     <small>{dispute.reason || "No dispute reason saved."}</small>
                   </div>
                   <button type="button" className="secondary-btn small-btn" onClick={() => generateFromDispute(dispute)} disabled={Boolean(actionId)}>
@@ -399,8 +416,9 @@ export default function CalibrationSnippetsPanel({ session }) {
         .snippet-toggle-line input { width: auto; }
         .snippet-source-list, .snippet-card-list { display: grid; gap: 10px; }
         .snippet-source-item, .snippet-card { display: flex; justify-content: space-between; gap: 14px; padding: 13px; border-radius: 16px; border: 1px solid rgba(148, 163, 255, 0.12); background: rgba(15, 23, 42, 0.56); }
-        .snippet-source-item strong, .snippet-source-item span, .snippet-source-item small, .snippet-card small { display: block; }
+        .snippet-source-item strong, .snippet-source-item span, .snippet-source-item small, .snippet-source-item em, .snippet-card small { display: block; }
         .snippet-source-item span, .snippet-card small { color: #a9bcff; margin-top: 4px; }
+        .snippet-refresh-note { color: #fde68a; font-size: 12px; font-style: normal; margin-top: 6px; }
         .snippet-source-item small { color: #dbe7ff; line-height: 1.4; margin-top: 6px; max-width: 620px; }
         .snippet-card h4 { margin: 8px 0 8px; font-size: 18px; }
         .snippet-card p { margin: 0 0 8px; color: #dbe7ff; line-height: 1.55; }
