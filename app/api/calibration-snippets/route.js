@@ -132,7 +132,7 @@ export async function GET(request) {
     if (includeDisputes) {
       const { data, error: disputesError } = await auth.adminClient
         .from("verdict_disputes")
-        .select("id, result_id, conversation_id, agent_name, employee_name, employee_email, team_name, current_review_status, corrected_review_status, reason, master_admin_decision_note, reviewed_at, created_at")
+        .select("id, result_id, conversation_id, agent_name, employee_name, employee_email, team_name, current_review_status, corrected_review_status, reason, master_admin_decision_note, reviewed_at, created_at, updated_at")
         .eq("status", "approved")
         .order("reviewed_at", { ascending: false })
         .limit(100);
