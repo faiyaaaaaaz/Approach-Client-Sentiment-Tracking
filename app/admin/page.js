@@ -1981,9 +1981,60 @@ function AdminPageContent() {
       [id]: {
         corrected_review_status: prev[id]?.corrected_review_status || "",
         decision_note: prev[id]?.decision_note || "",
+        reason: prev[id]?.reason || "",
         ...patch,
       },
     }));
+  }
+
+  async function editApprovedDispute(dispute) {
+    if (!session?.access_token) {
+      setPageError("Please sign in again before editing disputes.");
+      return;
+    }
+
+    const draft = disputeDrafts[dispute.id] || {};
+    const correctedStatus = draft.corrected_review_status || dispute.corrected_review_status || dispute.current_review_status || "";
+    const decisionNote = normalizeText(draft.decision_note || dispute.master_admin_decision_note || "");
+    const reason = normalizeText(draft.reason || dispute.reason || "");
+
+    if (!correctedStatus) {
+      setPageError("Choose the corrected Review Status before saving the edited dispute.");
+      return;
+    }
+
+    setDisputeActionId(`${dispute.id}:edit`);
+    setPageError("");
+    setPageSuccess("");
+
+    try {
+      const response = await withTimeout(
+        fetch(`/api/disputes/${dispute.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: "edit",
+            corrected_review_status: correctedStatus,
+            decision_note: decisionNote,
+            reason,
+          }),
+        }),
+        "Edit approved dispute"
+      );
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not edit dispute.");
+
+      setDisputeRows((prev) => prev.map((row) => (row.id === data.dispute.id ? data.dispute : row)));
+      setPageSuccess("Approved dispute updated. It will appear in Calibration Snippets again if an older snippet was already generated from it.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Could not edit dispute.");
+    } finally {
+      setDisputeActionId("");
+    }
   }
 
   async function reviewDispute(dispute, action) {
@@ -3753,6 +3804,7 @@ function AdminPageContent() {
                         const isPending = dispute.status === "pending";
                         const approveLoading = disputeActionId === `${dispute.id}:approve`;
                         const rejectLoading = disputeActionId === `${dispute.id}:reject`;
+                        const editLoading = disputeActionId === `${dispute.id}:edit`;
                         return (
                           <tr key={dispute.id}>
                             <td>
@@ -3793,6 +3845,33 @@ function AdminPageContent() {
                                     <button type="button" className="primary-btn small-btn" onClick={() => reviewDispute(dispute, "approve")} disabled={Boolean(disputeActionId)}>{approveLoading ? "Approving..." : "Approve"}</button>
                                     <button type="button" className="secondary-btn small-btn" onClick={() => reviewDispute(dispute, "reject")} disabled={Boolean(disputeActionId)}>{rejectLoading ? "Rejecting..." : "Reject"}</button>
                                   </div>
+                                </div>
+                              ) : dispute.status === "approved" ? (
+                                <div className="decision-stack reviewed-edit-stack">
+                                  <small className="muted">Approved disputes can be corrected if the wrong Review Status was selected. Saving here also updates the stored result and makes the dispute available for snippet regeneration when needed.</small>
+                                  <select
+                                    value={draft.corrected_review_status || dispute.corrected_review_status || ""}
+                                    onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
+                                  >
+                                    <option value="">Corrected Review Status</option>
+                                    {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                  </select>
+                                  <textarea
+                                    value={draft.reason ?? dispute.reason ?? ""}
+                                    onChange={(event) => updateDisputeDraft(dispute.id, { reason: event.target.value })}
+                                    placeholder="Dispute reason"
+                                    rows={3}
+                                  />
+                                  <textarea
+                                    value={draft.decision_note ?? dispute.master_admin_decision_note ?? ""}
+                                    onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
+                                    placeholder="Decision note"
+                                    rows={3}
+                                  />
+                                  <div className="table-actions">
+                                    <button type="button" className="primary-btn small-btn" onClick={() => editApprovedDispute(dispute)} disabled={Boolean(disputeActionId)}>{editLoading ? "Saving..." : "Save Edited Dispute"}</button>
+                                  </div>
+                                  <small>{dispute.reviewed_by_name || dispute.reviewed_by_email || "-"}</small>
                                 </div>
                               ) : (
                                 <div className="decision-readonly">
