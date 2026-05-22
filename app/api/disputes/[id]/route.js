@@ -107,17 +107,22 @@ export async function PATCH(request, context) {
     const decisionNote = normalizeText(body.decision_note);
     const correctedReviewStatus = normalizeText(body.corrected_review_status);
 
-    if (!["approve", "reject"].includes(action)) return json({ ok: false, error: "Choose approve or reject." }, { status: 400 });
-    if (action === "approve" && !REVIEW_STATUS_OPTIONS.has(correctedReviewStatus)) return json({ ok: false, error: "Choose a valid corrected Review Status before approval." }, { status: 400 });
+    if (!["approve", "reject", "edit"].includes(action)) return json({ ok: false, error: "Choose approve, reject, or edit." }, { status: 400 });
+    if (["approve", "edit"].includes(action) && !REVIEW_STATUS_OPTIONS.has(correctedReviewStatus)) return json({ ok: false, error: "Choose a valid corrected Review Status." }, { status: 400 });
     if (action === "reject" && !decisionNote) return json({ ok: false, error: "Decision note is required when rejecting a dispute." }, { status: 400 });
 
     const { data: dispute, error: disputeError } = await auth.adminClient.from("verdict_disputes").select("*").eq("id", id).maybeSingle();
     if (disputeError) throw new Error(disputeError.message || "Could not load dispute.");
     if (!dispute?.id) return json({ ok: false, error: "Dispute not found." }, { status: 404 });
-    if (dispute.status !== "pending") return json({ ok: false, error: "Only pending disputes can be updated." }, { status: 409 });
+    if (["approve", "reject"].includes(action) && dispute.status !== "pending") {
+      return json({ ok: false, error: "Only pending disputes can be approved or rejected." }, { status: 409 });
+    }
+    if (action === "edit" && dispute.status !== "approved") {
+      return json({ ok: false, error: "Only approved disputes can be edited for snippet regeneration." }, { status: 409 });
+    }
 
     let updatedResult = null;
-    if (action === "approve") {
+    if (action === "approve" || action === "edit") {
       const { data: currentResult, error: currentError } = await auth.adminClient
         .from("audit_results")
         .select("id, conversation_id, review_sentiment")
@@ -145,31 +150,41 @@ export async function PATCH(request, context) {
         old_review_status: oldStatus,
         new_review_status: correctedReviewStatus,
         change_source: "dispute_approval",
-        reason: decisionNote || dispute.reason || "Approved dispute.",
+        reason: decisionNote || dispute.reason || (action === "edit" ? "Edited approved dispute." : "Approved dispute."),
         dispute_id: dispute.id,
       });
     }
 
-    const updatePayload = {
-      status: action === "approve" ? "approved" : "rejected",
-      corrected_review_status: action === "approve" ? correctedReviewStatus : null,
-      master_admin_decision_note: decisionNote || null,
-      reviewed_by_user_id: auth.user?.id || auth.profile?.id || null,
-      reviewed_by_name: normalizeText(auth.profile?.full_name) || auth.email,
-      reviewed_by_email: auth.email,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const updatePayload = action === "edit"
+      ? {
+          corrected_review_status: correctedReviewStatus,
+          reason: normalizeText(body.reason) || dispute.reason || null,
+          master_admin_decision_note: decisionNote || dispute.master_admin_decision_note || null,
+          reviewed_by_user_id: auth.user?.id || auth.profile?.id || null,
+          reviewed_by_name: normalizeText(auth.profile?.full_name) || auth.email,
+          reviewed_by_email: auth.email,
+          updated_at: new Date().toISOString(),
+        }
+      : {
+          status: action === "approve" ? "approved" : "rejected",
+          corrected_review_status: action === "approve" ? correctedReviewStatus : null,
+          master_admin_decision_note: decisionNote || null,
+          reviewed_by_user_id: auth.user?.id || auth.profile?.id || null,
+          reviewed_by_name: normalizeText(auth.profile?.full_name) || auth.email,
+          reviewed_by_email: auth.email,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
 
     const { data: updatedDispute, error: updateDisputeError } = await auth.adminClient.from("verdict_disputes").update(updatePayload).eq("id", id).select("*").single();
     if (updateDisputeError) throw new Error(updateDisputeError.message || "Could not update dispute.");
 
     await writeActivityLog(auth.adminClient, request, auth, {
-      action_type: action === "approve" ? "verdict_dispute_approved" : "verdict_dispute_rejected",
-      action_label: action === "approve" ? "Verdict dispute approved" : "Verdict dispute rejected",
+      action_type: action === "edit" ? "verdict_dispute_edited" : action === "approve" ? "verdict_dispute_approved" : "verdict_dispute_rejected",
+      action_label: action === "edit" ? "Approved verdict dispute edited" : action === "approve" ? "Verdict dispute approved" : "Verdict dispute rejected",
       target_id: updatedDispute.id,
       target_label: updatedDispute.conversation_id || updatedDispute.result_id,
-      description: `${auth.email} ${action === "approve" ? "approved" : "rejected"} a Review Status dispute for ${updatedDispute.conversation_id || updatedDispute.result_id}.`,
+      description: `${auth.email} ${action === "edit" ? "edited" : action === "approve" ? "approved" : "rejected"} a Review Status dispute for ${updatedDispute.conversation_id || updatedDispute.result_id}.`,
       metadata: { corrected_review_status: correctedReviewStatus || null, result_id: updatedDispute.result_id },
     });
 
