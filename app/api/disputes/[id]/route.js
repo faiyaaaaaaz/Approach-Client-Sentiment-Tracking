@@ -121,6 +121,10 @@ export async function PATCH(request, context) {
       return json({ ok: false, error: "Only approved disputes can be edited for snippet regeneration." }, { status: 409 });
     }
 
+    if ((action === "approve" || action === "edit") && normalizeKey(correctedReviewStatus) === normalizeKey(dispute.current_review_status)) {
+      return json({ ok: false, error: "A dispute cannot be approved with the same Review Status as the original AI verdict. Select a different corrected Review Status, or reject the dispute." }, { status: 400 });
+    }
+
     let updatedResult = null;
     if (action === "approve" || action === "edit") {
       const { data: currentResult, error: currentError } = await auth.adminClient
