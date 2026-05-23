@@ -28,13 +28,6 @@ function formatDateTime(value) {
   });
 }
 
-function shortId(value) {
-  const text = normalizeText(value);
-  if (!text) return "-";
-  if (text.length <= 18) return text;
-  return `${text.slice(0, 8)}...${text.slice(-6)}`;
-}
-
 async function readApiJson(response) {
   const text = await response.text();
   if (!text) return null;
@@ -62,9 +55,9 @@ function emptyDraft() {
 }
 
 function sourceLabel(snippet) {
-  if (snippet?.source_dispute_id) return "Generated from approved dispute";
-  if (snippet?.generated_by_ai) return "AI-generated draft";
-  return "Manual admin-created snippet";
+  if (snippet?.source_dispute_id) return "Dispute-generated";
+  if (snippet?.generated_by_ai) return "AI draft";
+  return "Manual rule";
 }
 
 function getSourceConversation(snippet) {
@@ -80,9 +73,18 @@ function getSourceDispute(snippet, approvedDisputes = []) {
 
 function DetailRow({ label, value, strong = false }) {
   return (
-    <div className="snippet-detail-row">
+    <div className="calibration-detail-row">
+      <span className="calibration-detail-label">{label}</span>
+      <strong className={strong ? "calibration-detail-value highlight" : "calibration-detail-value"}>{value || "-"}</strong>
+    </div>
+  );
+}
+
+function TextBlock({ label, value, tone = "default" }) {
+  return (
+    <div className={tone === "success" ? "calibration-text-block success" : "calibration-text-block"}>
       <span>{label}</span>
-      <strong className={strong ? "highlight" : ""}>{value || "-"}</strong>
+      <p>{value || "No details saved."}</p>
     </div>
   );
 }
@@ -125,6 +127,7 @@ export default function CalibrationSnippetsPanel({ session }) {
   );
 
   const activeCount = snippets.filter((item) => item.is_active).length;
+  const inactiveCount = snippets.length - activeCount;
   const disputeSourcedCount = snippets.filter((item) => item.source_dispute_id).length;
   const manualCount = snippets.filter((item) => !item.source_dispute_id).length;
   const pendingSourceCount = unusedApprovedDisputes.length;
@@ -327,8 +330,11 @@ export default function CalibrationSnippetsPanel({ session }) {
       return (
         <div className="source-trace-card dispute-source">
           <div className="source-trace-head">
-            <span className="source-chip">Dispute Source</span>
-            <strong>Conversation {selectedDraftSource.conversation_id || selectedDraftSource.result_id || "-"}</strong>
+            <div>
+              <span className="source-chip">Dispute Source</span>
+              <h4>Conversation {selectedDraftSource.conversation_id || selectedDraftSource.result_id || "-"}</h4>
+            </div>
+            <span className="source-status">Traceable</span>
           </div>
           <div className="source-trace-grid">
             <DetailRow label="Employee" value={selectedDraftSource.employee_name || selectedDraftSource.employee_email} />
@@ -338,16 +344,8 @@ export default function CalibrationSnippetsPanel({ session }) {
             <DetailRow label="Original Verdict" value={selectedDraftSource.current_review_status} />
             <DetailRow label="Corrected Verdict" value={selectedDraftSource.corrected_review_status} strong />
           </div>
-          <div className="source-note-block">
-            <span>Dispute Reason</span>
-            <p>{selectedDraftSource.reason || "No dispute reason saved."}</p>
-          </div>
-          {selectedDraftSource.master_admin_decision_note ? (
-            <div className="source-note-block decision">
-              <span>Master Admin Decision Note</span>
-              <p>{selectedDraftSource.master_admin_decision_note}</p>
-            </div>
-          ) : null}
+          <TextBlock label="Dispute Reason" value={selectedDraftSource.reason || "No dispute reason saved."} />
+          {selectedDraftSource.master_admin_decision_note ? <TextBlock label="Master Admin Decision Note" value={selectedDraftSource.master_admin_decision_note} tone="success" /> : null}
         </div>
       );
     }
@@ -356,8 +354,11 @@ export default function CalibrationSnippetsPanel({ session }) {
       return (
         <div className="source-trace-card dispute-source">
           <div className="source-trace-head">
-            <span className="source-chip">Dispute Source</span>
-            <strong>Conversation {draft.source_conversation_id || "Linked dispute"}</strong>
+            <div>
+              <span className="source-chip">Dispute Source</span>
+              <h4>Conversation {draft.source_conversation_id || "Linked dispute"}</h4>
+            </div>
+            <span className="source-status warning">Partial Trace</span>
           </div>
           <p className="muted tight">This snippet is linked to a dispute source, but the detailed dispute record was not included in the current response.</p>
         </div>
@@ -367,10 +368,13 @@ export default function CalibrationSnippetsPanel({ session }) {
     return (
       <div className="source-trace-card manual-source">
         <div className="source-trace-head">
-          <span className="source-chip manual">Manual Source</span>
-          <strong>Admin-created calibration rule</strong>
+          <div>
+            <span className="source-chip manual">Manual Source</span>
+            <h4>Admin-created calibration rule</h4>
+          </div>
+          <span className="source-status manual">Manual</span>
         </div>
-        <p className="muted tight">This snippet is not linked to a dispute. It was created manually by an admin, so there is no source chat ID unless you add one later through a dispute-generated snippet.</p>
+        <p className="muted tight">This rule is not linked to a dispute or chat ID. Use manual snippets for broad calibration guidance only.</p>
       </div>
     );
   }
@@ -382,7 +386,7 @@ export default function CalibrationSnippetsPanel({ session }) {
           <p className="eyebrow">Master Admin Only</p>
           <h2>Calibration Snippets</h2>
           <p className="muted">
-            Snippets are controlled calibration rules appended to future audit runs. The original live prompt remains untouched.
+            Manage approved calibration rules that are appended separately to future AI audit runs. Your original prompt remains unchanged.
           </p>
         </div>
         <div className="snippet-head-actions">
@@ -397,12 +401,12 @@ export default function CalibrationSnippetsPanel({ session }) {
         <div className="snippet-stat-card active-card">
           <span>Active Rules</span>
           <strong>{activeCount}</strong>
-          <small>Sent to AI during future audits.</small>
+          <small>Sent to AI in future audits.</small>
         </div>
         <div className="snippet-stat-card source-card">
           <span>Dispute-Sourced</span>
           <strong>{disputeSourcedCount}</strong>
-          <small>Traceable to approved dispute records.</small>
+          <small>Linked to approved disputes.</small>
         </div>
         <div className="snippet-stat-card manual-card">
           <span>Manual Rules</span>
@@ -412,7 +416,7 @@ export default function CalibrationSnippetsPanel({ session }) {
         <div className="snippet-stat-card pending-card">
           <span>Ready To Generate</span>
           <strong>{pendingSourceCount}</strong>
-          <small>Approved disputes awaiting snippets.</small>
+          <small>Approved disputes waiting.</small>
         </div>
       </div>
 
@@ -421,64 +425,78 @@ export default function CalibrationSnippetsPanel({ session }) {
 
       <div className="snippet-workspace">
         <article className="snippet-editor-card" id="snippet-editor">
-          <div className="section-head compact">
+          <div className="snippet-card-head">
             <div>
               <p className="eyebrow">Snippet Workspace</p>
               <h3>{draft.id ? "Edit Calibration Snippet" : "Create Calibration Snippet"}</h3>
-              <p className="muted">Review Status snippets should be specific enough to guide the AI without overcorrecting unrelated cases.</p>
+              <p className="muted">Build narrow Review Status rules that improve accuracy without overcorrecting unrelated cases.</p>
             </div>
             {draft.id || draft.title ? <button type="button" className="secondary-btn small-btn" onClick={() => setDraft(emptyDraft())}>Clear Editor</button> : null}
           </div>
 
           {renderSourceTraceForDraft()}
 
-          <div className="snippet-form-grid">
-            <label className="full-line">
-              <span>Snippet Title</span>
-              <input value={draft.title} onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Do not mark simple clarification chats as Missed Opportunity" />
-            </label>
+          <div className="snippet-form-section">
+            <div className="form-section-title">
+              <span>Rule Setup</span>
+              <small>Define the verdict pattern the AI should avoid and the corrected guidance it should apply.</small>
+            </div>
+            <div className="snippet-form-grid">
+              <label className="full-line">
+                <span>Snippet Title</span>
+                <input value={draft.title} onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))} placeholder="Do not mark simple clarification chats as Missed Opportunity" />
+              </label>
 
-            <label>
-              <span>Wrong Verdict To Avoid</span>
-              <select value={draft.wrong_verdict} onChange={(event) => setDraft((prev) => ({ ...prev, wrong_verdict: event.target.value }))}>
-                <option value="">Select verdict</option>
-                {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </label>
+              <label>
+                <span>Wrong Verdict To Avoid</span>
+                <select value={draft.wrong_verdict} onChange={(event) => setDraft((prev) => ({ ...prev, wrong_verdict: event.target.value }))}>
+                  <option value="">Select verdict</option>
+                  {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
 
-            <label>
-              <span>Correct Verdict Guidance</span>
-              <select value={draft.correct_verdict} onChange={(event) => setDraft((prev) => ({ ...prev, correct_verdict: event.target.value }))}>
-                <option value="">Select verdict</option>
-                {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-            </label>
+              <label>
+                <span>Correct Verdict Guidance</span>
+                <select value={draft.correct_verdict} onChange={(event) => setDraft((prev) => ({ ...prev, correct_verdict: event.target.value }))}>
+                  <option value="">Select verdict</option>
+                  {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
 
-            <label className="full-line">
-              <span>Core Rule</span>
-              <textarea value={draft.rule_text} onChange={(event) => setDraft((prev) => ({ ...prev, rule_text: event.target.value }))} rows={4} placeholder="If the client only asks for policy clarification and the agent gives a direct, correct answer, do not classify it as Missed Opportunity unless there was a clear missed next action." />
-            </label>
+              <label className="full-line">
+                <span>Core Rule</span>
+                <textarea value={draft.rule_text} onChange={(event) => setDraft((prev) => ({ ...prev, rule_text: event.target.value }))} rows={4} placeholder="If the client only asks for policy clarification and the agent gives a direct, correct answer, do not classify it as Missed Opportunity unless there was a clear missed next action." />
+              </label>
+            </div>
+          </div>
 
-            <label>
-              <span>Applies When</span>
-              <textarea value={draft.applies_when} onChange={(event) => setDraft((prev) => ({ ...prev, applies_when: event.target.value }))} rows={4} placeholder="Client asks for status/rule clarification; answer is direct and complete; no clear sales, escalation, retention, or follow-up action was available." />
-            </label>
+          <div className="snippet-form-section boundaries">
+            <div className="form-section-title">
+              <span>Application Boundaries</span>
+              <small>Tell the AI when to use this snippet and when to ignore it.</small>
+            </div>
+            <div className="snippet-form-grid">
+              <label>
+                <span>Applies When</span>
+                <textarea value={draft.applies_when} onChange={(event) => setDraft((prev) => ({ ...prev, applies_when: event.target.value }))} rows={4} placeholder="Client asks for status/rule clarification; answer is direct and complete; no clear sales, escalation, retention, or follow-up action was available." />
+              </label>
 
-            <label>
-              <span>Does Not Apply When</span>
-              <textarea value={draft.does_not_apply_when} onChange={(event) => setDraft((prev) => ({ ...prev, does_not_apply_when: event.target.value }))} rows={4} placeholder="Client shows buying intent, unresolved frustration, churn risk, incomplete resolution, or escalation need." />
-            </label>
+              <label>
+                <span>Does Not Apply When</span>
+                <textarea value={draft.does_not_apply_when} onChange={(event) => setDraft((prev) => ({ ...prev, does_not_apply_when: event.target.value }))} rows={4} placeholder="Client shows buying intent, unresolved frustration, churn risk, incomplete resolution, or escalation need." />
+              </label>
 
-            <label className="full-line">
-              <span>Example Pattern</span>
-              <textarea value={draft.example_context} onChange={(event) => setDraft((prev) => ({ ...prev, example_context: event.target.value }))} rows={3} placeholder="The AI marked the chat as Missed Opportunity, but the conversation only required a direct policy answer and no extra action was reasonably available." />
-            </label>
+              <label className="full-line">
+                <span>Example Pattern</span>
+                <textarea value={draft.example_context} onChange={(event) => setDraft((prev) => ({ ...prev, example_context: event.target.value }))} rows={3} placeholder="The AI marked the chat as Missed Opportunity, but the conversation only required a direct policy answer and no extra action was reasonably available." />
+              </label>
+            </div>
           </div>
 
           <div className="snippet-footer-actions">
             <label className="snippet-toggle-line">
               <input type="checkbox" checked={draft.is_active} onChange={(event) => setDraft((prev) => ({ ...prev, is_active: event.target.checked }))} />
-              <span>Activate this snippet for future audits</span>
+              <span>Activate for future audits</span>
             </label>
             <button type="button" className="primary-btn" onClick={saveSnippet} disabled={Boolean(actionId)}>
               {actionId === "save" ? "Saving..." : draft.id ? "Save Snippet" : "Create Snippet"}
@@ -487,11 +505,11 @@ export default function CalibrationSnippetsPanel({ session }) {
         </article>
 
         <article className="snippet-source-card">
-          <div className="section-head compact">
+          <div className="snippet-card-head">
             <div>
               <p className="eyebrow">Source Queue</p>
-              <h3>Approved Disputes Ready For Snippets</h3>
-              <p className="muted">Each dispute below has enough source context for AI to draft a traceable calibration rule.</p>
+              <h3>Approved Disputes Ready for Snippets</h3>
+              <p className="muted">Generate rules only from disputes with clear correction logic and enough conversation context.</p>
             </div>
           </div>
 
@@ -504,7 +522,7 @@ export default function CalibrationSnippetsPanel({ session }) {
                 return (
                   <div className="source-dispute-card" key={dispute.id}>
                     <div className="source-dispute-top">
-                      <span className="pill success">Approved Dispute</span>
+                      <span className="pill success">Approved</span>
                       <strong>{dispute.conversation_id || dispute.result_id || "Conversation"}</strong>
                     </div>
                     <div className="source-mini-grid">
@@ -513,16 +531,8 @@ export default function CalibrationSnippetsPanel({ session }) {
                       <DetailRow label="Original" value={dispute.current_review_status} />
                       <DetailRow label="Corrected" value={dispute.corrected_review_status} strong />
                     </div>
-                    <div className="source-reason-box">
-                      <span>Reason</span>
-                      <p>{dispute.reason || "No dispute reason saved."}</p>
-                    </div>
-                    {dispute.master_admin_decision_note ? (
-                      <div className="source-reason-box decision">
-                        <span>Decision Note</span>
-                        <p>{dispute.master_admin_decision_note}</p>
-                      </div>
-                    ) : null}
+                    <TextBlock label="Reason" value={dispute.reason || "No dispute reason saved."} />
+                    {dispute.master_admin_decision_note ? <TextBlock label="Decision Note" value={dispute.master_admin_decision_note} tone="success" /> : null}
                     {previousSnippet ? <em className="snippet-refresh-note">This dispute was edited after its last snippet. Regenerate to use the latest correction.</em> : null}
                     <button type="button" className="secondary-btn small-btn" onClick={() => generateFromDispute(dispute)} disabled={Boolean(actionId)}>
                       {actionId === `generate:${dispute.id}` ? "Generating..." : "Generate Snippet"}
@@ -536,13 +546,13 @@ export default function CalibrationSnippetsPanel({ session }) {
       </div>
 
       <article className="snippet-list-card">
-        <div className="section-head compact list-head">
+        <div className="snippet-card-head list-head">
           <div>
             <p className="eyebrow">Saved Rule Library</p>
             <h3>Saved Calibration Snippets</h3>
-            <p className="muted">Every saved snippet now shows source traceability, creation details, and activation state.</p>
+            <p className="muted">Review source lineage, rule intent, activation state, and last update before changing any snippet.</p>
           </div>
-          <input className="snippet-search" value={snippetSearch} onChange={(event) => setSnippetSearch(event.target.value)} placeholder="Search snippets, chat IDs, employees, submitters..." />
+          <input className="snippet-search" value={snippetSearch} onChange={(event) => setSnippetSearch(event.target.value)} placeholder="Search title, chat ID, employee, submitter..." />
         </div>
 
         {!filteredSnippets.length ? (
@@ -554,19 +564,33 @@ export default function CalibrationSnippetsPanel({ session }) {
               const conversationId = getSourceConversation(snippet);
               return (
                 <div className="saved-snippet-card" key={snippet.id}>
-                  <div className="saved-snippet-main">
-                    <div className="saved-snippet-title-row">
-                      <span className={snippet.is_active ? "pill success" : "pill warning"}>{snippet.is_active ? "Active" : "Inactive"}</span>
-                      <span className={snippet.source_dispute_id ? "source-chip" : "source-chip manual"}>{sourceLabel(snippet)}</span>
+                  <div className="saved-snippet-head">
+                    <div className="saved-snippet-title-block">
+                      <div className="saved-snippet-title-row">
+                        <span className={snippet.is_active ? "pill success" : "pill warning"}>{snippet.is_active ? "Active" : "Inactive"}</span>
+                        <span className={snippet.source_dispute_id ? "source-chip" : "source-chip manual"}>{sourceLabel(snippet)}</span>
+                      </div>
+                      <h4>{snippet.title || "Untitled snippet"}</h4>
                     </div>
-                    <h4>{snippet.title || "Untitled snippet"}</h4>
-                    <div className="verdict-path">
-                      <span>{snippet.wrong_verdict || "Any matching wrong verdict"}</span>
-                      <strong>→</strong>
-                      <span>{snippet.correct_verdict || "Corrected guidance"}</span>
+                    <div className="snippet-card-actions">
+                      <button type="button" className="secondary-btn small-btn" onClick={() => editSnippet(snippet)}>Edit</button>
+                      <button type="button" className="secondary-btn small-btn" onClick={() => toggleSnippet(snippet)} disabled={Boolean(actionId)}>
+                        {actionId === `toggle:${snippet.id}` ? "Updating..." : snippet.is_active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button type="button" className="danger-btn small-btn" onClick={() => deleteSnippet(snippet)} disabled={Boolean(actionId)}>
+                        {actionId === `delete:${snippet.id}` ? "Deleting..." : "Delete"}
+                      </button>
                     </div>
-                    <p>{snippet.rule_text || "No rule text saved."}</p>
+                  </div>
 
+                  <div className="verdict-path">
+                    <span>{snippet.wrong_verdict || "Any matching wrong verdict"}</span>
+                    <strong>→</strong>
+                    <span>{snippet.correct_verdict || "Corrected guidance"}</span>
+                  </div>
+
+                  <div className="saved-snippet-body">
+                    <TextBlock label="Core Rule" value={snippet.rule_text || "No rule text saved."} />
                     <div className="saved-source-panel">
                       {source ? (
                         <>
@@ -578,26 +602,17 @@ export default function CalibrationSnippetsPanel({ session }) {
                       ) : snippet.source_dispute_id ? (
                         <>
                           <DetailRow label="Source Chat ID" value={conversationId || "Linked dispute record"} strong />
-                          <DetailRow label="Source Note" value="This snippet is linked to a dispute, but the detailed dispute record was not returned in this view." />
+                          <DetailRow label="Source Note" value="Linked to a dispute, but detailed dispute metadata was not returned in this view." />
                         </>
                       ) : (
                         <>
                           <DetailRow label="Source" value="Manual admin-created snippet" strong />
-                          <DetailRow label="Trace Note" value="No dispute/chat source is attached because this was added directly by an admin." />
+                          <DetailRow label="Trace Note" value="No dispute or chat source is attached because this rule was added directly by an admin." />
                         </>
                       )}
                       <DetailRow label="Created By" value={snippet.created_by_name || snippet.created_by_email || "-"} />
                       <DetailRow label="Updated" value={formatDateTime(snippet.updated_at)} />
                     </div>
-                  </div>
-                  <div className="snippet-card-actions">
-                    <button type="button" className="secondary-btn small-btn" onClick={() => editSnippet(snippet)}>Edit</button>
-                    <button type="button" className="secondary-btn small-btn" onClick={() => toggleSnippet(snippet)} disabled={Boolean(actionId)}>
-                      {actionId === `toggle:${snippet.id}` ? "Updating..." : snippet.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                    <button type="button" className="danger-btn small-btn" onClick={() => deleteSnippet(snippet)} disabled={Boolean(actionId)}>
-                      {actionId === `delete:${snippet.id}` ? "Deleting..." : "Delete"}
-                    </button>
                   </div>
                 </div>
               );
@@ -606,66 +621,418 @@ export default function CalibrationSnippetsPanel({ session }) {
         )}
       </article>
 
-      <style jsx>{`
-        .calibration-panel { display: grid; gap: 18px; }
-        .snippet-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 22px; border: 1px solid rgba(96, 165, 250, 0.18); border-radius: 26px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(28, 25, 63, 0.68)); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.36); }
-        .snippet-head-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-        .snippet-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-        .snippet-stat-card { border-radius: 20px; border: 1px solid rgba(148, 163, 255, 0.14); padding: 15px; background: rgba(15, 23, 42, 0.7); display: grid; gap: 6px; }
-        .snippet-stat-card span { color: #9fb3ff; font-size: 11px; font-weight: 900; letter-spacing: 0.13em; text-transform: uppercase; }
-        .snippet-stat-card strong { font-size: 28px; color: #ffffff; }
-        .snippet-stat-card small { color: #b8c7f4; line-height: 1.35; }
-        .active-card { background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(15, 23, 42, 0.72)); }
-        .source-card { background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(15, 23, 42, 0.72)); }
-        .manual-card { background: linear-gradient(135deg, rgba(168, 85, 247, 0.14), rgba(15, 23, 42, 0.72)); }
-        .pending-card { background: linear-gradient(135deg, rgba(245, 158, 11, 0.13), rgba(15, 23, 42, 0.72)); }
-        .snippet-workspace { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr); gap: 16px; align-items: start; }
-        .snippet-editor-card, .snippet-source-card, .snippet-list-card { border: 1px solid rgba(148, 163, 255, 0.14); border-radius: 24px; padding: 18px; background: rgba(2, 6, 23, 0.36); }
-        .snippet-source-card { max-height: 760px; overflow: auto; }
-        .section-head.compact { margin-bottom: 14px; }
-        .muted.tight { margin: 0; line-height: 1.45; }
-        .source-trace-card { margin-bottom: 16px; border-radius: 20px; border: 1px solid rgba(96, 165, 250, 0.2); padding: 14px; background: rgba(8, 13, 28, 0.72); }
-        .source-trace-card.manual-source { border-color: rgba(168, 85, 247, 0.22); background: rgba(30, 22, 55, 0.42); }
-        .source-trace-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-        .source-trace-head strong { color: #ffffff; }
-        .source-chip { display: inline-flex; align-items: center; width: fit-content; border-radius: 999px; padding: 5px 9px; border: 1px solid rgba(96, 165, 250, 0.26); background: rgba(37, 99, 235, 0.16); color: #bfdbfe; font-size: 11px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
-        .source-chip.manual { border-color: rgba(168, 85, 247, 0.26); background: rgba(168, 85, 247, 0.12); color: #e9d5ff; }
-        .source-trace-grid, .source-mini-grid, .saved-source-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-        .snippet-detail-row { border: 1px solid rgba(148, 163, 255, 0.1); border-radius: 14px; padding: 10px; background: rgba(15, 23, 42, 0.56); display: grid; gap: 5px; }
-        .snippet-detail-row span { color: #9fb3ff; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; }
-        .snippet-detail-row strong { color: #edf4ff; font-size: 13px; line-height: 1.3; word-break: break-word; }
-        .snippet-detail-row strong.highlight { color: #d9f99d; }
-        .source-note-block, .source-reason-box { margin-top: 11px; border: 1px solid rgba(148, 163, 255, 0.1); border-radius: 14px; padding: 11px; background: rgba(2, 6, 23, 0.45); }
-        .source-note-block span, .source-reason-box span { color: #9fb3ff; font-size: 10px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
-        .source-note-block p, .source-reason-box p { margin: 6px 0 0; color: #dbe7ff; line-height: 1.5; font-size: 13px; }
-        .source-note-block.decision, .source-reason-box.decision { border-color: rgba(16, 185, 129, 0.16); background: rgba(6, 78, 59, 0.14); }
-        .snippet-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-        .snippet-form-grid label { display: grid; gap: 7px; }
-        .snippet-form-grid label.full-line { grid-column: 1 / -1; }
-        .snippet-form-grid label span, .snippet-toggle-line span { color: #a9bcff; font-size: 11px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
-        .snippet-form-grid input, .snippet-form-grid select, .snippet-form-grid textarea, .snippet-search { width: 100%; border: 1px solid rgba(148, 163, 255, 0.2); border-radius: 14px; padding: 11px 12px; background: rgba(2, 6, 23, 0.62); color: #f8fbff; outline: none; font: inherit; }
-        .snippet-form-grid textarea { resize: vertical; line-height: 1.45; }
-        .snippet-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(148, 163, 255, 0.12); }
-        .snippet-toggle-line { display: flex !important; align-items: center; gap: 10px !important; }
-        .snippet-toggle-line input { width: auto; }
-        .source-card-list { display: grid; gap: 12px; }
-        .source-dispute-card { border-radius: 18px; border: 1px solid rgba(148, 163, 255, 0.14); padding: 14px; background: rgba(15, 23, 42, 0.62); display: grid; gap: 12px; }
-        .source-dispute-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-        .source-dispute-top strong { color: #ffffff; }
-        .snippet-refresh-note { color: #fde68a; font-size: 12px; font-style: normal; line-height: 1.4; }
-        .list-head { display: grid; grid-template-columns: 1fr minmax(280px, 420px); gap: 14px; align-items: end; }
-        .saved-snippet-list { display: grid; gap: 14px; }
-        .saved-snippet-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 16px; border-radius: 20px; border: 1px solid rgba(148, 163, 255, 0.13); background: linear-gradient(135deg, rgba(15, 23, 42, 0.7), rgba(17, 24, 39, 0.5)); }
-        .saved-snippet-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-        .saved-snippet-card h4 { margin: 0 0 10px; font-size: 19px; color: #ffffff; }
-        .verdict-path { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-        .verdict-path span { border-radius: 999px; border: 1px solid rgba(148, 163, 255, 0.16); background: rgba(2, 6, 23, 0.52); padding: 6px 10px; color: #dbeafe; font-size: 12px; font-weight: 800; }
-        .verdict-path strong { color: #a78bfa; }
-        .saved-snippet-card p { margin: 0 0 12px; color: #dbe7ff; line-height: 1.55; }
-        .saved-source-panel { margin-top: 12px; }
-        .snippet-card-actions { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: 260px; }
-        @media (max-width: 1180px) { .snippet-workspace { grid-template-columns: 1fr; } .snippet-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .saved-snippet-card { grid-template-columns: 1fr; } .snippet-card-actions { min-width: 0; justify-content: flex-start; } }
-        @media (max-width: 760px) { .snippet-hero, .source-trace-head { flex-direction: column; align-items: flex-start; } .snippet-stat-grid, .snippet-form-grid, .source-trace-grid, .source-mini-grid, .saved-source-panel, .list-head { grid-template-columns: 1fr; } }
+      <style jsx global>{`
+        .calibration-panel {
+          display: grid;
+          gap: 22px;
+        }
+        .calibration-panel .snippet-hero {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 20px;
+          padding: 24px;
+          border: 1px solid rgba(96, 165, 250, 0.18);
+          border-radius: 26px;
+          background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(28, 25, 63, 0.62));
+          box-shadow: 0 24px 80px rgba(15, 23, 42, 0.34);
+        }
+        .calibration-panel .snippet-head-actions {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .calibration-panel .snippet-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 14px;
+        }
+        .calibration-panel .snippet-stat-card {
+          border-radius: 20px;
+          border: 1px solid rgba(148, 163, 255, 0.14);
+          padding: 16px;
+          background: rgba(15, 23, 42, 0.7);
+          display: grid;
+          gap: 7px;
+          min-height: 112px;
+        }
+        .calibration-panel .snippet-stat-card span {
+          color: #9fb3ff;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.13em;
+          text-transform: uppercase;
+        }
+        .calibration-panel .snippet-stat-card strong {
+          font-size: 30px;
+          color: #ffffff;
+          line-height: 1;
+        }
+        .calibration-panel .snippet-stat-card small {
+          color: #b8c7f4;
+          line-height: 1.4;
+        }
+        .calibration-panel .active-card { background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(15, 23, 42, 0.72)); }
+        .calibration-panel .source-card { background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(15, 23, 42, 0.72)); }
+        .calibration-panel .manual-card { background: linear-gradient(135deg, rgba(168, 85, 247, 0.14), rgba(15, 23, 42, 0.72)); }
+        .calibration-panel .pending-card { background: linear-gradient(135deg, rgba(245, 158, 11, 0.13), rgba(15, 23, 42, 0.72)); }
+        .calibration-panel .snippet-workspace {
+          display: grid;
+          grid-template-columns: minmax(0, 1.28fr) minmax(360px, 0.72fr);
+          gap: 18px;
+          align-items: start;
+        }
+        .calibration-panel .snippet-editor-card,
+        .calibration-panel .snippet-source-card,
+        .calibration-panel .snippet-list-card {
+          border: 1px solid rgba(148, 163, 255, 0.14);
+          border-radius: 24px;
+          padding: 20px;
+          background: rgba(2, 6, 23, 0.34);
+        }
+        .calibration-panel .snippet-source-card {
+          max-height: 760px;
+          overflow: auto;
+        }
+        .calibration-panel .snippet-card-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+        .calibration-panel .snippet-card-head h3 {
+          margin-top: 2px;
+        }
+        .calibration-panel .muted.tight {
+          margin: 0;
+          line-height: 1.45;
+        }
+        .calibration-panel .source-trace-card {
+          margin-bottom: 18px;
+          border-radius: 20px;
+          border: 1px solid rgba(96, 165, 250, 0.2);
+          padding: 16px;
+          background: rgba(8, 13, 28, 0.72);
+        }
+        .calibration-panel .source-trace-card.manual-source {
+          border-color: rgba(168, 85, 247, 0.22);
+          background: rgba(30, 22, 55, 0.42);
+        }
+        .calibration-panel .source-trace-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 14px;
+          margin-bottom: 14px;
+        }
+        .calibration-panel .source-trace-head h4 {
+          margin: 7px 0 0;
+          color: #ffffff;
+          font-size: 17px;
+        }
+        .calibration-panel .source-chip,
+        .calibration-panel .source-status {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          border-radius: 999px;
+          padding: 5px 9px;
+          border: 1px solid rgba(96, 165, 250, 0.26);
+          background: rgba(37, 99, 235, 0.16);
+          color: #bfdbfe;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+        .calibration-panel .source-chip.manual,
+        .calibration-panel .source-status.manual {
+          border-color: rgba(168, 85, 247, 0.26);
+          background: rgba(168, 85, 247, 0.12);
+          color: #e9d5ff;
+        }
+        .calibration-panel .source-status.warning {
+          border-color: rgba(245, 158, 11, 0.28);
+          background: rgba(245, 158, 11, 0.12);
+          color: #fde68a;
+        }
+        .calibration-panel .source-trace-grid,
+        .calibration-panel .source-mini-grid,
+        .calibration-panel .saved-source-panel {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .calibration-panel .calibration-detail-row {
+          border: 1px solid rgba(148, 163, 255, 0.1);
+          border-radius: 14px;
+          padding: 10px 11px;
+          background: rgba(15, 23, 42, 0.56);
+          display: grid;
+          gap: 6px;
+          min-width: 0;
+        }
+        .calibration-panel .calibration-detail-label {
+          display: block;
+          color: #9fb3ff;
+          font-size: 10px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          line-height: 1.2;
+        }
+        .calibration-panel .calibration-detail-value {
+          display: block;
+          color: #edf4ff;
+          font-size: 13px;
+          line-height: 1.35;
+          word-break: break-word;
+        }
+        .calibration-panel .calibration-detail-value.highlight {
+          color: #d9f99d;
+        }
+        .calibration-panel .calibration-text-block {
+          margin-top: 12px;
+          border: 1px solid rgba(148, 163, 255, 0.1);
+          border-radius: 15px;
+          padding: 12px;
+          background: rgba(2, 6, 23, 0.45);
+        }
+        .calibration-panel .calibration-text-block.success {
+          border-color: rgba(16, 185, 129, 0.16);
+          background: rgba(6, 78, 59, 0.14);
+        }
+        .calibration-panel .calibration-text-block span {
+          color: #9fb3ff;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .calibration-panel .calibration-text-block p {
+          margin: 7px 0 0;
+          color: #dbe7ff;
+          line-height: 1.55;
+          font-size: 13px;
+        }
+        .calibration-panel .snippet-form-section {
+          border: 1px solid rgba(148, 163, 255, 0.11);
+          border-radius: 18px;
+          padding: 15px;
+          background: rgba(15, 23, 42, 0.34);
+          margin-bottom: 14px;
+        }
+        .calibration-panel .snippet-form-section.boundaries {
+          background: rgba(8, 13, 28, 0.4);
+        }
+        .calibration-panel .form-section-title {
+          display: grid;
+          gap: 5px;
+          margin-bottom: 12px;
+        }
+        .calibration-panel .form-section-title span {
+          color: #ffffff;
+          font-weight: 900;
+          font-size: 15px;
+        }
+        .calibration-panel .form-section-title small {
+          color: #94a3b8;
+          line-height: 1.4;
+        }
+        .calibration-panel .snippet-form-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .calibration-panel .snippet-form-grid label {
+          display: grid;
+          gap: 7px;
+        }
+        .calibration-panel .snippet-form-grid label.full-line {
+          grid-column: 1 / -1;
+        }
+        .calibration-panel .snippet-form-grid label span,
+        .calibration-panel .snippet-toggle-line span {
+          color: #a9bcff;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .calibration-panel .snippet-form-grid input,
+        .calibration-panel .snippet-form-grid select,
+        .calibration-panel .snippet-form-grid textarea,
+        .calibration-panel .snippet-search {
+          width: 100%;
+          border: 1px solid rgba(148, 163, 255, 0.2);
+          border-radius: 14px;
+          padding: 11px 12px;
+          background: rgba(2, 6, 23, 0.62);
+          color: #f8fbff;
+          outline: none;
+          font: inherit;
+        }
+        .calibration-panel .snippet-form-grid textarea {
+          resize: vertical;
+          line-height: 1.45;
+        }
+        .calibration-panel .snippet-footer-actions {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-top: 16px;
+          padding-top: 16px;
+          border-top: 1px solid rgba(148, 163, 255, 0.12);
+        }
+        .calibration-panel .snippet-toggle-line {
+          display: flex !important;
+          align-items: center;
+          gap: 10px !important;
+        }
+        .calibration-panel .snippet-toggle-line input {
+          width: auto;
+        }
+        .calibration-panel .source-card-list {
+          display: grid;
+          gap: 12px;
+        }
+        .calibration-panel .source-dispute-card {
+          border-radius: 18px;
+          border: 1px solid rgba(148, 163, 255, 0.14);
+          padding: 14px;
+          background: rgba(15, 23, 42, 0.62);
+          display: grid;
+          gap: 12px;
+        }
+        .calibration-panel .source-dispute-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .calibration-panel .source-dispute-top strong {
+          color: #ffffff;
+          word-break: break-word;
+        }
+        .calibration-panel .snippet-refresh-note {
+          color: #fde68a;
+          font-size: 12px;
+          font-style: normal;
+          line-height: 1.45;
+        }
+        .calibration-panel .list-head {
+          display: grid;
+          grid-template-columns: 1fr minmax(280px, 420px);
+          gap: 16px;
+          align-items: end;
+        }
+        .calibration-panel .saved-snippet-list {
+          display: grid;
+          gap: 18px;
+        }
+        .calibration-panel .saved-snippet-card {
+          display: grid;
+          gap: 15px;
+          padding: 18px;
+          border-radius: 22px;
+          border: 1px solid rgba(148, 163, 255, 0.13);
+          background: linear-gradient(135deg, rgba(15, 23, 42, 0.68), rgba(17, 24, 39, 0.52));
+        }
+        .calibration-panel .saved-snippet-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+        }
+        .calibration-panel .saved-snippet-title-block {
+          display: grid;
+          gap: 9px;
+          min-width: 0;
+        }
+        .calibration-panel .saved-snippet-title-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .calibration-panel .saved-snippet-card h4 {
+          margin: 0;
+          font-size: 19px;
+          color: #ffffff;
+          line-height: 1.25;
+        }
+        .calibration-panel .verdict-path {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .calibration-panel .verdict-path span {
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 255, 0.16);
+          background: rgba(2, 6, 23, 0.52);
+          padding: 6px 10px;
+          color: #dbeafe;
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .calibration-panel .verdict-path strong {
+          color: #a78bfa;
+        }
+        .calibration-panel .saved-snippet-body {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+          gap: 14px;
+          align-items: start;
+        }
+        .calibration-panel .saved-source-panel {
+          margin-top: 0;
+        }
+        .calibration-panel .snippet-card-actions {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          min-width: 240px;
+        }
+        @media (max-width: 1180px) {
+          .calibration-panel .snippet-workspace,
+          .calibration-panel .saved-snippet-body {
+            grid-template-columns: 1fr;
+          }
+          .calibration-panel .snippet-stat-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .calibration-panel .saved-snippet-head {
+            flex-direction: column;
+          }
+          .calibration-panel .snippet-card-actions {
+            min-width: 0;
+            justify-content: flex-start;
+          }
+        }
+        @media (max-width: 760px) {
+          .calibration-panel .snippet-hero,
+          .calibration-panel .source-trace-head {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .calibration-panel .snippet-stat-grid,
+          .calibration-panel .snippet-form-grid,
+          .calibration-panel .source-trace-grid,
+          .calibration-panel .source-mini-grid,
+          .calibration-panel .saved-source-panel,
+          .calibration-panel .list-head {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
     </section>
   );
