@@ -109,8 +109,32 @@ function cleanSnippet(input) {
     does_not_apply_when: normalizeText(snippet.does_not_apply_when) || null,
     example_context: normalizeText(snippet.example_context) || null,
     source_dispute_id: normalizeText(snippet.source_dispute_id) || null,
+    source_conversation_id: normalizeText(snippet.source_conversation_id) || null,
     is_active: snippet.is_active === true,
   };
+}
+
+async function attachSourceDisputes(adminClient, snippets) {
+  const rows = Array.isArray(snippets) ? snippets : [];
+  const disputeIds = Array.from(new Set(rows.map((item) => normalizeText(item?.source_dispute_id)).filter(Boolean)));
+  if (!disputeIds.length) return rows;
+
+  const { data, error } = await adminClient
+    .from("verdict_disputes")
+    .select("id, result_id, conversation_id, agent_name, employee_name, employee_email, team_name, current_review_status, corrected_review_status, reason, master_admin_decision_note, submitted_by_name, submitted_by_email, reviewed_by_name, reviewed_by_email, reviewed_at, created_at, updated_at")
+    .in("id", disputeIds);
+
+  if (error) throw new Error(error.message || "Could not load snippet source disputes.");
+  const disputeById = new Map((Array.isArray(data) ? data : []).map((item) => [item.id, item]));
+
+  return rows.map((snippet) => {
+    const sourceDispute = disputeById.get(snippet?.source_dispute_id) || null;
+    return {
+      ...snippet,
+      source_dispute: sourceDispute,
+      source_conversation_id: snippet?.source_conversation_id || sourceDispute?.conversation_id || sourceDispute?.result_id || null,
+    };
+  });
 }
 
 export async function GET(request) {
@@ -140,7 +164,8 @@ export async function GET(request) {
       approvedDisputes = Array.isArray(data) ? data : [];
     }
 
-    return json({ ok: true, snippets: Array.isArray(snippets) ? snippets : [], approvedDisputes });
+    const enrichedSnippets = await attachSourceDisputes(auth.adminClient, snippets);
+    return json({ ok: true, snippets: enrichedSnippets, approvedDisputes });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : "Could not load calibration snippets." }, { status: 500 });
   }
@@ -180,14 +205,20 @@ export async function POST(request) {
 
     if (action === "update" || id) {
       if (!id) return json({ ok: false, error: "Missing snippet id." }, { status: 400 });
+      const updatePayload = Object.fromEntries(
+        Object.entries({ ...cleaned, updated_at: new Date().toISOString() }).filter(([, value]) => value !== null && value !== undefined)
+      );
+      if (!cleaned.source_dispute_id) updatePayload.source_dispute_id = null;
+      if (!cleaned.source_conversation_id) delete updatePayload.source_conversation_id;
       const { data, error } = await auth.adminClient
         .from("ai_calibration_snippets")
-        .update({ ...cleaned, updated_at: new Date().toISOString() })
+        .update(updatePayload)
         .eq("id", id)
         .select("*")
         .single();
       if (error) throw new Error(error.message || "Could not save snippet.");
-      return json({ ok: true, snippet: data });
+      const [enriched] = await attachSourceDisputes(auth.adminClient, [data]);
+      return json({ ok: true, snippet: enriched || data });
     }
 
     const { data, error } = await auth.adminClient
@@ -203,7 +234,8 @@ export async function POST(request) {
       .single();
 
     if (error) throw new Error(error.message || "Could not create snippet.");
-    return json({ ok: true, snippet: data });
+    const [enriched] = await attachSourceDisputes(auth.adminClient, [data]);
+    return json({ ok: true, snippet: enriched || data });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : "Could not save calibration snippet." }, { status: 500 });
   }
