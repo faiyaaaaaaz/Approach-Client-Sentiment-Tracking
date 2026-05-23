@@ -69,6 +69,44 @@ async function authenticate(request) {
   return { ok: true, user, email, profile, permissions, adminClient };
 }
 
+async function loadAuditResultForDispute(adminClient, dispute) {
+  const conversationId = normalizeText(dispute?.conversation_id);
+  const resultId = normalizeText(dispute?.result_id);
+
+  if (conversationId) {
+    const { data, error } = await adminClient
+      .from("audit_results")
+      .select("id, conversation_id, review_sentiment")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message || "Could not load audit result by conversation ID.");
+    if (data?.id) return data;
+  }
+
+  if (resultId && resultId !== conversationId) {
+    const { data, error } = await adminClient
+      .from("audit_results")
+      .select("id, conversation_id, review_sentiment")
+      .eq("id", resultId)
+      .maybeSingle();
+    if (!error && data?.id) return data;
+
+    const { data: byConversation, error: conversationError } = await adminClient
+      .from("audit_results")
+      .select("id, conversation_id, review_sentiment")
+      .eq("conversation_id", resultId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (conversationError) throw new Error(conversationError.message || "Could not load audit result fallback.");
+    if (byConversation?.id) return byConversation;
+  }
+
+  return null;
+}
+
 async function writeActivityLog(adminClient, request, auth, payload) {
   try {
     const forwardedFor = request.headers.get("x-forwarded-for") || "";
@@ -126,37 +164,36 @@ export async function PATCH(request, context) {
     }
 
     let updatedResult = null;
+    let updateWarning = "";
     if (action === "approve" || action === "edit") {
-      const { data: currentResult, error: currentError } = await auth.adminClient
-        .from("audit_results")
-        .select("id, conversation_id, review_sentiment")
-        .eq("id", dispute.result_id)
-        .maybeSingle();
-      if (currentError) throw new Error(currentError.message || "Could not load audit result.");
-      if (!currentResult?.id) return json({ ok: false, error: "The original audit result was not found, so the dispute cannot update the verdict." }, { status: 404 });
+      const currentResult = await loadAuditResultForDispute(auth.adminClient, dispute);
 
-      const oldStatus = currentResult.review_sentiment || dispute.current_review_status || null;
-      const { data: savedResult, error: updateError } = await auth.adminClient
-        .from("audit_results")
-        .update({ review_sentiment: correctedReviewStatus })
-        .eq("id", currentResult.id)
-        .select("*")
-        .single();
-      if (updateError) throw new Error(updateError.message || "Could not update Review Status.");
-      updatedResult = savedResult;
+      if (currentResult?.id) {
+        const oldStatus = currentResult.review_sentiment || dispute.current_review_status || null;
+        const { data: savedResult, error: updateError } = await auth.adminClient
+          .from("audit_results")
+          .update({ review_sentiment: correctedReviewStatus })
+          .eq("id", currentResult.id)
+          .select("*")
+          .single();
+        if (updateError) throw new Error(updateError.message || "Could not update Review Status.");
+        updatedResult = savedResult;
 
-      await auth.adminClient.from("verdict_change_logs").insert({
-        result_id: currentResult.id,
-        conversation_id: currentResult.conversation_id || dispute.conversation_id || null,
-        changed_by_user_id: auth.user?.id || auth.profile?.id || null,
-        changed_by_name: normalizeText(auth.profile?.full_name) || auth.email,
-        changed_by_email: auth.email,
-        old_review_status: oldStatus,
-        new_review_status: correctedReviewStatus,
-        change_source: "dispute_approval",
-        reason: decisionNote || dispute.reason || (action === "edit" ? "Edited approved dispute." : "Approved dispute."),
-        dispute_id: dispute.id,
-      });
+        await auth.adminClient.from("verdict_change_logs").insert({
+          result_id: currentResult.id,
+          conversation_id: currentResult.conversation_id || dispute.conversation_id || null,
+          changed_by_user_id: auth.user?.id || auth.profile?.id || null,
+          changed_by_name: normalizeText(auth.profile?.full_name) || auth.email,
+          changed_by_email: auth.email,
+          old_review_status: oldStatus,
+          new_review_status: correctedReviewStatus,
+          change_source: "dispute_approval",
+          reason: decisionNote || dispute.reason || (action === "edit" ? "Edited approved dispute." : "Approved dispute."),
+          dispute_id: dispute.id,
+        });
+      } else {
+        updateWarning = "The dispute correction was saved, but no matching stored audit result was found to update. The corrected dispute can still be used for snippet regeneration.";
+      }
     }
 
     const updatePayload = action === "edit"
@@ -192,7 +229,7 @@ export async function PATCH(request, context) {
       metadata: { corrected_review_status: correctedReviewStatus || null, result_id: updatedDispute.result_id },
     });
 
-    return json({ ok: true, dispute: updatedDispute, result: updatedResult });
+    return json({ ok: true, dispute: updatedDispute, result: updatedResult, warning: updateWarning || null });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : "Could not update dispute." }, { status: 500 });
   }
