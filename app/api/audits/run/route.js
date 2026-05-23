@@ -791,7 +791,7 @@ async function fetchExistingStoredResults(adminClient, conversationIds) {
   for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await adminClient
       .from("audit_results")
-      .select("id, run_id, conversation_id, agent_name, client_email, ai_verdict, review_sentiment, error, created_at, updated_at")
+      .select("id, run_id, conversation_id, agent_name, client_email, ai_verdict, review_sentiment, error, created_at")
       .in("conversation_id", chunk);
 
     if (error) {
@@ -812,8 +812,8 @@ function buildPreviousResultByConversation(rows) {
     if (!conversationId) continue;
 
     const existing = map.get(conversationId);
-    const currentTime = new Date(row?.updated_at || row?.created_at || 0).getTime();
-    const existingTime = new Date(existing?.updated_at || existing?.created_at || 0).getTime();
+    const currentTime = new Date(row?.created_at || 0).getTime();
+    const existingTime = new Date(existing?.created_at || 0).getTime();
 
     if (!existing || currentTime >= existingTime) {
       map.set(conversationId, row);
