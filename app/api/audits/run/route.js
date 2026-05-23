@@ -677,14 +677,23 @@ async function loadLiveAuditPrompt(adminClient) {
   return livePrompt || FALLBACK_AUDIT_PROMPT;
 }
 
+function isReviewStatusSnippet(snippet) {
+  const appliesTo = normalizeKey(snippet?.applies_to);
+
+  // Older calibration rows may have a blank applies_to value because the
+  // snippets table existed before the current Review Status-only workflow.
+  // The Admin UI counts those rows as active snippets, so the audit runner
+  // should not silently exclude them from the prompt or from impact tracking.
+  return !appliesTo || appliesTo === "review_status" || appliesTo === "review status";
+}
+
 async function loadActiveCalibrationSnippets(adminClient) {
   const { data, error } = await adminClient
     .from("ai_calibration_snippets")
-    .select("id, title, applies_to, wrong_verdict, correct_verdict, rule_text, applies_when, does_not_apply_when, example_context, source_dispute_id, source_conversation_id, updated_at")
+    .select("id, title, applies_to, wrong_verdict, correct_verdict, rule_text, applies_when, does_not_apply_when, example_context, source_dispute_id, source_conversation_id, updated_at, created_at")
     .eq("is_active", true)
-    .eq("applies_to", "review_status")
     .order("updated_at", { ascending: false })
-    .limit(25);
+    .limit(100);
 
   if (error) {
     // Do not break audits if the snippet table has not been created yet.
@@ -692,7 +701,9 @@ async function loadActiveCalibrationSnippets(adminClient) {
     throw new Error(error.message || "Could not load calibration snippets.");
   }
 
-  return Array.isArray(data) ? data : [];
+  return (Array.isArray(data) ? data : [])
+    .filter(isReviewStatusSnippet)
+    .slice(0, 25);
 }
 
 function formatCalibrationSnippets(snippets) {
