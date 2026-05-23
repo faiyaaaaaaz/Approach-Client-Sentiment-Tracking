@@ -134,8 +134,8 @@ export async function GET(request) {
         .from("verdict_disputes")
         .select("id, result_id, conversation_id, agent_name, employee_name, employee_email, team_name, current_review_status, corrected_review_status, reason, master_admin_decision_note, reviewed_at, created_at, updated_at")
         .eq("status", "approved")
-        .order("reviewed_at", { ascending: false })
-        .limit(100);
+        .order("updated_at", { ascending: false })
+        .limit(150);
       if (disputesError) throw new Error(disputesError.message || "Could not load approved disputes.");
       approvedDisputes = Array.isArray(data) ? data : [];
     }
