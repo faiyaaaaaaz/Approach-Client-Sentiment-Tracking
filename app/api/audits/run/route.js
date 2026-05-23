@@ -680,7 +680,7 @@ async function loadLiveAuditPrompt(adminClient) {
 async function loadActiveCalibrationSnippets(adminClient) {
   const { data, error } = await adminClient
     .from("ai_calibration_snippets")
-    .select("id, title, applies_to, wrong_verdict, correct_verdict, rule_text, applies_when, does_not_apply_when, example_context, updated_at")
+    .select("id, title, applies_to, wrong_verdict, correct_verdict, rule_text, applies_when, does_not_apply_when, example_context, source_dispute_id, source_conversation_id, updated_at")
     .eq("is_active", true)
     .eq("applies_to", "review_status")
     .order("updated_at", { ascending: false })
@@ -791,7 +791,7 @@ async function fetchExistingStoredResults(adminClient, conversationIds) {
   for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await adminClient
       .from("audit_results")
-      .select("id, run_id, conversation_id, agent_name, client_email, created_at")
+      .select("id, run_id, conversation_id, agent_name, client_email, ai_verdict, review_sentiment, error, created_at, updated_at")
       .in("conversation_id", chunk);
 
     if (error) {
@@ -802,6 +802,153 @@ async function fetchExistingStoredResults(adminClient, conversationIds) {
   }
 
   return rows;
+}
+
+function buildPreviousResultByConversation(rows) {
+  const map = new Map();
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const conversationId = normalizeText(row?.conversation_id);
+    if (!conversationId) continue;
+
+    const existing = map.get(conversationId);
+    const currentTime = new Date(row?.updated_at || row?.created_at || 0).getTime();
+    const existingTime = new Date(existing?.updated_at || existing?.created_at || 0).getTime();
+
+    if (!existing || currentTime >= existingTime) {
+      map.set(conversationId, row);
+    }
+  }
+
+  return map;
+}
+
+function buildSnippetImpactRows({
+  runId,
+  results,
+  activeSnippets,
+  previousResultByConversation,
+  user,
+  email,
+  profile,
+  promptSource,
+  batchInfo,
+}) {
+  const snippets = Array.isArray(activeSnippets) ? activeSnippets : [];
+  const resultRows = Array.isArray(results) ? results : [];
+
+  if (!runId || !snippets.length || !resultRows.length) return [];
+
+  const requestedByName = normalizeText(profile?.full_name) || email;
+  const auditMode = batchInfo?.batchMode ? "live_gpt_batch" : "live_gpt";
+
+  const rows = [];
+
+  for (const result of resultRows) {
+    const conversationId = normalizeText(result?.conversationId);
+    if (!conversationId) continue;
+
+    const previous = previousResultByConversation?.get(conversationId) || null;
+    const oldReviewStatus = normalizeText(previous?.review_sentiment) || null;
+    const newReviewStatus = normalizeText(result?.reviewSentiment) || null;
+    const verdictChanged = Boolean(oldReviewStatus && newReviewStatus && oldReviewStatus !== newReviewStatus);
+    const resultError = normalizeText(result?.error) || null;
+
+    for (const snippet of snippets) {
+      const wrongVerdict = normalizeText(snippet?.wrong_verdict) || null;
+      const correctVerdict = normalizeText(snippet?.correct_verdict) || null;
+      const possibleSnippetCorrection = Boolean(
+        !resultError &&
+          oldReviewStatus &&
+          newReviewStatus &&
+          wrongVerdict &&
+          correctVerdict &&
+          oldReviewStatus === wrongVerdict &&
+          newReviewStatus === correctVerdict
+      );
+
+      rows.push({
+        run_id: runId,
+        conversation_id: conversationId,
+        snippet_id: normalizeText(snippet?.id) || null,
+        snippet_title: normalizeText(snippet?.title) || "Untitled calibration snippet",
+        snippet_wrong_verdict: wrongVerdict,
+        snippet_correct_verdict: correctVerdict,
+        snippet_source_dispute_id: normalizeText(snippet?.source_dispute_id) || null,
+        snippet_source_conversation_id: normalizeText(snippet?.source_conversation_id) || null,
+        old_review_status: oldReviewStatus,
+        new_review_status: newReviewStatus,
+        verdict_changed: verdictChanged,
+        possible_snippet_correction: possibleSnippetCorrection,
+        correction_reason: possibleSnippetCorrection
+          ? "Previous stored Review Status matched this snippet's wrong verdict and the rerun matched this snippet's corrected verdict."
+          : null,
+        result_error: resultError,
+        audit_mode: auditMode,
+        prompt_source: promptSource || null,
+        requested_by_user_id: user?.id || null,
+        requested_by_email: email || null,
+        requested_by_name: requestedByName || null,
+        metadata: {
+          batchMode: Boolean(batchInfo?.batchMode),
+          batchIndex: batchInfo?.batchIndex || null,
+          totalBatches: batchInfo?.totalBatches || null,
+          previousResultId: previous?.id || null,
+          previousRunId: previous?.run_id || null,
+          aiVerdict: result?.aiVerdict || null,
+          clientSentiment: result?.clientSentiment || null,
+          resolutionStatus: result?.resolutionStatus || null,
+          employeeName: result?.employeeName || null,
+          employeeEmail: result?.employeeEmail || null,
+          agentName: result?.agentName || null,
+          teamName: result?.teamName || null,
+        },
+      });
+    }
+  }
+
+  return rows;
+}
+
+async function persistSnippetImpactLogs({ adminClient, rows }) {
+  const impactRows = Array.isArray(rows) ? rows : [];
+
+  if (!impactRows.length) {
+    return { attempted: 0, inserted: 0, skipped: true, reason: "no_active_snippets_or_results" };
+  }
+
+  let inserted = 0;
+
+  try {
+    for (const chunk of chunkArray(impactRows, 500)) {
+      const { error } = await adminClient.from("snippet_impact_logs").insert(chunk);
+
+      if (error) {
+        if (error.code === "42P01") {
+          return {
+            attempted: impactRows.length,
+            inserted,
+            skipped: true,
+            reason: "snippet_impact_logs_table_missing",
+          };
+        }
+
+        throw new Error(error.message || "Could not save snippet impact logs.");
+      }
+
+      inserted += chunk.length;
+    }
+
+    return { attempted: impactRows.length, inserted, skipped: false, reason: "saved" };
+  } catch (error) {
+    console.warn("[snippet-impact] log write failed", error);
+    return {
+      attempted: impactRows.length,
+      inserted,
+      skipped: true,
+      reason: error instanceof Error ? error.message : "snippet_impact_log_failed",
+    };
+  }
 }
 
 async function removeStoredDuplicates(adminClient, conversationIds) {
@@ -1287,6 +1434,7 @@ export async function POST(request) {
       adminClient,
       conversationIdsToCheck
     );
+    const previousResultByConversation = buildPreviousResultByConversation(existingStoredRows);
 
     const duplicateConversationIds = Array.from(
       new Set(
@@ -1514,6 +1662,23 @@ export async function POST(request) {
       batchInfo,
     });
 
+    const snippetImpactRows = buildSnippetImpactRows({
+      runId: storedRunId,
+      results: mappedResults,
+      activeSnippets: activeCalibrationSnippets,
+      previousResultByConversation,
+      user,
+      email,
+      profile,
+      promptSource,
+      batchInfo,
+    });
+
+    const snippetImpactSummary = await persistSnippetImpactLogs({
+      adminClient,
+      rows: snippetImpactRows,
+    });
+
     await writeActivityLog(adminClient, request, {
       actor_user_id: user.id,
       actor_email: email,
@@ -1539,6 +1704,7 @@ export async function POST(request) {
         mapped_count: mappedCount,
         unmapped_count: unmappedCount,
         prompt_source: promptSource,
+        snippet_impact: snippetImpactSummary,
         limiter_enabled: limiterEnabled,
         limit_count: limitCount,
         batch_mode: batchInfo.batchMode,
@@ -1575,6 +1741,7 @@ export async function POST(request) {
         totalCount: batchInfo.totalCount || normalizedConversations.length,
         batchLabel: batchInfo.batchLabel || null,
         concurrency: CONVERSATION_CONCURRENCY,
+        snippetImpact: snippetImpactSummary,
         ...duplicateActionMeta,
       },
       results: mappedResults,
