@@ -28,6 +28,27 @@ function formatDateTime(value) {
   });
 }
 
+function formatCount(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  return number.toLocaleString();
+}
+
+function impactTone(row) {
+  if (row?.result_error) return "warning";
+  if (row?.possible_snippet_correction) return "success";
+  if (row?.verdict_changed) return "notice";
+  return "neutral";
+}
+
+function impactLabel(row) {
+  if (row?.result_error) return "Audit Error";
+  if (row?.possible_snippet_correction) return "Possible Correction";
+  if (row?.verdict_changed) return "Verdict Changed";
+  if (!row?.old_review_status) return "No Prior Verdict";
+  return "No Change";
+}
+
 async function readApiJson(response) {
   const text = await response.text();
   if (!text) return null;
@@ -98,6 +119,12 @@ export default function CalibrationSnippetsPanel({ session }) {
   const [error, setError] = useState("");
   const [draft, setDraft] = useState(emptyDraft());
   const [snippetSearch, setSnippetSearch] = useState("");
+  const [impactLogs, setImpactLogs] = useState([]);
+  const [impactSummary, setImpactSummary] = useState(null);
+  const [impactTableReady, setImpactTableReady] = useState(false);
+  const [impactMessage, setImpactMessage] = useState("");
+  const [impactError, setImpactError] = useState("");
+  const [impactSearch, setImpactSearch] = useState("");
 
   const accessToken = session?.access_token || "";
 
@@ -159,21 +186,68 @@ export default function CalibrationSnippetsPanel({ session }) {
     });
   }, [approvedDisputes, snippetSearch, snippets]);
 
+
+  const filteredImpactLogs = useMemo(() => {
+    const query = impactSearch.trim().toLowerCase();
+    if (!query) return impactLogs;
+
+    return impactLogs.filter((row) => {
+      const haystack = [
+        row.conversation_id,
+        row.snippet_title,
+        row.snippet_wrong_verdict,
+        row.snippet_correct_verdict,
+        row.old_review_status,
+        row.new_review_status,
+        row.requested_by_email,
+        row.requested_by_name,
+        row.run_id,
+        row.snippet_source_dispute_id,
+      ].join(" ").toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [impactLogs, impactSearch]);
+
   async function loadData(silent = false) {
     if (!accessToken) return;
     if (!silent) setLoading(true);
     setError("");
+    setImpactError("");
 
     try {
-      const response = await fetch("/api/calibration-snippets?include_disputes=approved", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-      const data = await readApiJson(response);
-      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not load calibration snippets.");
+      const [snippetResponse, impactResponse] = await Promise.all([
+        fetch("/api/calibration-snippets?include_disputes=approved", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        }),
+        fetch("/api/calibration-snippets/impact?limit=250", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        }),
+      ]);
+
+      const data = await readApiJson(snippetResponse);
+      if (!snippetResponse.ok || !data?.ok) throw new Error(data?.error || "Could not load calibration snippets.");
       setSnippets(Array.isArray(data.snippets) ? data.snippets : []);
       setApprovedDisputes(Array.isArray(data.approvedDisputes) ? data.approvedDisputes : []);
+
+      try {
+        const impactData = await readApiJson(impactResponse);
+        if (!impactResponse.ok || !impactData?.ok) throw new Error(impactData?.error || "Could not load snippet impact tracking.");
+        setImpactLogs(Array.isArray(impactData.logs) ? impactData.logs : []);
+        setImpactSummary(impactData.summary || null);
+        setImpactTableReady(impactData.tableReady === true);
+        setImpactMessage(impactData.message || impactData.explanation || "");
+      } catch (impactErr) {
+        setImpactLogs([]);
+        setImpactSummary(null);
+        setImpactTableReady(false);
+        setImpactMessage("");
+        setImpactError(impactErr instanceof Error ? impactErr.message : "Could not load snippet impact tracking.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load calibration snippets.");
     } finally {
@@ -422,6 +496,93 @@ export default function CalibrationSnippetsPanel({ session }) {
 
       {message ? <div className="success-box">{message}</div> : null}
       {error ? <div className="error-box">{error}</div> : null}
+      {impactError ? <div className="error-box">{impactError}</div> : null}
+
+      <article className="snippet-impact-card">
+        <div className="snippet-card-head impact-head">
+          <div>
+            <p className="eyebrow">Impact Tracking</p>
+            <h3>Are Active Snippets Correcting Review Status?</h3>
+            <p className="muted">
+              This shows which active snippets were sent with each audit and compares the old Review Status against the new rerun verdict. It is directional tracking, not proof that the model used one specific snippet unless the old-to-new verdict path matches that snippet.
+            </p>
+          </div>
+          <button type="button" className="secondary-btn" onClick={() => loadData(false)} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh Impact"}
+          </button>
+        </div>
+
+        {!impactTableReady ? (
+          <div className="impact-empty-state">
+            <strong>SQL setup needed before logs appear.</strong>
+            <span>{impactMessage || "Create the snippet_impact_logs table, then rerun one or more conversations with active snippets."}</span>
+          </div>
+        ) : (
+          <>
+            <div className="impact-summary-grid">
+              <div className="impact-summary-card">
+                <span>Snippet Sends</span>
+                <strong>{formatCount(impactSummary?.totalRows)}</strong>
+                <small>Snippet-conversation pairs logged.</small>
+              </div>
+              <div className="impact-summary-card">
+                <span>Conversations</span>
+                <strong>{formatCount(impactSummary?.uniqueConversations)}</strong>
+                <small>Audited with snippets attached.</small>
+              </div>
+              <div className="impact-summary-card">
+                <span>Verdict Changes</span>
+                <strong>{formatCount(impactSummary?.verdictChangedCount)}</strong>
+                <small>Old and new Review Status differed.</small>
+              </div>
+              <div className="impact-summary-card success">
+                <span>Possible Corrections</span>
+                <strong>{formatCount(impactSummary?.possibleCorrectionCount)}</strong>
+                <small>Old wrong verdict changed to snippet's corrected verdict.</small>
+              </div>
+            </div>
+
+            <div className="impact-log-head">
+              <div>
+                <h4>Latest Impact Logs</h4>
+                <p className="muted tight">Latest tracked audits are shown first. Rerun a known disputed conversation with overwrite enabled to compare before and after results.</p>
+              </div>
+              <input className="snippet-search" value={impactSearch} onChange={(event) => setImpactSearch(event.target.value)} placeholder="Search chat ID, snippet, verdict, runner..." />
+            </div>
+
+            {!filteredImpactLogs.length ? (
+              <div className="empty-box">No snippet impact logs match this view yet.</div>
+            ) : (
+              <div className="impact-log-list">
+                {filteredImpactLogs.slice(0, 40).map((row) => (
+                  <div className="impact-log-row" key={row.id || `${row.run_id}:${row.conversation_id}:${row.snippet_id}`}>
+                    <div className="impact-log-main">
+                      <div className="impact-log-title">
+                        <span className={`impact-pill ${impactTone(row)}`}>{impactLabel(row)}</span>
+                        <strong>Conversation {row.conversation_id || "-"}</strong>
+                      </div>
+                      <p>{row.snippet_title || "Untitled calibration snippet"}</p>
+                      <div className="impact-verdict-path">
+                        <span>{row.old_review_status || "No previous Review Status"}</span>
+                        <strong>→</strong>
+                        <span>{row.new_review_status || (row.result_error ? "Audit error" : "No new Review Status")}</span>
+                      </div>
+                      {row.correction_reason ? <em>{row.correction_reason}</em> : null}
+                      {row.result_error ? <em className="impact-error-text">{row.result_error}</em> : null}
+                    </div>
+                    <div className="impact-log-meta">
+                      <DetailRow label="Run Time" value={formatDateTime(row.created_at)} />
+                      <DetailRow label="Runner" value={row.requested_by_name || row.requested_by_email} />
+                      <DetailRow label="Snippet Path" value={`${row.snippet_wrong_verdict || "Any"} → ${row.snippet_correct_verdict || "Guidance"}`} />
+                      <DetailRow label="Source Dispute" value={row.snippet_source_dispute_id || "Manual / no dispute source"} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </article>
 
       <div className="snippet-workspace">
         <article className="snippet-editor-card" id="snippet-editor">
@@ -686,6 +847,7 @@ export default function CalibrationSnippetsPanel({ session }) {
         }
         .calibration-panel .snippet-editor-card,
         .calibration-panel .snippet-source-card,
+        .calibration-panel .snippet-impact-card,
         .calibration-panel .snippet-list-card {
           border: 1px solid rgba(148, 163, 255, 0.14);
           border-radius: 24px;
@@ -695,6 +857,169 @@ export default function CalibrationSnippetsPanel({ session }) {
         .calibration-panel .snippet-source-card {
           max-height: 760px;
           overflow: auto;
+        }
+        .calibration-panel .snippet-impact-card {
+          display: grid;
+          gap: 16px;
+          background: linear-gradient(135deg, rgba(15, 23, 42, 0.62), rgba(30, 27, 75, 0.38));
+        }
+        .calibration-panel .impact-head {
+          margin-bottom: 0;
+        }
+        .calibration-panel .impact-empty-state {
+          border: 1px solid rgba(245, 158, 11, 0.24);
+          border-radius: 18px;
+          padding: 16px;
+          background: rgba(245, 158, 11, 0.1);
+          display: grid;
+          gap: 6px;
+        }
+        .calibration-panel .impact-empty-state strong {
+          color: #fef3c7;
+        }
+        .calibration-panel .impact-empty-state span {
+          color: #fde68a;
+          line-height: 1.45;
+        }
+        .calibration-panel .impact-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .calibration-panel .impact-summary-card {
+          border: 1px solid rgba(148, 163, 255, 0.13);
+          border-radius: 18px;
+          padding: 14px;
+          background: rgba(2, 6, 23, 0.48);
+          display: grid;
+          gap: 7px;
+          min-height: 104px;
+        }
+        .calibration-panel .impact-summary-card.success {
+          border-color: rgba(16, 185, 129, 0.2);
+          background: rgba(6, 78, 59, 0.16);
+        }
+        .calibration-panel .impact-summary-card span,
+        .calibration-panel .impact-log-head span {
+          color: #9fb3ff;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .calibration-panel .impact-summary-card strong {
+          color: #ffffff;
+          font-size: 28px;
+          line-height: 1;
+        }
+        .calibration-panel .impact-summary-card small {
+          color: #b8c7f4;
+          line-height: 1.35;
+        }
+        .calibration-panel .impact-log-head {
+          display: grid;
+          grid-template-columns: 1fr minmax(260px, 380px);
+          gap: 14px;
+          align-items: end;
+        }
+        .calibration-panel .impact-log-head h4 {
+          margin: 0 0 6px;
+          color: #ffffff;
+        }
+        .calibration-panel .impact-log-list {
+          display: grid;
+          gap: 12px;
+          max-height: 620px;
+          overflow: auto;
+          padding-right: 4px;
+        }
+        .calibration-panel .impact-log-row {
+          border: 1px solid rgba(148, 163, 255, 0.12);
+          border-radius: 20px;
+          padding: 15px;
+          background: rgba(15, 23, 42, 0.58);
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
+          gap: 14px;
+          align-items: start;
+        }
+        .calibration-panel .impact-log-main {
+          display: grid;
+          gap: 9px;
+          min-width: 0;
+        }
+        .calibration-panel .impact-log-title {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          flex-wrap: wrap;
+        }
+        .calibration-panel .impact-log-title strong {
+          color: #ffffff;
+          word-break: break-word;
+        }
+        .calibration-panel .impact-log-main p {
+          margin: 0;
+          color: #dbeafe;
+          font-weight: 800;
+          line-height: 1.35;
+        }
+        .calibration-panel .impact-log-main em {
+          color: #a7f3d0;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+        .calibration-panel .impact-log-main .impact-error-text {
+          color: #fecaca;
+        }
+        .calibration-panel .impact-pill {
+          border-radius: 999px;
+          padding: 5px 9px;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          border: 1px solid rgba(148, 163, 255, 0.18);
+          color: #cbd5e1;
+          background: rgba(15, 23, 42, 0.7);
+        }
+        .calibration-panel .impact-pill.success {
+          border-color: rgba(16, 185, 129, 0.28);
+          background: rgba(16, 185, 129, 0.14);
+          color: #bbf7d0;
+        }
+        .calibration-panel .impact-pill.notice {
+          border-color: rgba(96, 165, 250, 0.3);
+          background: rgba(37, 99, 235, 0.15);
+          color: #bfdbfe;
+        }
+        .calibration-panel .impact-pill.warning {
+          border-color: rgba(245, 158, 11, 0.3);
+          background: rgba(245, 158, 11, 0.12);
+          color: #fde68a;
+        }
+        .calibration-panel .impact-verdict-path {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .calibration-panel .impact-verdict-path span {
+          border: 1px solid rgba(148, 163, 255, 0.14);
+          border-radius: 999px;
+          padding: 6px 10px;
+          background: rgba(2, 6, 23, 0.5);
+          color: #dbeafe;
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .calibration-panel .impact-verdict-path strong {
+          color: #a78bfa;
+        }
+        .calibration-panel .impact-log-meta {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
         }
         .calibration-panel .snippet-card-head {
           display: flex;
@@ -1004,10 +1329,12 @@ export default function CalibrationSnippetsPanel({ session }) {
         }
         @media (max-width: 1180px) {
           .calibration-panel .snippet-workspace,
-          .calibration-panel .saved-snippet-body {
+          .calibration-panel .saved-snippet-body,
+          .calibration-panel .impact-log-row {
             grid-template-columns: 1fr;
           }
-          .calibration-panel .snippet-stat-grid {
+          .calibration-panel .snippet-stat-grid,
+          .calibration-panel .impact-summary-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
           .calibration-panel .saved-snippet-head {
@@ -1025,10 +1352,13 @@ export default function CalibrationSnippetsPanel({ session }) {
             align-items: flex-start;
           }
           .calibration-panel .snippet-stat-grid,
+          .calibration-panel .impact-summary-grid,
           .calibration-panel .snippet-form-grid,
           .calibration-panel .source-trace-grid,
           .calibration-panel .source-mini-grid,
           .calibration-panel .saved-source-panel,
+          .calibration-panel .impact-log-meta,
+          .calibration-panel .impact-log-head,
           .calibration-panel .list-head {
             grid-template-columns: 1fr;
           }
