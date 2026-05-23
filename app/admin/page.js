@@ -1391,6 +1391,7 @@ function AdminPageContent() {
   const [disputeLoading, setDisputeLoading] = useState(false);
   const [disputeActionId, setDisputeActionId] = useState("");
   const [disputeDrafts, setDisputeDrafts] = useState({});
+  const [approvedDisputeEditId, setApprovedDisputeEditId] = useState("");
   const [activityLimit, setActivityLimit] = useState(150);
   const [activityVisibleCount, setActivityVisibleCount] = useState(25);
   const [activityDatePreset, setActivityDatePreset] = useState("all");
@@ -1979,12 +1980,33 @@ function AdminPageContent() {
     setDisputeDrafts((prev) => ({
       ...prev,
       [id]: {
-        corrected_review_status: prev[id]?.corrected_review_status || "",
-        decision_note: prev[id]?.decision_note || "",
-        reason: prev[id]?.reason || "",
+        ...(prev[id] || {}),
         ...patch,
       },
     }));
+  }
+
+  function beginApprovedDisputeEdit(dispute) {
+    setApprovedDisputeEditId(dispute.id);
+    setPageError("");
+    setPageSuccess("");
+    setDisputeDrafts((prev) => ({
+      ...prev,
+      [dispute.id]: {
+        corrected_review_status: dispute.corrected_review_status || "",
+        reason: dispute.reason || "",
+        decision_note: dispute.master_admin_decision_note || "",
+      },
+    }));
+  }
+
+  function cancelApprovedDisputeEdit(disputeId) {
+    setApprovedDisputeEditId("");
+    setDisputeDrafts((prev) => {
+      const copy = { ...prev };
+      delete copy[disputeId];
+      return copy;
+    });
   }
 
   async function editApprovedDispute(dispute) {
@@ -2000,6 +2022,13 @@ function AdminPageContent() {
 
     if (!correctedStatus) {
       setPageError("Choose the corrected Review Status before saving the edited dispute.");
+      return;
+    }
+
+    if (normalizeKey(correctedStatus) === normalizeKey(dispute.current_review_status)) {
+      const message = "An approved dispute must select a corrected Review Status that is different from the original AI Review Status. If the AI verdict should stay the same, reject the dispute instead of approving it.";
+      setPageError(message);
+      if (typeof window !== "undefined") window.alert(message);
       return;
     }
 
@@ -2029,6 +2058,12 @@ function AdminPageContent() {
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not edit dispute.");
 
       setDisputeRows((prev) => prev.map((row) => (row.id === data.dispute.id ? data.dispute : row)));
+      setApprovedDisputeEditId("");
+      setDisputeDrafts((prev) => {
+        const copy = { ...prev };
+        delete copy[dispute.id];
+        return copy;
+      });
       setPageSuccess("Approved dispute updated. It will appear in Calibration Snippets again if an older snippet was already generated from it.");
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not edit dispute.");
@@ -2049,6 +2084,13 @@ function AdminPageContent() {
 
     if (action === "approve" && !correctedStatus) {
       setPageError("Choose the corrected Review Status before approving the dispute.");
+      return;
+    }
+
+    if (action === "approve" && normalizeKey(correctedStatus) === normalizeKey(dispute.current_review_status)) {
+      const message = "You cannot approve a dispute without changing the Review Status. If the original AI verdict is still correct, reject the dispute instead.";
+      setPageError(message);
+      if (typeof window !== "undefined") window.alert(message);
       return;
     }
 
@@ -3770,122 +3812,179 @@ function AdminPageContent() {
           ) : null}
 
           {canViewActivityLogsNow && activeSectionKey === "disputes" ? (
-            <section className="panel wide admin-section-panel" id="dispute-management">
-              <div className="section-head">
+            <section className="panel wide admin-section-panel dispute-management-panel" id="dispute-management">
+              <div className="section-head dispute-section-head">
                 <div>
                   <p className="eyebrow">Master Admin Only</p>
                   <h2>Dispute Management</h2>
-                  <p className="muted">Review Status disputes submitted from Dashboard or Results. Client Sentiment and Resolution Status are not changed here.</p>
+                  <p className="muted">Review, approve, reject, or correct Review Status disputes. Client Sentiment and Resolution Status stay unchanged.</p>
                 </div>
                 <button type="button" className="secondary-btn" onClick={() => loadDisputesData(session, false)} disabled={disputeLoading}>
                   {disputeLoading ? "Refreshing..." : "Refresh Disputes"}
                 </button>
               </div>
 
+              <div className="dispute-guidance-card">
+                <div>
+                  <p className="eyebrow">Approval Rule</p>
+                  <strong>Approved disputes must change the Review Status.</strong>
+                  <span>If the Review Status should remain the same as the AI verdict, reject the dispute instead. Edited approved disputes become available again for snippet regeneration.</span>
+                </div>
+                <div className="dispute-guidance-metrics">
+                  <span><strong>{disputeRows.filter((item) => item.status === "pending").length}</strong> Pending</span>
+                  <span><strong>{disputeRows.filter((item) => item.status === "approved").length}</strong> Approved</span>
+                  <span><strong>{disputeRows.filter((item) => item.status === "rejected").length}</strong> Rejected</span>
+                </div>
+              </div>
+
               {!disputeRows.length ? (
                 <div className="empty-box">No disputes found yet.</div>
               ) : (
-                <div className="table-shell">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Submitted</th>
-                        <th>Conversation</th>
-                        <th>Employee</th>
-                        <th>Current Review Status</th>
-                        <th>Reason</th>
-                        <th>Status</th>
-                        <th>Decision</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {disputeRows.map((dispute) => {
-                        const draft = disputeDrafts[dispute.id] || {};
-                        const isPending = dispute.status === "pending";
-                        const approveLoading = disputeActionId === `${dispute.id}:approve`;
-                        const rejectLoading = disputeActionId === `${dispute.id}:reject`;
-                        const editLoading = disputeActionId === `${dispute.id}:edit`;
-                        return (
-                          <tr key={dispute.id}>
-                            <td>
-                              <strong>{formatDateTime(dispute.created_at)}</strong>
-                              <small>{dispute.submitted_by_name || dispute.submitted_by_email || "-"}</small>
-                            </td>
-                            <td>
-                              <strong>{dispute.conversation_id || dispute.result_id || "-"}</strong>
-                              <small>{dispute.agent_name || "Unassigned"}</small>
-                            </td>
-                            <td>
+                <div className="dispute-card-list">
+                  {disputeRows.map((dispute) => {
+                    const draft = disputeDrafts[dispute.id] || {};
+                    const isPending = dispute.status === "pending";
+                    const isApproved = dispute.status === "approved";
+                    const isEditingApproved = approvedDisputeEditId === dispute.id;
+                    const approveLoading = disputeActionId === `${dispute.id}:approve`;
+                    const rejectLoading = disputeActionId === `${dispute.id}:reject`;
+                    const editLoading = disputeActionId === `${dispute.id}:edit`;
+                    const submittedBy = dispute.submitted_by_name || dispute.submitted_by_email || "Unknown submitter";
+                    const reviewedBy = dispute.reviewed_by_name || dispute.reviewed_by_email || "Not reviewed yet";
+                    const originalStatus = dispute.current_review_status || "-";
+                    const correctedStatus = dispute.corrected_review_status || "Not selected";
+                    return (
+                      <article className={`dispute-review-card status-${dispute.status || "pending"}`} key={dispute.id}>
+                        <div className="dispute-card-main">
+                          <div className="dispute-card-topline">
+                            <span className={`pill ${dispute.status === "approved" ? "success" : dispute.status === "rejected" ? "danger" : "warning"}`}>{dispute.status || "pending"}</span>
+                            <span className="muted">Submitted {formatDateTime(dispute.created_at)}</span>
+                          </div>
+
+                          <div className="dispute-title-row">
+                            <div>
+                              <p className="eyebrow">Conversation</p>
+                              <h3>{dispute.conversation_id || dispute.result_id || "Unknown conversation"}</h3>
+                              <p className="muted">Intercom agent: {dispute.agent_name || "Unassigned"}</p>
+                            </div>
+                            <div className="dispute-submitter-box">
+                              <p className="eyebrow">Submitted By</p>
+                              <strong>{submittedBy}</strong>
+                              <span>{dispute.submitted_by_email || "No email recorded"}</span>
+                            </div>
+                          </div>
+
+                          <div className="dispute-detail-grid">
+                            <div>
+                              <p className="eyebrow">Employee</p>
                               <strong>{dispute.employee_name || "Unmapped"}</strong>
-                              <small>{dispute.employee_email || dispute.team_name || "-"}</small>
-                            </td>
-                            <td><span className="pill warning">{dispute.current_review_status || "-"}</span></td>
-                            <td className="wide-cell"><span>{dispute.reason || "-"}</span></td>
-                            <td>
-                              <span className={`pill ${dispute.status === "approved" ? "success" : dispute.status === "rejected" ? "danger" : "warning"}`}>{dispute.status || "pending"}</span>
-                              {dispute.reviewed_at ? <small>{formatDateTime(dispute.reviewed_at)}</small> : null}
-                            </td>
-                            <td>
-                              {isPending ? (
-                                <div className="decision-stack">
-                                  <select
-                                    value={draft.corrected_review_status || dispute.current_review_status || ""}
-                                    onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
-                                  >
-                                    <option value="">Corrected Review Status</option>
-                                    {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                                  </select>
-                                  <textarea
-                                    value={draft.decision_note || ""}
-                                    onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
-                                    placeholder="Decision note. Required for rejection. Recommended for approval."
-                                    rows={3}
-                                  />
-                                  <div className="table-actions">
-                                    <button type="button" className="primary-btn small-btn" onClick={() => reviewDispute(dispute, "approve")} disabled={Boolean(disputeActionId)}>{approveLoading ? "Approving..." : "Approve"}</button>
-                                    <button type="button" className="secondary-btn small-btn" onClick={() => reviewDispute(dispute, "reject")} disabled={Boolean(disputeActionId)}>{rejectLoading ? "Rejecting..." : "Reject"}</button>
+                              <span>{dispute.employee_email || dispute.team_name || "No employee email"}</span>
+                            </div>
+                            <div>
+                              <p className="eyebrow">Original AI Review Status</p>
+                              <strong>{originalStatus}</strong>
+                            </div>
+                            <div>
+                              <p className="eyebrow">Corrected Review Status</p>
+                              <strong>{correctedStatus}</strong>
+                            </div>
+                            <div>
+                              <p className="eyebrow">Reviewed By</p>
+                              <strong>{reviewedBy}</strong>
+                              <span>{dispute.reviewed_at ? formatDateTime(dispute.reviewed_at) : "Awaiting decision"}</span>
+                            </div>
+                          </div>
+
+                          <div className="dispute-reason-box">
+                            <p className="eyebrow">Dispute Reason</p>
+                            <p>{dispute.reason || "No reason provided."}</p>
+                          </div>
+                        </div>
+
+                        <aside className="dispute-action-panel">
+                          {isPending ? (
+                            <div className="decision-stack">
+                              <p className="eyebrow">Decision</p>
+                              <label>
+                                Corrected Review Status
+                                <select
+                                  value={draft.corrected_review_status || ""}
+                                  onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
+                                >
+                                  <option value="">Select corrected status</option>
+                                  {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                </select>
+                              </label>
+                              <textarea
+                                value={draft.decision_note || ""}
+                                onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
+                                placeholder="Decision note. Required for rejection. Recommended for approval."
+                                rows={4}
+                              />
+                              <div className="table-actions decision-actions">
+                                <button type="button" className="primary-btn small-btn" onClick={() => reviewDispute(dispute, "approve")} disabled={Boolean(disputeActionId)}>{approveLoading ? "Approving..." : "Approve & Update Verdict"}</button>
+                                <button type="button" className="secondary-btn small-btn" onClick={() => reviewDispute(dispute, "reject")} disabled={Boolean(disputeActionId)}>{rejectLoading ? "Rejecting..." : "Reject"}</button>
+                              </div>
+                            </div>
+                          ) : isApproved ? (
+                            <div className="decision-stack reviewed-edit-stack">
+                              <p className="eyebrow">Approved Decision</p>
+                              {!isEditingApproved ? (
+                                <>
+                                  <div className="decision-readonly polished">
+                                    <strong>{dispute.corrected_review_status || "No corrected status saved"}</strong>
+                                    <small>{dispute.master_admin_decision_note || "No decision note added."}</small>
                                   </div>
-                                </div>
-                              ) : dispute.status === "approved" ? (
-                                <div className="decision-stack reviewed-edit-stack">
-                                  <small className="muted">Approved disputes can be corrected if the wrong Review Status was selected. Saving here also updates the stored result and makes the dispute available for snippet regeneration when needed.</small>
-                                  <select
-                                    value={draft.corrected_review_status || dispute.corrected_review_status || ""}
-                                    onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
-                                  >
-                                    <option value="">Corrected Review Status</option>
-                                    {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                                  </select>
-                                  <textarea
-                                    value={draft.reason ?? dispute.reason ?? ""}
-                                    onChange={(event) => updateDisputeDraft(dispute.id, { reason: event.target.value })}
-                                    placeholder="Dispute reason"
-                                    rows={3}
-                                  />
-                                  <textarea
-                                    value={draft.decision_note ?? dispute.master_admin_decision_note ?? ""}
-                                    onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
-                                    placeholder="Decision note"
-                                    rows={3}
-                                  />
-                                  <div className="table-actions">
-                                    <button type="button" className="primary-btn small-btn" onClick={() => editApprovedDispute(dispute)} disabled={Boolean(disputeActionId)}>{editLoading ? "Saving..." : "Save Edited Dispute"}</button>
-                                  </div>
-                                  <small>{dispute.reviewed_by_name || dispute.reviewed_by_email || "-"}</small>
-                                </div>
+                                  <button type="button" className="secondary-btn small-btn" onClick={() => beginApprovedDisputeEdit(dispute)} disabled={Boolean(disputeActionId)}>Edit Correction</button>
+                                </>
                               ) : (
-                                <div className="decision-readonly">
-                                  <strong>{dispute.corrected_review_status || "No verdict change"}</strong>
-                                  <small>{dispute.master_admin_decision_note || "No decision note."}</small>
-                                  <small>{dispute.reviewed_by_name || dispute.reviewed_by_email || "-"}</small>
-                                </div>
+                                <>
+                                  <label>
+                                    Corrected Review Status
+                                    <select
+                                      value={draft.corrected_review_status ?? dispute.corrected_review_status ?? ""}
+                                      onChange={(event) => updateDisputeDraft(dispute.id, { corrected_review_status: event.target.value })}
+                                    >
+                                      <option value="">Select corrected status</option>
+                                      {REVIEW_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                    </select>
+                                  </label>
+                                  <label>
+                                    Dispute Reason
+                                    <textarea
+                                      value={draft.reason ?? dispute.reason ?? ""}
+                                      onChange={(event) => updateDisputeDraft(dispute.id, { reason: event.target.value })}
+                                      placeholder="Dispute reason"
+                                      rows={4}
+                                    />
+                                  </label>
+                                  <label>
+                                    Decision Note
+                                    <textarea
+                                      value={draft.decision_note ?? dispute.master_admin_decision_note ?? ""}
+                                      onChange={(event) => updateDisputeDraft(dispute.id, { decision_note: event.target.value })}
+                                      placeholder="Decision note"
+                                      rows={4}
+                                    />
+                                  </label>
+                                  <div className="table-actions decision-actions">
+                                    <button type="button" className="primary-btn small-btn" onClick={() => editApprovedDispute(dispute)} disabled={Boolean(disputeActionId)}>{editLoading ? "Saving..." : "Save Correction"}</button>
+                                    <button type="button" className="secondary-btn small-btn" onClick={() => cancelApprovedDisputeEdit(dispute.id)} disabled={Boolean(disputeActionId)}>Cancel</button>
+                                  </div>
+                                </>
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </div>
+                          ) : (
+                            <div className="decision-readonly polished">
+                              <p className="eyebrow">Rejected Decision</p>
+                              <strong>{dispute.master_admin_decision_note || "No decision note."}</strong>
+                              <small>Reviewed by {reviewedBy}</small>
+                            </div>
+                          )}
+                        </aside>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -5269,15 +5368,88 @@ const adminStyles = `
   .api-card,
   .role-form-card,
 
-  .decision-stack { display: grid; gap: 8px; min-width: 240px; }
+  .decision-stack { display: grid; gap: 12px; min-width: 260px; }
+  .decision-stack label { display: grid; gap: 7px; color: #9fb5ff; font-size: 11px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
   .decision-stack select,
-  .decision-stack textarea { width: 100%; border: 1px solid rgba(148, 163, 255, 0.22); border-radius: 14px; padding: 10px 12px; background: rgba(2, 6, 23, 0.62); color: #fff; outline: none; }
-  .decision-readonly { display: grid; gap: 5px; min-width: 220px; }
-  .decision-readonly strong { color: #f8fbff; }
-  .decision-readonly small { color: #9fb5ff; }
+  .decision-stack textarea { width: 100%; border: 1px solid rgba(148, 163, 255, 0.2); border-radius: 14px; padding: 11px 12px; background: rgba(3, 7, 18, 0.72); color: #fff; outline: none; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
+  .decision-stack select:focus,
+  .decision-stack textarea:focus { border-color: rgba(34, 211, 238, 0.42); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.08); }
+  .decision-readonly { display: grid; gap: 7px; min-width: 220px; }
+  .decision-readonly.polished { padding: 12px; border: 1px solid rgba(148, 163, 255, 0.14); border-radius: 16px; background: rgba(15, 23, 42, 0.42); }
+  .decision-readonly strong { color: #f8fbff; line-height: 1.35; }
+  .decision-readonly small { color: #9fb5ff; line-height: 1.45; }
+  .decision-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .wide-cell { min-width: 280px; max-width: 420px; }
   .wide-cell span { display: block; white-space: pre-wrap; color: #dbe7ff; font-size: 13px; line-height: 1.45; }
   .small-btn { padding: 9px 12px; font-size: 12px; }
+
+  .dispute-management-panel { overflow: visible; }
+  .dispute-section-head { align-items: flex-start; }
+  .dispute-guidance-card {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 18px 0;
+    padding: 16px;
+    border: 1px solid rgba(34, 211, 238, 0.16);
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(8, 47, 73, 0.28), rgba(15, 23, 42, 0.76));
+  }
+  .dispute-guidance-card strong { display: block; margin-bottom: 5px; color: #e6f7ff; font-size: 17px; }
+  .dispute-guidance-card span { color: #aebceb; line-height: 1.5; }
+  .dispute-guidance-metrics { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 330px; justify-content: flex-end; }
+  .dispute-guidance-metrics span { display: grid; gap: 2px; min-width: 92px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); background: rgba(2, 6, 23, 0.48); color: #9fb5ff; font-size: 12px; font-weight: 900; }
+  .dispute-guidance-metrics strong { margin: 0; color: #fff; font-size: 20px; }
+  .dispute-card-list { display: grid; gap: 16px; max-height: 780px; overflow: auto; padding-right: 8px; }
+  .dispute-review-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid rgba(148, 163, 255, 0.14);
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(12, 19, 38, 0.92), rgba(6, 10, 23, 0.96));
+    box-shadow: 0 22px 70px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .dispute-review-card.status-approved { border-color: rgba(16, 185, 129, 0.18); }
+  .dispute-review-card.status-rejected { border-color: rgba(248, 113, 113, 0.16); }
+  .dispute-card-main { min-width: 0; }
+  .dispute-card-topline { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .dispute-title-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 14px; align-items: stretch; margin-bottom: 14px; }
+  .dispute-title-row h3 { margin: 0; font-size: 24px; letter-spacing: -0.02em; color: #f8fbff; }
+  .dispute-submitter-box,
+  .dispute-detail-grid > div,
+  .dispute-reason-box {
+    border: 1px solid rgba(148, 163, 255, 0.12);
+    border-radius: 18px;
+    background: rgba(15, 23, 42, 0.46);
+    padding: 12px;
+  }
+  .dispute-submitter-box strong,
+  .dispute-detail-grid strong { display: block; color: #f8fbff; line-height: 1.35; }
+  .dispute-submitter-box span,
+  .dispute-detail-grid span { display: block; color: #9fb5ff; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+  .dispute-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .dispute-reason-box p:last-child { margin: 0; color: #dbe7ff; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dispute-action-panel {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(17, 24, 39, 0.76), rgba(8, 12, 26, 0.9));
+    padding: 14px;
+    align-self: start;
+  }
+
+  @media (max-width: 1180px) {
+    .dispute-review-card { grid-template-columns: 1fr; }
+    .dispute-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dispute-guidance-card { flex-direction: column; }
+    .dispute-guidance-metrics { justify-content: flex-start; min-width: 0; }
+  }
+
+  @media (max-width: 720px) {
+    .dispute-title-row,
+    .dispute-detail-grid { grid-template-columns: 1fr; }
+  }
 
   .role-table-card,
   .profile-card,
