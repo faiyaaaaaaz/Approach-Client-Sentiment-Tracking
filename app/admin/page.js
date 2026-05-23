@@ -2051,7 +2051,8 @@ function AdminPageContent() {
             reason,
           }),
         }),
-        "Edit approved dispute"
+        "Edit approved dispute",
+        30000
       );
 
       const data = await response.json().catch(() => null);
@@ -2064,9 +2065,14 @@ function AdminPageContent() {
         delete copy[dispute.id];
         return copy;
       });
-      setPageSuccess("Approved dispute updated. It will appear in Calibration Snippets again if an older snippet was already generated from it.");
+      const successMessage = data.warning
+        ? `Approved dispute updated. ${data.warning}`
+        : "Approved dispute updated. It will appear in Calibration Snippets again if an older snippet was already generated from it.";
+      setPageSuccess(successMessage);
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not edit dispute.");
+      const message = error instanceof Error ? error.message : "Could not edit dispute.";
+      setPageError(message);
+      if (typeof window !== "undefined") window.alert(message);
     } finally {
       setDisputeActionId("");
     }
