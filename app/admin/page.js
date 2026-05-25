@@ -1321,6 +1321,7 @@ function AdminPageContent() {
   const mappingFormRef = useRef(null);
   const roleFormRef = useRef(null);
   const supervisorFormRef = useRef(null);
+  const loadedSectionKeysRef = useRef(new Set());
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -2141,7 +2142,12 @@ function AdminPageContent() {
   async function loadAll(activeSession, options = {}) {
     const silent = options.silent === true;
     const effectiveProfile = options.profile || profile;
-    const allowApiKeys = canManageApiKeys(effectiveProfile);
+    const sectionKey = options.sectionKey || activeSectionKey || "overview";
+    const permissionSource = effectiveProfile || profile;
+
+    if (!activeSession?.access_token || !permissionSource || !canManageAdmin(permissionSource)) {
+      return;
+    }
 
     if (!silent) {
       setLoading(true);
@@ -2149,43 +2155,95 @@ function AdminPageContent() {
       setPageSuccess("");
     }
 
-    const jobs = [
-      loadPromptData(activeSession),
-      loadMappingsData(),
-      loadSupervisorTeamsData(activeSession),
-      loadRoleAccessData(activeSession, canManageUsers(effectiveProfile)),
-      loadRolePermissionsData(activeSession, canManageUsers(effectiveProfile)),
-    ];
+    const jobs = [];
 
-    if (allowApiKeys) {
-      jobs.push(loadApiKeysData(activeSession, true));
-    } else {
-      setApiKeys([]);
+    switch (sectionKey) {
+      case "overview":
+        jobs.push(loadPromptData(activeSession));
+        jobs.push(loadMappingsData());
+        jobs.push(loadSupervisorTeamsData(activeSession));
+        break;
+
+      case "prompt":
+        if (hasPermission(permissionSource, "admin_prompt")) {
+          jobs.push(loadPromptData(activeSession));
+        }
+        break;
+
+      case "api-vault":
+        if (canManageApiKeys(permissionSource)) {
+          jobs.push(loadApiKeysData(activeSession, true));
+        } else {
+          setApiKeys([]);
+        }
+        break;
+
+      case "supervisor-teams":
+        if (hasPermission(permissionSource, "admin_supervisor_teams")) {
+          jobs.push(loadSupervisorTeamsData(activeSession));
+        }
+        break;
+
+      case "mappings":
+        if (hasPermission(permissionSource, "admin_mappings")) {
+          jobs.push(loadMappingsData());
+        }
+        break;
+
+      case "roles":
+        if (canManageUsers(permissionSource)) {
+          jobs.push(loadRoleAccessData(activeSession, true));
+          jobs.push(loadRolePermissionsData(activeSession, true));
+        } else {
+          setProfileRows([]);
+          setRoleGrantRows([]);
+          setPermissionRows(normalizePermissionRows([]));
+          setPermissionEditable(false);
+        }
+        break;
+
+      case "activity-logs":
+        if (canViewActivityLogs(permissionSource)) {
+          jobs.push(loadActivityLogsData(activeSession, true));
+        } else {
+          setActivityLogs([]);
+          setActivitySessions([]);
+        }
+        break;
+
+      case "disputes":
+        if (hasPermission(permissionSource, "admin_disputes")) {
+          jobs.push(loadDisputesData(activeSession, true));
+        } else {
+          setDisputeRows([]);
+        }
+        break;
+
+      case "snippets":
+        // CalibrationSnippetsPanel owns its own data loading. Do not block this tab on unrelated Admin APIs.
+        break;
+
+      default:
+        break;
     }
 
-    if (canViewActivityLogs(effectiveProfile)) {
-      jobs.push(loadActivityLogsData(activeSession, true));
-      jobs.push(loadDisputesData(activeSession, true));
-    } else {
-      setActivityLogs([]);
-      setActivitySessions([]);
-      setDisputeRows([]);
+    try {
+      const results = await Promise.allSettled(jobs);
+      const rejected = results.find((item) => item.status === "rejected");
+
+      if (rejected) {
+        setPageError(
+          rejected.reason instanceof Error
+            ? rejected.reason.message
+            : "Some Admin data could not load."
+        );
+      } else {
+        loadedSectionKeysRef.current.add(`${normalizeEmail(permissionSource?.email)}:${sectionKey}`);
+        if (!silent) setPageSuccess(sectionKey === "overview" ? "Admin overview loaded successfully." : "Admin section refreshed successfully.");
+      }
+    } finally {
+      if (!silent) setLoading(false);
     }
-
-    const results = await Promise.allSettled(jobs);
-    const rejected = results.find((item) => item.status === "rejected");
-
-    if (rejected) {
-      setPageError(
-        rejected.reason instanceof Error
-          ? rejected.reason.message
-          : "Some Admin data could not load."
-      );
-    } else if (!silent) {
-      setPageSuccess("Admin loaded successfully.");
-    }
-
-    if (!silent) setLoading(false);
   }
 
   async function bootAdmin() {
@@ -2212,7 +2270,7 @@ function AdminPageContent() {
       setAuthChecked(true);
 
       if (profileResult.profile && canManageAdmin(profileResult.profile)) {
-        await loadAll(currentSession, { silent: true, profile: profileResult.profile });
+        await loadAll(currentSession, { silent: true, profile: profileResult.profile, sectionKey: activeSectionKey });
       }
 
       setLoading(false);
@@ -2258,7 +2316,7 @@ function AdminPageContent() {
         setAuthChecked(true);
 
         if (!isBackgroundRefresh && result.profile && canManageAdmin(result.profile)) {
-          loadAll(nextSession, { silent: true, profile: result.profile });
+          loadAll(nextSession, { silent: true, profile: result.profile, sectionKey: activeSectionKey });
         }
       });
     });
@@ -2268,6 +2326,18 @@ function AdminPageContent() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!authChecked || !session?.access_token || !profile || !canManageAdmin(profile)) return;
+
+    setPageError("");
+    setPageSuccess("");
+
+    const sectionLoadKey = `${normalizeEmail(profile.email)}:${activeSectionKey}`;
+    if (loadedSectionKeysRef.current.has(sectionLoadKey)) return;
+
+    loadAll(session, { silent: true, profile, sectionKey: activeSectionKey });
+  }, [activeSectionKey, authChecked, session?.access_token, profile?.id, profile?.email, profile?.role]);
 
   useEffect(() => {
     function handleScroll() {
@@ -2285,7 +2355,8 @@ function AdminPageContent() {
 
     try {
       const freshSession = await getFreshSession();
-      await loadAll(freshSession, { profile });
+      loadedSectionKeysRef.current.delete(`${normalizeEmail(profile?.email)}:${activeSectionKey}`);
+      await loadAll(freshSession, { profile, sectionKey: activeSectionKey });
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not reload Admin.");
     }
@@ -3398,49 +3469,69 @@ function AdminPageContent() {
     <main className="admin-page">
       <style>{adminStyles}</style>
 
-      <section className="hero">
-        <div>
-          <div className="hero-badge">Admin Operations</div>
-          <h1>Control Center</h1>
-          <p>
-            Manage Live Prompts, Secure Keys, Role Access, Agent Mappings, And Supervisor Teams From One Premium Command Workspace.
-          </p>
-        </div>
+      {activeSectionKey === "overview" ? (
+        <section className="hero">
+          <div>
+            <div className="hero-badge">Admin Operations</div>
+            <h1>Control Center</h1>
+            <p>
+              Manage Live Prompts, Secure Keys, Role Access, Agent Mappings, And Supervisor Teams From One Premium Command Workspace.
+            </p>
+          </div>
 
-        <div className="hero-side-card">
-          <span>Current Access</span>
-          <strong>{authChecked ? roleLabel(profile?.role, profile?.email || session?.user?.email) : "Checking..."}</strong>
-          <small>{profile?.email || session?.user?.email || "Not signed in"}</small>
-        </div>
+          <div className="hero-side-card">
+            <span>Current Access</span>
+            <strong>{authChecked ? roleLabel(profile?.role, profile?.email || session?.user?.email) : "Checking..."}</strong>
+            <small>{profile?.email || session?.user?.email || "Not signed in"}</small>
+          </div>
 
-        <div className="hero-actions">
-          <div className="action-row">
+          <div className="hero-actions">
+            <div className="action-row">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={handleReload}
+                disabled={!session || loading || mappingLoading || supervisorLoading || profileLoading}
+              >
+                {loading || mappingLoading || supervisorLoading || profileLoading ? "Loading..." : "Reload"}
+              </button>
+
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleSeedSuggestedMappings}
+                disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
+              >
+                {seedLoading ? "Prefilling..." : `Prefill agents (${mappingSuggestions.length})`}
+              </button>
+            </div>
+
+            <div className="admin-section-indicator" aria-label="Selected Admin section">
+              <span>{activeSectionMeta.eyebrow}</span>
+              <strong>{activeSectionMeta.title}</strong>
+              <small>{activeSectionMeta.description}</small>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="section-page-title">
+          <div>
+            <p className="eyebrow">{activeSectionMeta.eyebrow}</p>
+            <h1>{activeSectionMeta.title}</h1>
+            <p>{activeSectionMeta.description}</p>
+          </div>
+          {activeSectionKey !== "snippets" ? (
             <button
               type="button"
               className="secondary-btn"
               onClick={handleReload}
-              disabled={!session || loading || mappingLoading || supervisorLoading || profileLoading}
+              disabled={!session || loading}
             >
-              {loading || mappingLoading || supervisorLoading || profileLoading ? "Loading..." : "Reload"}
+              {loading ? "Refreshing..." : "Refresh Section"}
             </button>
-
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={handleSeedSuggestedMappings}
-              disabled={!isAdmin || seedLoading || !mappingSuggestions.length}
-            >
-              {seedLoading ? "Prefilling..." : `Prefill agents (${mappingSuggestions.length})`}
-            </button>
-          </div>
-
-          <div className="admin-section-indicator" aria-label="Selected Admin section">
-            <span>{activeSectionMeta.eyebrow}</span>
-            <strong>{activeSectionMeta.title}</strong>
-            <small>{activeSectionMeta.description}</small>
-          </div>
-        </div>
-      </section>
+          ) : null}
+        </section>
+      )}
 
       {activeSectionKey === "overview" ? (
       <section className="status-grid">
@@ -3817,7 +3908,7 @@ function AdminPageContent() {
             </section>
           ) : null}
 
-          {canViewActivityLogsNow && activeSectionKey === "disputes" ? (
+          {hasPermission(profile, "admin_disputes") && activeSectionKey === "disputes" ? (
             <section className="panel wide admin-section-panel dispute-management-panel" id="dispute-management">
               <div className="section-head dispute-section-head">
                 <div>
@@ -5356,6 +5447,7 @@ const adminStyles = `
   }
 
   .hero,
+  .section-page-title,
   .panel,
   .stat-card,
   .status-grid,
@@ -5367,6 +5459,7 @@ const adminStyles = `
   }
 
   .hero,
+  .section-page-title,
   .panel,
   .stat-card,
   .mini-card,
@@ -5480,6 +5573,42 @@ const adminStyles = `
 
   .eyebrow.amber {
     color: #fcd34d;
+  }
+
+  .section-page-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 18px;
+    padding: 24px 28px;
+    border: 1px solid rgba(148, 163, 255, 0.16);
+    border-radius: 26px;
+    background:
+      radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.12), transparent 26%),
+      radial-gradient(circle at 88% 0%, rgba(139, 92, 246, 0.14), transparent 30%),
+      linear-gradient(135deg, rgba(10, 17, 34, 0.94), rgba(15, 23, 42, 0.76));
+    box-shadow: 0 24px 80px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .section-page-title h1 {
+    margin: 4px 0 8px;
+    font-size: clamp(34px, 5vw, 58px);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+    color: #f8fbff;
+  }
+
+  .section-page-title p:not(.eyebrow) {
+    margin: 0;
+    max-width: 760px;
+    color: #b9c8ff;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .section-page-title .secondary-btn {
+    flex: 0 0 auto;
   }
 
   .hero {
