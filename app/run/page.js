@@ -11,6 +11,7 @@ const LARGE_FETCH_RANGE_DAYS = 7;
 const LARGE_QUEUE_CONFIRM_THRESHOLD = 100;
 const CANCEL_FETCH_CONFIRM_THRESHOLD = 50;
 const SESSION_REFRESH_BUFFER_MS = 2 * 60 * 1000;
+const APP_TIME_ZONE = "Asia/Dhaka";
 const RUN_PAGE_CACHE_KEY = "ai-auditor-run-page-state-v2";
 const RUN_PAGE_CACHE_VERSION = 2;
 const ACTIVE_WORKFLOW_STATUSES = new Set([
@@ -20,6 +21,7 @@ const ACTIVE_WORKFLOW_STATUSES = new Set([
   "paused_duplicate_decision",
   "auditing",
 ]);
+
 
 const DATE_PRESET_OPTIONS = [
   { key: "today", label: "Today" },
@@ -447,6 +449,89 @@ function formatDateInput(date) {
   return `${year}-${month}-${day}`;
 }
 
+function getAppDateString(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  const parts = formatter.formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function parseDateStringParts(dateString) {
+  const value = normalizeRunText(dateString);
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(utc.getTime()) ||
+    utc.getUTCFullYear() !== year ||
+    utc.getUTCMonth() !== month - 1 ||
+    utc.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+}
+
+function formatDateStringFromUtc(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateString(dateString, days) {
+  const parts = parseDateStringParts(dateString);
+  if (!parts) return dateString;
+
+  const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  next.setUTCDate(next.getUTCDate() + days);
+  return formatDateStringFromUtc(next);
+}
+
+function lastDayOfMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function shiftMonthDateString(dateString, monthOffset) {
+  const parts = parseDateStringParts(dateString);
+  if (!parts) return dateString;
+
+  const zeroBasedMonth = parts.month - 1 + monthOffset;
+  const targetYear = parts.year + Math.floor(zeroBasedMonth / 12);
+  const targetMonthIndex = ((zeroBasedMonth % 12) + 12) % 12;
+  const targetMonth = targetMonthIndex + 1;
+  const targetDay = Math.min(parts.day, lastDayOfMonth(targetYear, targetMonth));
+
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
+function startOfMonthDateString(dateString) {
+  const parts = parseDateStringParts(dateString);
+  if (!parts) return dateString;
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-01`;
+}
+
+function startOfYearDateString(dateString) {
+  const parts = parseDateStringParts(dateString);
+  if (!parts) return dateString;
+  return `${parts.year}-01-01`;
+}
+
 function shiftDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -459,38 +544,30 @@ function shiftMonths(date, months) {
   return normalizeToStartOfDay(next);
 }
 
-function startOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function startOfYear(date) {
-  return new Date(date.getFullYear(), 0, 1);
-}
-
 function getPresetRange(key) {
-  const today = normalizeToStartOfDay(new Date());
+  const today = getAppDateString();
 
   switch (key) {
     case "today":
-      return { startDate: formatDateInput(today), endDate: formatDateInput(today) };
+      return { startDate: today, endDate: today };
     case "yesterday": {
-      const yesterday = shiftDays(today, -1);
-      return { startDate: formatDateInput(yesterday), endDate: formatDateInput(yesterday) };
+      const yesterday = shiftDateString(today, -1);
+      return { startDate: yesterday, endDate: yesterday };
     }
     case "past_week":
-      return { startDate: formatDateInput(shiftDays(today, -6)), endDate: formatDateInput(today) };
+      return { startDate: shiftDateString(today, -6), endDate: today };
     case "month_to_date":
-      return { startDate: formatDateInput(startOfMonth(today)), endDate: formatDateInput(today) };
+      return { startDate: startOfMonthDateString(today), endDate: today };
     case "past_4_weeks":
-      return { startDate: formatDateInput(shiftDays(today, -27)), endDate: formatDateInput(today) };
+      return { startDate: shiftDateString(today, -27), endDate: today };
     case "past_12_weeks":
-      return { startDate: formatDateInput(shiftDays(today, -83)), endDate: formatDateInput(today) };
+      return { startDate: shiftDateString(today, -83), endDate: today };
     case "year_to_date":
-      return { startDate: formatDateInput(startOfYear(today)), endDate: formatDateInput(today) };
+      return { startDate: startOfYearDateString(today), endDate: today };
     case "past_6_months":
-      return { startDate: formatDateInput(shiftMonths(today, -6)), endDate: formatDateInput(today) };
+      return { startDate: shiftMonthDateString(today, -6), endDate: today };
     case "past_12_months":
-      return { startDate: formatDateInput(shiftMonths(today, -12)), endDate: formatDateInput(today) };
+      return { startDate: shiftMonthDateString(today, -12), endDate: today };
     default:
       return null;
   }
@@ -1732,10 +1809,20 @@ export default function RunPage() {
     }
   }
 
+  function getWorkflowPresetKey(run) {
+    const preset = normalizeRunText(run?.safe_payload?.datePreset || run?.safe_payload?.date_preset);
+    return DATE_PRESET_OPTIONS.some((item) => item.key === preset) ? preset : "custom";
+  }
+
+  function isActiveWorkflowStatus(status) {
+    return ACTIVE_WORKFLOW_STATUSES.has(normalizeRunText(status));
+  }
+
   function applyWorkflowSnapshot(snapshot, options = {}) {
     const run = snapshot?.run;
     if (!run?.id) return;
 
+    const shouldRestoreFilters = options.restoreFilters !== false;
     const queue = Array.isArray(snapshot.queue) ? snapshot.queue : [];
     const events = Array.isArray(snapshot.events) ? snapshot.events : [];
     const restoredConversations = rebuildConversationsFromWorkflow(run, queue);
@@ -1752,11 +1839,14 @@ export default function RunPage() {
     setWorkflowRunId(run.id);
     setOperationStatus(operation);
 
-    if (run.start_date) setStartDate(run.start_date);
-    if (run.end_date) setEndDate(run.end_date);
-    if (typeof run.limiter_enabled === "boolean") setLimiterEnabled(run.limiter_enabled);
-    if (run.limit_count !== null && run.limit_count !== undefined) setLimitCount(String(run.limit_count));
-    if (typeof run.auto_run_enabled === "boolean") setAutoRunAfterFetch(run.auto_run_enabled);
+    if (shouldRestoreFilters) {
+      if (run.start_date) setStartDate(run.start_date);
+      if (run.end_date) setEndDate(run.end_date);
+      setSelectedDatePreset(getWorkflowPresetKey(run));
+      if (typeof run.limiter_enabled === "boolean") setLimiterEnabled(run.limiter_enabled);
+      if (run.limit_count !== null && run.limit_count !== undefined) setLimitCount(String(run.limit_count));
+      if (typeof run.auto_run_enabled === "boolean") setAutoRunAfterFetch(run.auto_run_enabled);
+    }
 
     if (restoredConversations.length) {
       setFetchData({
@@ -1864,8 +1954,13 @@ export default function RunPage() {
       }
 
       if (data.run?.id) {
-        applyWorkflowSnapshot(data);
-        addLog("Latest database-backed Run Audit workflow restored.", "notice");
+        if (!isActiveWorkflowStatus(data.run.status)) {
+          setWorkflowLoaded(true);
+          return;
+        }
+
+        applyWorkflowSnapshot(data, { restoreFilters: true });
+        addLog("Active database-backed Run Audit workflow restored.", "notice");
       }
     } catch (error) {
       addLog(
