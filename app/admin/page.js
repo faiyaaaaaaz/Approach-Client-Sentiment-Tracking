@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import CalibrationSnippetsPanel from "../components/CalibrationSnippetsPanel";
+import OverviewReportPanel from "../components/OverviewReportPanel";
 
 const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
 const TIMEOUT_MS = 10000;
@@ -73,6 +74,7 @@ const PERMISSION_CATALOG = [
   { key: "admin_supervisor_teams", label: "Manage Supervisor Teams", group: "Admin Configuration" },
   { key: "admin_roles", label: "Manage Roles & Permissions", group: "Admin Configuration", ownerLocked: true },
   { key: "admin_activity_logs", label: "View Activity Logs", group: "Monitoring" },
+  { key: "admin_overview_report", label: "Generate Overview Report", group: "Monitoring", ownerLocked: true },
   { key: "activity_export", label: "Export Activity Logs", group: "Monitoring" },
   { key: "activity_sessions", label: "View Recent Sessions", group: "Monitoring" },
 ];
@@ -165,6 +167,13 @@ const ADMIN_SECTION_META = {
     eyebrow: "Control Center",
     description: "High-level status for prompts, mappings, teams, and access coverage.",
     permission: "admin_overview",
+  },
+  "overview-report": {
+    title: "Overview Report",
+    eyebrow: "Owner Reporting",
+    description: "Generate ClickUp-ready missed review approach reports from stored audit results only.",
+    permission: "admin_overview_report",
+    ownerOnly: true,
   },
   prompt: {
     title: "Prompt",
@@ -1404,8 +1413,12 @@ function AdminPageContent() {
   const canViewActivityLogsNow = canViewActivityLogs(profile);
   const activeSectionKey = searchParams.get("section") || "overview";
   const activeSectionMeta = ADMIN_SECTION_META[activeSectionKey] || ADMIN_SECTION_META.overview;
-  const canViewActiveSection = activeSectionKey === "overview" ? isAdmin : hasPermission(profile, activeSectionMeta.permission);
   const isOwnerNow = isPlatformOwner(profile, session);
+  const canViewActiveSection = activeSectionMeta.ownerOnly
+    ? isOwnerNow
+    : activeSectionKey === "overview"
+      ? isAdmin
+      : hasPermission(profile, activeSectionMeta.permission);
 
   const activityActionOptions = useMemo(() => {
     const values = new Set(activityLogs.map((row) => normalizeText(row.action_type)).filter(Boolean));
@@ -2221,6 +2234,10 @@ function AdminPageContent() {
 
       case "snippets":
         // CalibrationSnippetsPanel owns its own data loading. Do not block this tab on unrelated Admin APIs.
+        break;
+
+      case "overview-report":
+        // OverviewReportPanel loads only when the owner clicks Generate Report.
         break;
 
       default:
@@ -3520,7 +3537,7 @@ function AdminPageContent() {
             <h1>{activeSectionMeta.title}</h1>
             <p>{activeSectionMeta.description}</p>
           </div>
-          {activeSectionKey !== "snippets" ? (
+          {activeSectionKey !== "snippets" && activeSectionKey !== "overview-report" ? (
             <button
               type="button"
               className="secondary-btn"
@@ -4089,6 +4106,10 @@ function AdminPageContent() {
 
           {hasPermission(profile, "admin_snippets") && activeSectionKey === "snippets" ? (
             <CalibrationSnippetsPanel session={session} />
+          ) : null}
+
+          {isOwnerNow && activeSectionKey === "overview-report" ? (
+            <OverviewReportPanel session={session} />
           ) : null}
 
           {(activeSectionKey === "prompt" || activeSectionKey === "api-vault") ? (
