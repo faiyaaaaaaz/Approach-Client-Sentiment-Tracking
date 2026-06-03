@@ -21,6 +21,7 @@ const ADMIN_NAV_GROUPS = [
     label: "Control",
     items: [
       { key: "overview", label: "Overview", icon: "grid", permission: "admin_overview" },
+      { key: "overview-report", label: "Overview Report", icon: "results", permission: "admin_overview_report", ownerOnly: true },
     ],
   },
   {
@@ -129,6 +130,7 @@ function getPermissionSet(profile, session) {
       admin_roles: true,
       admin_mappings: true,
       admin_activity_logs: true,
+      admin_overview_report: true,
     };
   }
 
@@ -146,7 +148,9 @@ function hasPermission(profile, session, permission) {
 function getAdminNavItems(profile, session) {
   return ADMIN_NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => hasPermission(profile, session, item.permission)),
+    items: group.items.filter((item) =>
+      item.ownerOnly ? isPlatformOwner(profile, session) : hasPermission(profile, session, item.permission)
+    ),
   })).filter((group) => group.items.length > 0);
 }
 
