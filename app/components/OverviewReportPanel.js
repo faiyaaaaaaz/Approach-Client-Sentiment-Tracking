@@ -1,6 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const REPORT_DATE_PRESETS = [
+  { key: "yesterday", label: "Yesterday" },
+  { key: "past_week", label: "Past Week" },
+  { key: "past_4_weeks", label: "Past 4 Weeks" },
+  { key: "month_to_date", label: "Month to Date" },
+];
+
+const HEADING_LINES = new Set([
+  "Analysis of Missed Review Approaches",
+  "Client Sentiment Breakdown",
+  "Overall Signal",
+  "Dashboard Reference",
+  "Agent Focus",
+  "Required Action",
+  "Note:",
+]);
+
+function CalendarIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M8 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M16 2V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.5 9H20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <rect x="3.5" y="4.5" width="17" height="16" rx="3" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
 
 function getDhakaDateString(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -26,19 +54,84 @@ function addDaysToDateString(dateString, days) {
   return `${year}-${month}-${day}`;
 }
 
-const REPORT_DATE_PRESETS = [
-  { key: "yesterday", label: "Yesterday" },
-  { key: "past_week", label: "Past Week" },
-  { key: "past_4_weeks", label: "Past 4 Weeks" },
-  { key: "month_to_date", label: "Month To Date" },
-];
-
 function getDefaultRange() {
   const today = getDhakaDateString();
   return {
     startDate: addDaysToDateString(today, -6),
     endDate: today,
   };
+}
+
+function dateStringToLocalDate(dateString) {
+  const match = String(dateString || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function normalizeToStartOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDateInput(date) {
+  const local = normalizeToStartOfDay(date);
+  const year = local.getFullYear();
+  const month = String(local.getMonth() + 1).padStart(2, "0");
+  const day = String(local.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function sameCalendarDay(a, b) {
+  return a && b && formatDateInput(a) === formatDateInput(b);
+}
+
+function monthStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function monthEnd(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function shiftMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return normalizeToStartOfDay(next);
+}
+
+function formatMonthTitle(date) {
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function buildCalendarDays(monthDate) {
+  const first = monthStart(monthDate);
+  const last = monthEnd(monthDate);
+  const startOffset = first.getDay();
+  const days = [];
+
+  for (let index = 0; index < startOffset; index += 1) {
+    const date = new Date(first);
+    date.setDate(first.getDate() - (startOffset - index));
+    days.push({ date, muted: true });
+  }
+
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    days.push({ date: new Date(first.getFullYear(), first.getMonth(), day), muted: false });
+  }
+
+  while (days.length % 7 !== 0) {
+    const lastDate = days[days.length - 1].date;
+    const date = new Date(lastDate);
+    date.setDate(lastDate.getDate() + 1);
+    days.push({ date, muted: true });
+  }
+
+  return days;
+}
+
+function isDateInDraftRange(date, draftStart, draftEnd) {
+  if (!draftStart || !draftEnd) return false;
+  const value = normalizeToStartOfDay(date).getTime();
+  return value >= normalizeToStartOfDay(draftStart).getTime() && value <= normalizeToStartOfDay(draftEnd).getTime();
 }
 
 function formatDateForDisplay(dateString) {
@@ -66,22 +159,165 @@ function buildPlatformUrl() {
   return window.location.origin;
 }
 
-function renderInlineMarkdown(text) {
-  const parts = String(text || "").split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
-    }
-    return <span key={`${part}-${index}`}>{part}</span>;
+function CalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
+  const days = buildCalendarDays(monthDate);
+
+  return (
+    <div className="calendar-month-card">
+      <h4>{formatMonthTitle(monthDate)}</h4>
+      <div className="calendar-weekdays notranslate" translate="no">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <span key={day} className="notranslate" translate="no">{day}</span>
+        ))}
+      </div>
+      <div className="calendar-day-grid">
+        {days.map(({ date, muted }) => {
+          const isStart = draftStart && sameCalendarDay(date, draftStart);
+          const isEnd = draftEnd && sameCalendarDay(date, draftEnd);
+          const inRange = isDateInDraftRange(date, draftStart, draftEnd);
+          return (
+            <button
+              key={formatDateInput(date)}
+              type="button"
+              className={["calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")}
+              onClick={() => onSelectDate(date)}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReportDateRangePicker({ startDate, endDate, selectedDatePreset, selectedPresetLabel, onApplyPreset, onApplyCustom, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState(() => {
+    const date = dateStringToLocalDate(startDate);
+    return date ? normalizeToStartOfDay(date) : null;
   });
+  const [draftEnd, setDraftEnd] = useState(() => {
+    const date = dateStringToLocalDate(endDate);
+    return date ? normalizeToStartOfDay(date) : null;
+  });
+  const [visibleMonth, setVisibleMonth] = useState(() => monthStart(dateStringToLocalDate(startDate) || new Date()));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const nextStart = dateStringToLocalDate(startDate);
+    const nextEnd = dateStringToLocalDate(endDate);
+    setDraftStart(nextStart ? normalizeToStartOfDay(nextStart) : null);
+    setDraftEnd(nextEnd ? normalizeToStartOfDay(nextEnd) : null);
+    setVisibleMonth(monthStart(nextStart || new Date()));
+  }, [open, startDate, endDate]);
+
+  useEffect(() => {
+    function handleOutside(event) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  function selectDate(date) {
+    const normalized = normalizeToStartOfDay(date);
+
+    if (!draftStart || (draftStart && draftEnd)) {
+      setDraftStart(normalized);
+      setDraftEnd(null);
+      return;
+    }
+
+    if (normalized < draftStart) {
+      setDraftEnd(draftStart);
+      setDraftStart(normalized);
+      return;
+    }
+
+    setDraftEnd(normalized);
+  }
+
+  function applyCustomRange() {
+    const safeStart = draftStart || draftEnd;
+    const safeEnd = draftEnd || draftStart;
+    if (!safeStart || !safeEnd) return;
+    onApplyCustom(formatDateInput(safeStart), formatDateInput(safeEnd));
+    setOpen(false);
+  }
+
+  function applyPreset(key) {
+    onApplyPreset(key);
+    setOpen(false);
+  }
+
+  const displayRange = startDate && endDate ? `${startDate} to ${endDate}` : "Select a range";
+  const secondMonth = shiftMonths(visibleMonth, 1);
+
+  return (
+    <div className={open ? "run-date-range-picker open" : "run-date-range-picker"} ref={ref}>
+      <label>
+        <span className="label-with-tip">Date Range</span>
+        <button type="button" className="run-date-button" onClick={() => !disabled && setOpen((prev) => !prev)} disabled={disabled}>
+          <strong><CalendarIcon /> {selectedPresetLabel}</strong>
+          <small>{displayRange}</small>
+          <b>{open ? "Up" : "Down"}</b>
+        </button>
+      </label>
+
+      {open ? (
+        <div className="run-date-popover">
+          <div className="date-popover-tabs">
+            <div>
+              <span>From</span>
+              <strong>{draftStart ? formatDateInput(draftStart) : "Choose Start"}</strong>
+            </div>
+            <div className={draftEnd ? "active" : ""}>
+              <span>To</span>
+              <strong>{draftEnd ? formatDateInput(draftEnd) : "Choose End"}</strong>
+            </div>
+          </div>
+          <div className="date-popover-body">
+            <aside className="date-preset-column">
+              {REPORT_DATE_PRESETS.map((item) => (
+                <button key={item.key} type="button" className={item.key === selectedDatePreset ? "active" : ""} onClick={() => applyPreset(item.key)}>
+                  {item.label}
+                </button>
+              ))}
+            </aside>
+            <div className="date-calendar-zone">
+              <div className="calendar-nav-row">
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, -1))}>‹</button>
+                <strong>{formatMonthTitle(visibleMonth)} - {formatMonthTitle(secondMonth)}</strong>
+                <button type="button" onClick={() => setVisibleMonth((prev) => shiftMonths(prev, 1))}>›</button>
+              </div>
+              <div className="calendar-months-grid">
+                <CalendarMonth monthDate={visibleMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+                <CalendarMonth monthDate={secondMonth} draftStart={draftStart} draftEnd={draftEnd} onSelectDate={selectDate} />
+              </div>
+            </div>
+          </div>
+          <div className="date-popover-actions">
+            <button type="button" className="ghost-btn" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="primary-btn light" onClick={applyCustomRange} disabled={!draftStart && !draftEnd}>Apply</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function renderReportLine(line, index) {
   const text = String(line || "");
   if (!text.trim()) return <div key={`blank-${index}`} className="report-preview-gap" />;
-  const isHeading = /^\*\*[^*]+\*\*$/.test(text.trim());
-  const isSubBullet = text.trim().startsWith("◦");
-  const isBullet = text.trim().startsWith("•");
+
+  const trimmed = text.trim();
+  const isHeading = HEADING_LINES.has(trimmed) || (trimmed.length <= 34 && !trimmed.startsWith("•") && !trimmed.startsWith("◦") && !trimmed.includes("."));
+  const isSubBullet = trimmed.startsWith("◦");
+  const isBullet = trimmed.startsWith("•");
   const className = [
     "report-preview-line",
     isHeading ? "heading" : "",
@@ -91,11 +327,7 @@ function renderReportLine(line, index) {
     .filter(Boolean)
     .join(" ");
 
-  return (
-    <p key={`line-${index}`} className={className}>
-      {renderInlineMarkdown(text)}
-    </p>
-  );
+  return <p key={`line-${index}`} className={className}>{text}</p>;
 }
 
 export default function OverviewReportPanel({ session }) {
@@ -140,14 +372,10 @@ export default function OverviewReportPanel({ session }) {
     }
   }
 
-  function updateCustomStartDate(value) {
+  function applyCustomDateRange(nextStartDate, nextEndDate) {
     setSelectedPreset("custom");
-    setStartDate(value.trim());
-  }
-
-  function updateCustomEndDate(value) {
-    setSelectedPreset("custom");
-    setEndDate(value.trim());
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
   }
 
   async function generateReport() {
@@ -214,7 +442,7 @@ export default function OverviewReportPanel({ session }) {
 
     try {
       await navigator.clipboard.writeText(report);
-      setSuccess("Report copied. You can paste it into ClickUp now.");
+      setSuccess("Plain-text report copied. You can paste it into ClickUp now.");
     } catch (_error) {
       setError("Copy failed. Select the report text manually and copy it.");
     } finally {
@@ -251,37 +479,21 @@ export default function OverviewReportPanel({ session }) {
             </div>
           </div>
 
-          <div className="platform-date-filter">
-            <div className="date-filter-main">
-              <span className="date-filter-icon">▣</span>
-              <div>
-                <span>Date Range</span>
-                <strong>{activePresetLabel} · {displayRangeLabel}</strong>
-              </div>
-            </div>
-            <div className="preset-row compact">
-              {REPORT_DATE_PRESETS.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={item.key === selectedPreset ? "mini-btn active" : "mini-btn"}
-                  onClick={() => applyPreset(item.key)}
-                  disabled={loading}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="date-grid">
-              <label>
-                <span>Start Date</span>
-                <input type="text" inputMode="numeric" value={startDate} onChange={(event) => updateCustomStartDate(event.target.value)} placeholder="YYYY-MM-DD" disabled={loading} />
-              </label>
-              <label>
-                <span>End Date</span>
-                <input type="text" inputMode="numeric" value={endDate} onChange={(event) => updateCustomEndDate(event.target.value)} placeholder="YYYY-MM-DD" disabled={loading} />
-              </label>
-            </div>
+          <div className="report-command-control date-control-wide">
+            <ReportDateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              selectedDatePreset={selectedPreset}
+              selectedPresetLabel={activePresetLabel}
+              onApplyPreset={applyPreset}
+              onApplyCustom={applyCustomDateRange}
+              disabled={loading}
+            />
+          </div>
+
+          <div className="filter-summary-grid">
+            <div><span>Date Range</span><strong>{displayRangeLabel}</strong></div>
+            <div><span>Scope</span><strong>CEx only</strong></div>
           </div>
 
           <button type="button" className="generate-btn" onClick={generateReport} disabled={loading || !session?.access_token}>
@@ -307,7 +519,7 @@ export default function OverviewReportPanel({ session }) {
               <div className="summary-tile">
                 <span>Total Audited</span>
                 <strong>{formatNumber(summary.totalAudited)}</strong>
-                <small>Stored result rows in range</small>
+                <small>Stored CEx result rows in range</small>
               </div>
               <div className="summary-tile danger">
                 <span>Missed Approaches</span>
@@ -317,7 +529,7 @@ export default function OverviewReportPanel({ session }) {
               <div className="summary-tile warning">
                 <span>Miss Rate</span>
                 <strong>{formatPercent(summary.missedPositiveRate)}</strong>
-                <small>Of audited conversations</small>
+                <small>Of CEx audited conversations</small>
               </div>
               <div className="summary-tile">
                 <span>Report Source</span>
@@ -360,7 +572,7 @@ export default function OverviewReportPanel({ session }) {
           <div>
             <p className="eyebrow">ClickUp Output</p>
             <h3>Generated Report</h3>
-            <p>Review the wording once before pasting it into the ClickUp channel.</p>
+            <p>Review the wording once before pasting it into the ClickUp channel. The copied text is plain text, with no markdown asterisks.</p>
           </div>
           <button type="button" className="copy-btn" onClick={copyReport} disabled={!report || copying}>
             {copying ? "Copying..." : "Copy Report"}
@@ -368,18 +580,18 @@ export default function OverviewReportPanel({ session }) {
         </div>
 
         {report ? (
-          <div className="report-preview-panel" aria-label="Formatted report preview">
+          <div className="report-preview-panel" aria-label="Report preview">
             {previewLines.map((line, index) => renderReportLine(line, index))}
           </div>
         ) : null}
 
         <label className="editable-report-label">
-          <span>Editable copy text</span>
+          <span>Plain copy text</span>
           <textarea
             className="report-textarea"
             value={report}
             onChange={(event) => setReport(event.target.value)}
-            placeholder="Your generated ClickUp-ready report will appear here."
+            placeholder="Your generated plain-text ClickUp report will appear here."
             rows={18}
           />
         </label>
@@ -516,64 +728,249 @@ export default function OverviewReportPanel({ session }) {
           line-height: 1.55;
         }
 
-        .platform-date-filter {
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          background: rgba(2, 6, 23, 0.24);
-          border-radius: 18px;
+        .report-command-control {
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          background: rgba(15, 23, 42, 0.56);
+          border-radius: 16px;
           padding: 12px;
+          position: relative;
+          overflow: visible;
+        }
+
+        .run-date-range-picker {
+          position: relative;
+          z-index: 25;
+        }
+
+        .run-date-range-picker.open {
+          z-index: 9000;
+        }
+
+        .run-date-range-picker label {
           display: grid;
-          gap: 12px;
+          gap: 10px;
         }
 
-        .date-filter-main {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          background: rgba(15, 23, 42, 0.72);
-          border-radius: 14px;
-          padding: 12px 14px;
-        }
-
-        .date-filter-icon {
-          display: inline-grid;
-          place-items: center;
-          width: 32px;
-          height: 32px;
-          border-radius: 11px;
-          border: 1px solid rgba(96, 165, 250, 0.28);
-          color: #93c5fd;
-          background: rgba(30, 64, 175, 0.16);
-        }
-
-        .date-filter-main span:not(.date-filter-icon) {
-          display: block;
+        .label-with-tip {
           color: #93c5fd;
           text-transform: uppercase;
-          letter-spacing: 0.12em;
-          font-size: 0.7rem;
+          letter-spacing: 0.14em;
+          font-size: 0.72rem;
           font-weight: 900;
         }
 
-        .date-filter-main strong {
-          display: block;
-          margin-top: 3px;
-          color: #f8fafc;
-          font-size: 0.95rem;
-        }
-
-        .preset-row {
-          display: flex;
-          flex-wrap: wrap;
+        .run-date-button {
+          width: 100%;
+          min-height: 56px;
+          display: grid;
+          grid-template-columns: max-content minmax(0, 1fr) max-content;
+          align-items: center;
           gap: 10px;
-          margin-bottom: 16px;
+          padding: 0 14px;
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          background: rgba(2, 6, 23, 0.72);
+          color: #f8fbff;
+          font: inherit;
+          text-align: left;
+          cursor: pointer;
         }
 
-        .preset-row.compact {
-          margin-bottom: 0;
+        .run-date-button strong {
+          display: inline-flex;
+          align-items: center;
+          gap: 9px;
+          min-width: max-content;
+          flex-shrink: 0;
+          overflow: visible;
+          white-space: nowrap;
+          font-size: 16px;
+          font-weight: 900;
         }
 
-        .mini-btn,
+        .run-date-button strong svg {
+          flex: 0 0 17px;
+          width: 17px;
+          height: 17px;
+        }
+
+        .run-date-button small {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: #a9b4d0;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .run-date-button b {
+          color: #9fb2ee;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .run-date-popover {
+          position: absolute;
+          z-index: 9999;
+          top: calc(100% + 12px);
+          left: 0;
+          width: min(940px, calc(100vw - 52px));
+          border-radius: 24px;
+          border: 1px solid rgba(96, 165, 250, 0.22);
+          background: rgba(8, 13, 28, 0.98);
+          box-shadow: 0 34px 90px rgba(0, 0, 0, 0.55);
+          padding: 18px;
+        }
+
+        .date-popover-tabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          padding-bottom: 12px;
+          margin-bottom: 14px;
+        }
+
+        .date-popover-tabs div {
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.035);
+        }
+
+        .date-popover-tabs div.active {
+          border-bottom: 2px solid #22c55e;
+        }
+
+        .date-popover-tabs span,
+        .date-popover-tabs strong {
+          display: block;
+        }
+
+        .date-popover-tabs span {
+          color: #8ea0d6;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          margin-bottom: 4px;
+        }
+
+        .date-popover-tabs strong {
+          color: #f8fbff;
+          font-size: 16px;
+        }
+
+        .date-popover-body {
+          display: grid;
+          grid-template-columns: 170px minmax(0, 1fr);
+          gap: 16px;
+        }
+
+        .date-preset-column {
+          display: grid;
+          align-content: start;
+          gap: 8px;
+        }
+
+        .date-preset-column button,
+        .calendar-nav-row button {
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          color: #dbe7ff;
+          min-height: 38px;
+          padding: 0 10px;
+          font: inherit;
+          font-size: 14px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .date-preset-column button.active,
+        .date-preset-column button:hover,
+        .calendar-nav-row button:hover {
+          border-color: rgba(34, 211, 238, 0.24);
+          background: rgba(14, 165, 233, 0.12);
+        }
+
+        .calendar-nav-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .calendar-nav-row strong {
+          color: #f8fbff;
+          font-size: 17px;
+        }
+
+        .calendar-months-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+        }
+
+        .calendar-month-card h4 {
+          margin: 0 0 12px;
+          color: #f8fbff;
+          font-size: 17px;
+        }
+
+        .calendar-weekdays,
+        .calendar-day-grid {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 4px;
+        }
+
+        .calendar-weekdays span {
+          color: #8ea0d6;
+          font-size: 12px;
+          font-weight: 900;
+          text-align: center;
+          padding: 6px 0;
+        }
+
+        .calendar-day {
+          min-height: 36px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #dbe7ff;
+          font: inherit;
+          font-size: 15px;
+          font-weight: 850;
+          cursor: pointer;
+        }
+
+        .calendar-day.muted {
+          color: rgba(148, 163, 184, 0.36);
+        }
+
+        .calendar-day.in-range {
+          background: rgba(34, 197, 94, 0.12);
+        }
+
+        .calendar-day.range-start,
+        .calendar-day.range-end {
+          color: #ffffff;
+          border-color: rgba(34, 197, 94, 0.4);
+          background: rgba(22, 163, 74, 0.72);
+          box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.16), 0 0 20px rgba(34, 197, 94, 0.18);
+        }
+
+        .date-popover-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 16px;
+        }
+
+        .ghost-btn,
+        .primary-btn.light,
         .copy-btn,
         .generate-btn {
           border: 1px solid rgba(148, 163, 184, 0.22);
@@ -583,22 +980,24 @@ export default function OverviewReportPanel({ session }) {
           transition: transform 160ms ease, border-color 160ms ease, opacity 160ms ease;
         }
 
-        .mini-btn,
+        .ghost-btn,
         .copy-btn {
           background: rgba(15, 23, 42, 0.82);
           border-radius: 14px;
           padding: 11px 14px;
         }
 
-        .mini-btn.active {
-          border-color: rgba(34, 211, 238, 0.52);
-          color: #a7f3d0;
-          background: rgba(8, 145, 178, 0.18);
+        .primary-btn.light {
+          border-radius: 14px;
+          padding: 11px 14px;
+          background: #f8fafc;
+          color: #0f172a;
         }
 
-        .mini-btn:hover,
         .copy-btn:hover,
-        .generate-btn:hover {
+        .generate-btn:hover,
+        .ghost-btn:hover,
+        .primary-btn.light:hover {
           transform: translateY(-1px);
           border-color: rgba(34, 211, 238, 0.45);
         }
@@ -609,38 +1008,37 @@ export default function OverviewReportPanel({ session }) {
           transform: none !important;
         }
 
-        .date-grid {
+        .filter-summary-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
+          gap: 10px;
+          margin-top: 12px;
         }
 
-        .date-grid label {
-          display: grid;
-          gap: 8px;
-          color: #c7d2fe;
-          font-size: 0.78rem;
+        .filter-summary-grid div {
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(15, 23, 42, 0.6);
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+
+        .filter-summary-grid span,
+        .summary-tile span,
+        .breakdown-list span {
+          display: block;
+          color: #93c5fd;
+          font-size: 0.72rem;
           font-weight: 900;
-          text-transform: uppercase;
           letter-spacing: 0.12em;
+          text-transform: uppercase;
         }
 
-        .date-grid input,
-        .report-textarea {
-          width: 100%;
-          border: 1px solid rgba(148, 163, 184, 0.22);
-          background: rgba(2, 6, 23, 0.58);
+        .filter-summary-grid strong {
+          display: block;
+          margin-top: 4px;
           color: #f8fafc;
-          border-radius: 14px;
-          padding: 13px 14px;
-          outline: none;
-          font: inherit;
-        }
-
-        .date-grid input:focus,
-        .report-textarea:focus {
-          border-color: rgba(34, 211, 238, 0.55);
-          box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+          font-size: 0.92rem;
+          line-height: 1.35;
         }
 
         .generate-btn {
@@ -674,15 +1072,6 @@ export default function OverviewReportPanel({ session }) {
           padding: 16px;
           display: grid;
           gap: 6px;
-        }
-
-        .summary-tile span,
-        .breakdown-list span {
-          color: #93c5fd;
-          font-size: 0.72rem;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
         }
 
         .summary-tile strong {
@@ -788,6 +1177,7 @@ export default function OverviewReportPanel({ session }) {
           margin-top: 16px;
           margin-bottom: 8px;
           color: #f8fafc;
+          font-weight: 950;
           font-size: 1.08rem;
         }
 
@@ -807,11 +1197,6 @@ export default function OverviewReportPanel({ session }) {
           color: #bfdbfe;
         }
 
-        .report-preview-line strong {
-          color: #ffffff;
-          font-weight: 900;
-        }
-
         .report-preview-gap {
           height: 10px;
         }
@@ -827,7 +1212,15 @@ export default function OverviewReportPanel({ session }) {
         }
 
         .report-textarea {
+          width: 100%;
           min-height: 320px;
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          background: rgba(2, 6, 23, 0.58);
+          color: #f8fafc;
+          border-radius: 14px;
+          padding: 13px 14px;
+          outline: none;
+          font: inherit;
           line-height: 1.55;
           resize: vertical;
           white-space: pre-wrap;
@@ -835,6 +1228,11 @@ export default function OverviewReportPanel({ session }) {
           letter-spacing: normal;
           font-size: 0.92rem;
           font-weight: 500;
+        }
+
+        .report-textarea:focus {
+          border-color: rgba(34, 211, 238, 0.55);
+          box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
         }
 
         .agent-table-wrap {
@@ -874,8 +1272,10 @@ export default function OverviewReportPanel({ session }) {
 
         @media (max-width: 980px) {
           .overview-report-grid,
-          .date-grid,
-          .summary-grid {
+          .summary-grid,
+          .filter-summary-grid,
+          .date-popover-body,
+          .calendar-months-grid {
             grid-template-columns: 1fr;
           }
 
@@ -883,6 +1283,10 @@ export default function OverviewReportPanel({ session }) {
           .report-card-head,
           .output-head {
             flex-direction: column;
+          }
+
+          .run-date-popover {
+            width: min(94vw, 520px);
           }
         }
       `}</style>
