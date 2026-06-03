@@ -9,6 +9,7 @@ const OPENAI_MODEL = "gpt-4.1-mini";
 const PAGE_SIZE = 1000;
 const MAX_REPORT_ROWS = 50000;
 const POSITIVE_MISSED_SENTIMENTS = ["Very Positive", "Positive", "Slightly Positive"];
+const CEX_TEAM_NAME = "CEx";
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -40,6 +41,10 @@ function normalizeKey(value) {
 
 function sameText(a, b) {
   return normalizeKey(a) === normalizeKey(b);
+}
+
+function isCexTeam(value) {
+  return normalizeKey(value) === normalizeKey(CEX_TEAM_NAME);
 }
 
 function getSupabaseClients() {
@@ -303,40 +308,72 @@ async function loadSupervisorLookup(adminClient) {
     .eq("is_active", true)
     .limit(1000);
 
-  if (teamsError) return lookup;
+  if (!teamsError) {
+    const teamRows = Array.isArray(teams) ? teams : [];
+    const teamById = new Map(teamRows.map((team) => [team.id, team]));
+    const teamIds = teamRows.map((team) => team.id).filter(Boolean);
 
-  const teamRows = Array.isArray(teams) ? teams : [];
-  const teamById = new Map(teamRows.map((team) => [team.id, team]));
-  const teamIds = teamRows.map((team) => team.id).filter(Boolean);
+    if (teamIds.length) {
+      const { data: members, error: membersError } = await adminClient
+        .from("supervisor_team_members")
+        .select("supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active")
+        .in("supervisor_team_id", teamIds)
+        .eq("is_active", true)
+        .limit(10000);
 
-  if (!teamIds.length) return lookup;
+      if (!membersError) {
+        for (const member of Array.isArray(members) ? members : []) {
+          const team = teamById.get(member.supervisor_team_id);
+          if (!team) continue;
 
-  const { data: members, error: membersError } = await adminClient
-    .from("supervisor_team_members")
-    .select("supervisor_team_id, employee_name, employee_email, intercom_agent_name, is_active")
-    .in("supervisor_team_id", teamIds)
+          const payload = {
+            supervisorName: normalizeText(team.supervisor_name),
+            supervisorEmail: normalizeEmail(team.supervisor_email),
+            teamName: normalizeText(member.team_name),
+          };
+
+          const keys = [
+            `email:${normalizeEmail(member.employee_email)}`,
+            `employee:${normalizeKey(member.employee_name)}`,
+            `agent:${normalizeKey(member.intercom_agent_name)}`,
+          ].filter((key) => !key.endsWith(":"));
+
+          for (const key of keys) {
+            if (!lookup.has(key)) lookup.set(key, payload);
+          }
+        }
+      }
+    }
+  }
+
+  const { data: mappings, error: mappingsError } = await adminClient
+    .from("agent_mappings")
+    .select("employee_name, employee_email, intercom_agent_name, team_name, is_active")
     .eq("is_active", true)
     .limit(10000);
 
-  if (membersError) return lookup;
+  if (!mappingsError) {
+    for (const mapping of Array.isArray(mappings) ? mappings : []) {
+      const payload = {
+        supervisorName: "",
+        supervisorEmail: "",
+        teamName: normalizeText(mapping.team_name),
+      };
 
-  for (const member of Array.isArray(members) ? members : []) {
-    const team = teamById.get(member.supervisor_team_id);
-    if (!team) continue;
+      const keys = [
+        `email:${normalizeEmail(mapping.employee_email)}`,
+        `employee:${normalizeKey(mapping.employee_name)}`,
+        `agent:${normalizeKey(mapping.intercom_agent_name)}`,
+      ].filter((key) => !key.endsWith(":"));
 
-    const payload = {
-      supervisorName: normalizeText(team.supervisor_name),
-      supervisorEmail: normalizeEmail(team.supervisor_email),
-    };
-
-    const keys = [
-      `email:${normalizeEmail(member.employee_email)}`,
-      `employee:${normalizeKey(member.employee_name)}`,
-      `agent:${normalizeKey(member.intercom_agent_name)}`,
-    ].filter((key) => !key.endsWith(":"));
-
-    for (const key of keys) {
-      if (!lookup.has(key)) lookup.set(key, payload);
+      for (const key of keys) {
+        const existing = lookup.get(key);
+        if (existing) {
+          if (!existing.teamName && payload.teamName) existing.teamName = payload.teamName;
+        } else {
+          lookup.set(key, payload);
+        }
+      }
     }
   }
 
@@ -347,7 +384,7 @@ function employeeNameFor(row) {
   return normalizeText(row?.employee_name) || normalizeText(row?.agent_name) || "Unmapped Agent";
 }
 
-function getSupervisorForRow(row, supervisorLookup) {
+function getMappingContextForRow(row, supervisorLookup) {
   const keys = [
     `email:${normalizeEmail(row?.employee_email)}`,
     `employee:${normalizeKey(row?.employee_name)}`,
@@ -356,10 +393,22 @@ function getSupervisorForRow(row, supervisorLookup) {
 
   for (const key of keys) {
     const found = supervisorLookup.get(key);
-    if (found?.supervisorName) return found;
+    if (found?.supervisorName || found?.teamName) return found;
   }
 
   return null;
+}
+
+function getSupervisorForRow(row, supervisorLookup) {
+  const mapping = getMappingContextForRow(row, supervisorLookup);
+  return mapping?.supervisorName ? mapping : null;
+}
+
+function getResolvedTeamName(row, supervisorLookup) {
+  const directTeam = normalizeText(row?.team_name);
+  if (directTeam) return directTeam;
+  const mapping = getMappingContextForRow(row, supervisorLookup);
+  return normalizeText(mapping?.teamName);
 }
 
 function buildWeekPeriods(startDate, endDate) {
@@ -397,17 +446,22 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
   const end = dateAtDhakaBoundary(endDate, true);
   const rangeLabel = buildRangeLabel(startDate, endDate);
 
-  const scopedRows = (rows || []).filter((row) => {
+  const allRowsInRange = (rows || []).filter((row) => {
     const date = toDate(getAnalyticsDate(row));
     if (!date || date < start || date > end) return false;
     return !normalizeText(row?.error);
   });
 
-  const missedPositiveRows = scopedRows.filter(
-    (row) =>
-      sameText(row?.review_sentiment, "Missed Opportunity") &&
-      POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment))
-  );
+  const scopedRows = allRowsInRange.filter((row) => isCexTeam(getResolvedTeamName(row, supervisorLookup)));
+
+  const excludedNonCexRows = allRowsInRange.length - scopedRows.length;
+
+  const isPositiveMissedRow = (row) =>
+    sameText(row?.review_sentiment, "Missed Opportunity") &&
+    POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment));
+
+  const missedPositiveRows = scopedRows.filter(isPositiveMissedRow);
+  const excludedNonCexMissedPositiveRows = allRowsInRange.filter((row) => !isCexTeam(getResolvedTeamName(row, supervisorLookup)) && isPositiveMissedRow(row)).length;
 
   const sentimentBreakdown = POSITIVE_MISSED_SENTIMENTS.map((sentiment) => ({
     sentiment,
@@ -419,10 +473,11 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
 
   for (const row of missedPositiveRows) {
     const employee = employeeNameFor(row);
+    const resolvedTeamName = getResolvedTeamName(row, supervisorLookup);
     const key = normalizeKey(employee);
     const current = agentMap.get(key) || {
       employee,
-      team: normalizeText(row?.team_name) || "-",
+      team: resolvedTeamName || "-",
       total: 0,
       veryPositive: 0,
       positive: 0,
@@ -433,7 +488,7 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     if (sameText(row?.client_sentiment, "Very Positive")) current.veryPositive += 1;
     if (sameText(row?.client_sentiment, "Positive")) current.positive += 1;
     if (sameText(row?.client_sentiment, "Slightly Positive")) current.slightlyPositive += 1;
-    if ((!current.team || current.team === "-") && row?.team_name) current.team = row.team_name;
+    if ((!current.team || current.team === "-") && resolvedTeamName) current.team = resolvedTeamName;
     agentMap.set(key, current);
 
     const supervisor = getSupervisorForRow(row, supervisorLookup);
@@ -527,6 +582,8 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     platformUrl: normalizeText(platformUrl),
     totalAudited: scopedRows.length,
     totalMissedPositive: missedPositiveRows.length,
+    excludedNonCexRows,
+    excludedNonCexMissedPositiveRows,
     missedPositiveRate,
     missedPositiveRateLabel: formatPercent(missedPositiveRate),
     sentimentBreakdown,
@@ -537,6 +594,7 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     riskSignals,
     meta: {
       source: "audit_results",
+      reportScope: "CEx team only",
       reranAudits: false,
       excludedClientSentiments: ["Neutral", "Slightly Negative", "Negative", "Very Negative"],
       includedClientSentiments: POSITIVE_MISSED_SENTIMENTS,
@@ -548,63 +606,71 @@ function buildFallbackReport(summary) {
   const lines = [];
   const breakdown = Object.fromEntries(summary.sentimentBreakdown.map((item) => [item.sentiment, item.count]));
 
-  lines.push("Analysis of Missed Review Approaches");
+  lines.push("**Analysis of Missed Review Approaches**");
   lines.push("");
   lines.push("Hello @everyone,");
   lines.push("");
 
   if (!summary.totalAudited) {
-    lines.push(`No audited conversations were found for ${summary.range.label}.`);
+    lines.push(`No CEx audit results were found for **${summary.range.label}**.`);
     lines.push("");
     lines.push("Please confirm the date range or run audits first before generating this report.");
     return lines.join("\n");
   }
 
   lines.push(
-    `It is quite alarming to see that we missed a total of ${formatNumber(summary.totalMissedPositive)} positive-side review approach(es) from ${summary.range.label}.`
+    `It is quite alarming to see that we missed a total of **${formatNumber(summary.totalMissedPositive)} review approach(es)** from **${summary.range.label}**.`
   );
   lines.push("");
-  lines.push(`• ${formatNumber(breakdown["Very Positive"] || 0)} were to Very Positive clients.`);
-  lines.push(`• ${formatNumber(breakdown.Positive || 0)} were to Positive clients.`);
-  lines.push(`• ${formatNumber(breakdown["Slightly Positive"] || 0)} were to Slightly Positive clients.`);
+
+  lines.push("**Client Sentiment Breakdown**");
+  lines.push(`• **${formatNumber(breakdown["Very Positive"] || 0)}** were to Very Positive clients.`);
+  lines.push(`• **${formatNumber(breakdown.Positive || 0)}** were to Positive clients.`);
+  lines.push(`• **${formatNumber(breakdown["Slightly Positive"] || 0)}** were to Slightly Positive clients.`);
   lines.push("");
-  lines.push(`This equals ${summary.missedPositiveRateLabel} of ${formatNumber(summary.totalAudited)} audited conversation(s) in the selected range.`);
+
+  lines.push("**Overall Signal**");
+  lines.push(`• The selected range contains **${formatNumber(summary.totalAudited)} CEx audited conversation(s)**.`);
+  lines.push(`• The missed positive-side approach rate is **${summary.missedPositiveRateLabel}**.`);
+  if (summary.riskSignals.length) {
+    summary.riskSignals.slice(0, 3).forEach((item) => lines.push(`• ${item}`));
+  }
+  lines.push("");
 
   if (summary.platformUrl) {
-    lines.push("");
+    lines.push("**Dashboard Reference**");
     lines.push(`You can check the data yourself by applying the same filters in this dashboard: ${summary.platformUrl}`);
+    lines.push("");
   }
 
   if (summary.weeklyHighlights.length) {
-    lines.push("");
+    lines.push("**Agent Focus**");
     lines.push("Here is the week-by-week miss count of the agents needing attention:");
     summary.weeklyHighlights.slice(0, 6).forEach((item) => {
-      lines.push(`• ${item.employee} (${formatNumber(item.count)} miss(es) on ${item.week})`);
+      lines.push(`• **${item.employee}** - ${formatNumber(item.count)} miss(es) on ${item.week}`);
+      lines.push(`  ◦ Period: ${item.weekRange}`);
     });
-  } else if (summary.topAgents.length) {
     lines.push("");
+  } else if (summary.topAgents.length) {
+    lines.push("**Agent Focus**");
     lines.push("Agents needing attention in this date range:");
     summary.topAgents.slice(0, 6).forEach((item) => {
-      lines.push(`• ${item.employee} (${formatNumber(item.total)} missed approach(es))`);
+      lines.push(`• **${item.employee}** - ${formatNumber(item.total)} missed approach(es)`);
+      lines.push(`  ◦ Breakdown: ${formatNumber(item.veryPositive)} Very Positive, ${formatNumber(item.positive)} Positive, ${formatNumber(item.slightlyPositive)} Slightly Positive.`);
     });
-  }
-
-  if (summary.riskSignals.length) {
     lines.push("");
-    lines.push("Alarming trend(s) to note:");
-    summary.riskSignals.slice(0, 4).forEach((item) => lines.push(`• ${item}`));
   }
 
+  lines.push("**Required Action**");
   if (summary.supervisorAttention.length) {
-    lines.push("");
-    lines.push("Requesting the relevant leads/supervisors to review their team performance and share necessary feedbacks.");
+    const supervisorNames = summary.supervisorAttention.map((item) => item.supervisorName).filter(Boolean).slice(0, 8).join(", ");
+    lines.push(`Requesting the relevant leads/supervisors (${supervisorNames}) to review their team's performance and share necessary feedback.`);
   } else {
-    lines.push("");
-    lines.push("Requesting all leads to review their team performance and share necessary feedbacks.");
+    lines.push("Requesting all leads to review their team's performance and share necessary feedback.");
   }
-
   lines.push("");
-  lines.push("Note: If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results.");
+
+  lines.push("**Note:** If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results.");
 
   return lines.join("\n");
 }
@@ -612,23 +678,57 @@ function buildFallbackReport(summary) {
 function buildOpenAiPrompt(summary) {
   return `You are writing a ClickUp channel update for an internal FundedNext support QA platform.
 
-Write in the same practical style as the user's example:
-- Title: Analysis of Missed Review Approaches
-- Start with: Hello @everyone,
-- Keep it direct and management-friendly.
-- Mention alarming trends only when supported by the facts.
+Write a polished ClickUp-ready report in the user's practical management-update style.
+
+Mandatory rules:
+- Return only the final report text. Do not wrap it in code fences.
+- Do not write "Title:" before the heading.
+- Use markdown-style bold headings, for example **Analysis of Missed Review Approaches**.
+- Start exactly with the heading **Analysis of Missed Review Approaches**, then a blank line, then Hello @everyone,
+- Use short sections with clear headings and sub-points where useful.
+- Keep it direct, professional, and action-oriented.
+- Mention alarming trends only when supported by the calculated facts.
 - Do not invent numbers, dates, agent names, supervisor names, or links.
 - Use only the provided calculated facts.
 - Do not mention Neutral, Negative, Slightly Negative, or Very Negative sentiment categories.
-- The report is only about Missed Opportunity results where Client Sentiment is Very Positive, Positive, or Slightly Positive.
+- The report is only about CEx team Missed Opportunity results where Client Sentiment is Very Positive, Positive, or Slightly Positive.
 - Do not say audits were rerun. This report is based only on stored audit results.
-- Use bullet points with the bullet character •.
-- End with this note exactly, preserving meaning but fixing grammar only if needed: "Note: If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results."
+- Include a dashboard reference if platformUrl is available.
+- Use bullets with the bullet character •.
+- Use indented sub-points with ◦ when you need to explain an agent or trend.
+- End with this exact note, using bold on Note: "**Note:** If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results."
+
+Recommended structure:
+**Analysis of Missed Review Approaches**
+
+Hello @everyone,
+
+Short opening paragraph with the total missed review approaches and selected date range.
+
+**Client Sentiment Breakdown**
+• Very Positive count
+• Positive count
+• Slightly Positive count
+
+**Overall Signal**
+• Total CEx audited conversations
+• Missed approach rate
+• Supported alarming trend if any
+
+**Dashboard Reference**
+Short line with the platform URL if provided.
+
+**Agent Focus**
+• Agent name - miss count
+  ◦ Include the most useful sub-point from the data.
+
+**Required Action**
+Request relevant leads/supervisors to review and share feedback.
+
+**Note:** ...
 
 Calculated facts JSON:
-${JSON.stringify(summary, null, 2)}
-
-Return only the final ClickUp-ready report text. Do not wrap in markdown code fences.`;
+${JSON.stringify(summary, null, 2)}`;
 }
 
 async function generateAiReport(openAiApiKey, summary) {
@@ -691,6 +791,7 @@ async function writeActivityLog(adminClient, request, auth, summary, source) {
       safe_after: {
         totalAudited: summary.totalAudited,
         totalMissedPositive: summary.totalMissedPositive,
+        excludedNonCexMissedPositiveRows: summary.excludedNonCexMissedPositiveRows,
         reportSource: source,
       },
       metadata: {
