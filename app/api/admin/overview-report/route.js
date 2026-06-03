@@ -602,66 +602,76 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
   };
 }
 
+function stripReportMarkdown(value) {
+  return String(value || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/^#+\s*/gm, "")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
 function buildFallbackReport(summary) {
   const lines = [];
   const breakdown = Object.fromEntries(summary.sentimentBreakdown.map((item) => [item.sentiment, item.count]));
 
-  lines.push("**Analysis of Missed Review Approaches**");
+  lines.push("Analysis of Missed Review Approaches");
   lines.push("");
   lines.push("Hello @everyone,");
   lines.push("");
 
   if (!summary.totalAudited) {
-    lines.push(`No CEx audit results were found for **${summary.range.label}**.`);
+    lines.push(`No CEx audit results were found for ${summary.range.label}.`);
     lines.push("");
     lines.push("Please confirm the date range or run audits first before generating this report.");
     return lines.join("\n");
   }
 
   lines.push(
-    `It is quite alarming to see that we missed a total of **${formatNumber(summary.totalMissedPositive)} review approach(es)** from **${summary.range.label}**.`
+    `It is quite alarming to see that we missed a total of ${formatNumber(summary.totalMissedPositive)} review approach(es) from ${summary.range.label}.`
   );
   lines.push("");
 
-  lines.push("**Client Sentiment Breakdown**");
-  lines.push(`• **${formatNumber(breakdown["Very Positive"] || 0)}** were to Very Positive clients.`);
-  lines.push(`• **${formatNumber(breakdown.Positive || 0)}** were to Positive clients.`);
-  lines.push(`• **${formatNumber(breakdown["Slightly Positive"] || 0)}** were to Slightly Positive clients.`);
+  lines.push("Client Sentiment Breakdown");
+  lines.push(`• ${formatNumber(breakdown["Very Positive"] || 0)} were to Very Positive clients.`);
+  lines.push(`• ${formatNumber(breakdown.Positive || 0)} were to Positive clients.`);
+  lines.push(`• ${formatNumber(breakdown["Slightly Positive"] || 0)} were to Slightly Positive clients.`);
   lines.push("");
 
-  lines.push("**Overall Signal**");
-  lines.push(`• The selected range contains **${formatNumber(summary.totalAudited)} CEx audited conversation(s)**.`);
-  lines.push(`• The missed positive-side approach rate is **${summary.missedPositiveRateLabel}**.`);
+  lines.push("Overall Signal");
+  lines.push(`• Total CEx audited conversations: ${formatNumber(summary.totalAudited)}.`);
+  lines.push(`• Missed positive-side approach rate: ${summary.missedPositiveRateLabel}.`);
   if (summary.riskSignals.length) {
     summary.riskSignals.slice(0, 3).forEach((item) => lines.push(`• ${item}`));
   }
   lines.push("");
 
   if (summary.platformUrl) {
-    lines.push("**Dashboard Reference**");
-    lines.push(`You can check the data yourself by applying the same filters in this dashboard: ${summary.platformUrl}`);
+    lines.push("Dashboard Reference");
+    lines.push("You can check the data yourself by applying the right filters from this dashboard I created -");
+    lines.push(summary.platformUrl);
     lines.push("");
   }
 
   if (summary.weeklyHighlights.length) {
-    lines.push("**Agent Focus**");
+    lines.push("Agent Focus");
     lines.push("Here is the week-by-week miss count of the agents needing attention:");
     summary.weeklyHighlights.slice(0, 6).forEach((item) => {
-      lines.push(`• **${item.employee}** - ${formatNumber(item.count)} miss(es) on ${item.week}`);
+      lines.push(`• ${item.employee} - ${formatNumber(item.count)} miss(es) on ${item.week}`);
       lines.push(`  ◦ Period: ${item.weekRange}`);
     });
     lines.push("");
   } else if (summary.topAgents.length) {
-    lines.push("**Agent Focus**");
+    lines.push("Agent Focus");
     lines.push("Agents needing attention in this date range:");
     summary.topAgents.slice(0, 6).forEach((item) => {
-      lines.push(`• **${item.employee}** - ${formatNumber(item.total)} missed approach(es)`);
+      lines.push(`• ${item.employee} - ${formatNumber(item.total)} missed approach(es)`);
       lines.push(`  ◦ Breakdown: ${formatNumber(item.veryPositive)} Very Positive, ${formatNumber(item.positive)} Positive, ${formatNumber(item.slightlyPositive)} Slightly Positive.`);
     });
     lines.push("");
   }
 
-  lines.push("**Required Action**");
+  lines.push("Required Action");
   if (summary.supervisorAttention.length) {
     const supervisorNames = summary.supervisorAttention.map((item) => item.supervisorName).filter(Boolean).slice(0, 8).join(", ");
     lines.push(`Requesting the relevant leads/supervisors (${supervisorNames}) to review their team's performance and share necessary feedback.`);
@@ -670,22 +680,24 @@ function buildFallbackReport(summary) {
   }
   lines.push("");
 
-  lines.push("**Note:** If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results.");
+  lines.push("Note: If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results.");
 
   return lines.join("\n");
 }
 
 function buildOpenAiPrompt(summary) {
-  return `You are writing a ClickUp channel update for an internal FundedNext support QA platform.
+  return `You are writing a plain-text ClickUp channel update for an internal FundedNext support QA platform.
 
 Write a polished ClickUp-ready report in the user's practical management-update style.
 
 Mandatory rules:
 - Return only the final report text. Do not wrap it in code fences.
+- Plain text only. Do not use markdown. Do not use asterisks. Do not use bold markers. Do not use underscores for emphasis.
 - Do not write "Title:" before the heading.
-- Use markdown-style bold headings, for example **Analysis of Missed Review Approaches**.
-- Start exactly with the heading **Analysis of Missed Review Approaches**, then a blank line, then Hello @everyone,
-- Use short sections with clear headings and sub-points where useful.
+- Start exactly with the plain heading Analysis of Missed Review Approaches, then a blank line, then Hello @everyone,
+- Use clean section labels as plain lines, for example Client Sentiment Breakdown and Agent Focus.
+- Use bullet points with the bullet character •.
+- Use indented sub-points with ◦ when you need to explain an agent or trend.
 - Keep it direct, professional, and action-oriented.
 - Mention alarming trends only when supported by the calculated facts.
 - Do not invent numbers, dates, agent names, supervisor names, or links.
@@ -694,45 +706,44 @@ Mandatory rules:
 - The report is only about CEx team Missed Opportunity results where Client Sentiment is Very Positive, Positive, or Slightly Positive.
 - Do not say audits were rerun. This report is based only on stored audit results.
 - Include a dashboard reference if platformUrl is available.
-- Use bullets with the bullet character •.
-- Use indented sub-points with ◦ when you need to explain an agent or trend.
-- End with this exact note, using bold on Note: "**Note:** If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results."
+- End with this exact plain-text note: "Note: If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results."
 
 Recommended structure:
-**Analysis of Missed Review Approaches**
+Analysis of Missed Review Approaches
 
 Hello @everyone,
 
 Short opening paragraph with the total missed review approaches and selected date range.
 
-**Client Sentiment Breakdown**
+Client Sentiment Breakdown
 • Very Positive count
 • Positive count
 • Slightly Positive count
 
-**Overall Signal**
+Overall Signal
 • Total CEx audited conversations
 • Missed approach rate
 • Supported alarming trend if any
 
-**Dashboard Reference**
-Short line with the platform URL if provided.
+Dashboard Reference
+You can check the data yourself by applying the right filters from this dashboard I created -
+Platform URL if provided
 
-**Agent Focus**
+Agent Focus
 • Agent name - miss count
   ◦ Include the most useful sub-point from the data.
 
-**Required Action**
+Required Action
 Request relevant leads/supervisors to review and share feedback.
 
-**Note:** ...
+Note: ...
 
 Calculated facts JSON:
 ${JSON.stringify(summary, null, 2)}`;
 }
 
 async function generateAiReport(openAiApiKey, summary) {
-  if (!openAiApiKey) return { report: buildFallbackReport(summary), source: "server_fallback_no_openai_key" };
+  if (!openAiApiKey) return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_no_openai_key" };
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -762,12 +773,12 @@ async function generateAiReport(openAiApiKey, summary) {
     const content = normalizeText(data?.choices?.[0]?.message?.content);
 
     if (!response.ok || !content) {
-      return { report: buildFallbackReport(summary), source: "server_fallback_openai_error" };
+      return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_openai_error" };
     }
 
-    return { report: content, source: "openai" };
+    return { report: stripReportMarkdown(content), source: "openai" };
   } catch (_error) {
-    return { report: buildFallbackReport(summary), source: "server_fallback_openai_exception" };
+    return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_openai_exception" };
   }
 }
 
