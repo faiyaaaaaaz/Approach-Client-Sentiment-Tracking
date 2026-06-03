@@ -26,13 +26,30 @@ function addDaysToDateString(dateString, days) {
   return `${year}-${month}-${day}`;
 }
 
+const REPORT_DATE_PRESETS = [
+  { key: "yesterday", label: "Yesterday" },
+  { key: "past_week", label: "Past Week" },
+  { key: "past_4_weeks", label: "Past 4 Weeks" },
+  { key: "month_to_date", label: "Month To Date" },
+];
+
 function getDefaultRange() {
   const today = getDhakaDateString();
-  const yesterday = addDaysToDateString(today, -1);
   return {
-    startDate: addDaysToDateString(yesterday, -6),
-    endDate: yesterday,
+    startDate: addDaysToDateString(today, -6),
+    endDate: today,
   };
+}
+
+function formatDateForDisplay(dateString) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString || ""))) return "Select date";
+  return dateString;
+}
+
+function formatReportRangeLabel(startDate, endDate) {
+  if (!startDate && !endDate) return "Select a range";
+  if (startDate && endDate && startDate === endDate) return startDate;
+  return `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
 }
 
 function formatNumber(value) {
@@ -49,10 +66,43 @@ function buildPlatformUrl() {
   return window.location.origin;
 }
 
+function renderInlineMarkdown(text) {
+  const parts = String(text || "").split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function renderReportLine(line, index) {
+  const text = String(line || "");
+  if (!text.trim()) return <div key={`blank-${index}`} className="report-preview-gap" />;
+  const isHeading = /^\*\*[^*]+\*\*$/.test(text.trim());
+  const isSubBullet = text.trim().startsWith("◦");
+  const isBullet = text.trim().startsWith("•");
+  const className = [
+    "report-preview-line",
+    isHeading ? "heading" : "",
+    isBullet ? "bullet" : "",
+    isSubBullet ? "sub-bullet" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <p key={`line-${index}`} className={className}>
+      {renderInlineMarkdown(text)}
+    </p>
+  );
+}
+
 export default function OverviewReportPanel({ session }) {
   const defaultRange = useMemo(() => getDefaultRange(), []);
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
+  const [selectedPreset, setSelectedPreset] = useState("past_week");
   const [loading, setLoading] = useState(false);
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState("");
@@ -64,6 +114,7 @@ export default function OverviewReportPanel({ session }) {
   function applyPreset(key) {
     const today = getDhakaDateString();
     const yesterday = addDaysToDateString(today, -1);
+    setSelectedPreset(key);
 
     if (key === "yesterday") {
       setStartDate(yesterday);
@@ -72,14 +123,14 @@ export default function OverviewReportPanel({ session }) {
     }
 
     if (key === "past_week") {
-      setStartDate(addDaysToDateString(yesterday, -6));
-      setEndDate(yesterday);
+      setStartDate(addDaysToDateString(today, -6));
+      setEndDate(today);
       return;
     }
 
     if (key === "past_4_weeks") {
-      setStartDate(addDaysToDateString(yesterday, -27));
-      setEndDate(yesterday);
+      setStartDate(addDaysToDateString(today, -27));
+      setEndDate(today);
       return;
     }
 
@@ -87,6 +138,16 @@ export default function OverviewReportPanel({ session }) {
       setStartDate(`${today.slice(0, 8)}01`);
       setEndDate(today);
     }
+  }
+
+  function updateCustomStartDate(value) {
+    setSelectedPreset("custom");
+    setStartDate(value.trim());
+  }
+
+  function updateCustomEndDate(value) {
+    setSelectedPreset("custom");
+    setEndDate(value.trim());
   }
 
   async function generateReport() {
@@ -163,6 +224,9 @@ export default function OverviewReportPanel({ session }) {
 
   const breakdown = summary?.sentimentBreakdown || [];
   const sourceLabel = reportSource === "openai" ? "AI-written from verified platform data" : reportSource ? "Server fallback from verified platform data" : "Not generated yet";
+  const activePresetLabel = REPORT_DATE_PRESETS.find((item) => item.key === selectedPreset)?.label || "Custom";
+  const displayRangeLabel = formatReportRangeLabel(startDate, endDate);
+  const previewLines = report ? report.split("\n") : [];
 
   return (
     <section className="overview-report-shell">
@@ -187,22 +251,37 @@ export default function OverviewReportPanel({ session }) {
             </div>
           </div>
 
-          <div className="preset-row">
-            <button type="button" className="mini-btn" onClick={() => applyPreset("yesterday")} disabled={loading}>Yesterday</button>
-            <button type="button" className="mini-btn" onClick={() => applyPreset("past_week")} disabled={loading}>Past Week</button>
-            <button type="button" className="mini-btn" onClick={() => applyPreset("past_4_weeks")} disabled={loading}>Past 4 Weeks</button>
-            <button type="button" className="mini-btn" onClick={() => applyPreset("month_to_date")} disabled={loading}>Month To Date</button>
-          </div>
-
-          <div className="date-grid">
-            <label>
-              <span>Start Date</span>
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} disabled={loading} />
-            </label>
-            <label>
-              <span>End Date</span>
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} disabled={loading} />
-            </label>
+          <div className="platform-date-filter">
+            <div className="date-filter-main">
+              <span className="date-filter-icon">▣</span>
+              <div>
+                <span>Date Range</span>
+                <strong>{activePresetLabel} · {displayRangeLabel}</strong>
+              </div>
+            </div>
+            <div className="preset-row compact">
+              {REPORT_DATE_PRESETS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={item.key === selectedPreset ? "mini-btn active" : "mini-btn"}
+                  onClick={() => applyPreset(item.key)}
+                  disabled={loading}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="date-grid">
+              <label>
+                <span>Start Date</span>
+                <input type="text" inputMode="numeric" value={startDate} onChange={(event) => updateCustomStartDate(event.target.value)} placeholder="YYYY-MM-DD" disabled={loading} />
+              </label>
+              <label>
+                <span>End Date</span>
+                <input type="text" inputMode="numeric" value={endDate} onChange={(event) => updateCustomEndDate(event.target.value)} placeholder="YYYY-MM-DD" disabled={loading} />
+              </label>
+            </div>
           </div>
 
           <button type="button" className="generate-btn" onClick={generateReport} disabled={loading || !session?.access_token}>
@@ -210,7 +289,7 @@ export default function OverviewReportPanel({ session }) {
           </button>
 
           <div className="scope-note">
-            <strong>Included scope:</strong> Missed Opportunity + Very Positive, Positive, and Slightly Positive client sentiment only.
+            <strong>Included scope:</strong> CEx team only · Missed Opportunity + Very Positive, Positive, and Slightly Positive client sentiment.
           </div>
         </article>
 
@@ -260,6 +339,12 @@ export default function OverviewReportPanel({ session }) {
               ))}
             </div>
           ) : null}
+
+          {summary?.excludedNonCexMissedPositiveRows ? (
+            <div className="data-quality-note">
+              Excluded {formatNumber(summary.excludedNonCexMissedPositiveRows)} positive-side missed row(s) because they were not confirmed as CEx team records.
+            </div>
+          ) : null}
         </article>
       </div>
 
@@ -282,13 +367,22 @@ export default function OverviewReportPanel({ session }) {
           </button>
         </div>
 
-        <textarea
-          className="report-textarea"
-          value={report}
-          onChange={(event) => setReport(event.target.value)}
-          placeholder="Your generated ClickUp-ready report will appear here."
-          rows={18}
-        />
+        {report ? (
+          <div className="report-preview-panel" aria-label="Formatted report preview">
+            {previewLines.map((line, index) => renderReportLine(line, index))}
+          </div>
+        ) : null}
+
+        <label className="editable-report-label">
+          <span>Editable copy text</span>
+          <textarea
+            className="report-textarea"
+            value={report}
+            onChange={(event) => setReport(event.target.value)}
+            placeholder="Your generated ClickUp-ready report will appear here."
+            rows={18}
+          />
+        </label>
       </article>
 
       {summary?.topAgents?.length ? (
@@ -422,11 +516,61 @@ export default function OverviewReportPanel({ session }) {
           line-height: 1.55;
         }
 
+        .platform-date-filter {
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(2, 6, 23, 0.24);
+          border-radius: 18px;
+          padding: 12px;
+          display: grid;
+          gap: 12px;
+        }
+
+        .date-filter-main {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(15, 23, 42, 0.72);
+          border-radius: 14px;
+          padding: 12px 14px;
+        }
+
+        .date-filter-icon {
+          display: inline-grid;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          border-radius: 11px;
+          border: 1px solid rgba(96, 165, 250, 0.28);
+          color: #93c5fd;
+          background: rgba(30, 64, 175, 0.16);
+        }
+
+        .date-filter-main span:not(.date-filter-icon) {
+          display: block;
+          color: #93c5fd;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 0.7rem;
+          font-weight: 900;
+        }
+
+        .date-filter-main strong {
+          display: block;
+          margin-top: 3px;
+          color: #f8fafc;
+          font-size: 0.95rem;
+        }
+
         .preset-row {
           display: flex;
           flex-wrap: wrap;
           gap: 10px;
           margin-bottom: 16px;
+        }
+
+        .preset-row.compact {
+          margin-bottom: 0;
         }
 
         .mini-btn,
@@ -444,6 +588,12 @@ export default function OverviewReportPanel({ session }) {
           background: rgba(15, 23, 42, 0.82);
           border-radius: 14px;
           padding: 11px 14px;
+        }
+
+        .mini-btn.active {
+          border-color: rgba(34, 211, 238, 0.52);
+          color: #a7f3d0;
+          background: rgba(8, 145, 178, 0.18);
         }
 
         .mini-btn:hover,
@@ -578,6 +728,17 @@ export default function OverviewReportPanel({ session }) {
           font-size: 1.1rem;
         }
 
+        .data-quality-note {
+          margin-top: 14px;
+          border: 1px solid rgba(251, 191, 36, 0.22);
+          background: rgba(120, 53, 15, 0.14);
+          color: #fde68a;
+          border-radius: 14px;
+          padding: 12px 14px;
+          line-height: 1.45;
+          font-weight: 800;
+        }
+
         .report-message-stack {
           display: grid;
           gap: 10px;
@@ -609,11 +770,71 @@ export default function OverviewReportPanel({ session }) {
           min-width: 130px;
         }
 
+        .report-preview-panel {
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(2, 6, 23, 0.4);
+          border-radius: 18px;
+          padding: 18px;
+          margin-bottom: 16px;
+          color: #e5e7eb;
+          line-height: 1.62;
+        }
+
+        .report-preview-line {
+          margin: 0 0 8px;
+        }
+
+        .report-preview-line.heading {
+          margin-top: 16px;
+          margin-bottom: 8px;
+          color: #f8fafc;
+          font-size: 1.08rem;
+        }
+
+        .report-preview-line.heading:first-child {
+          margin-top: 0;
+          color: #facc15;
+          text-align: center;
+          font-size: 1.24rem;
+        }
+
+        .report-preview-line.bullet {
+          padding-left: 10px;
+        }
+
+        .report-preview-line.sub-bullet {
+          padding-left: 30px;
+          color: #bfdbfe;
+        }
+
+        .report-preview-line strong {
+          color: #ffffff;
+          font-weight: 900;
+        }
+
+        .report-preview-gap {
+          height: 10px;
+        }
+
+        .editable-report-label {
+          display: grid;
+          gap: 8px;
+          color: #93c5fd;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 0.72rem;
+          font-weight: 900;
+        }
+
         .report-textarea {
-          min-height: 420px;
+          min-height: 320px;
           line-height: 1.55;
           resize: vertical;
           white-space: pre-wrap;
+          text-transform: none;
+          letter-spacing: normal;
+          font-size: 0.92rem;
+          font-weight: 500;
         }
 
         .agent-table-wrap {
