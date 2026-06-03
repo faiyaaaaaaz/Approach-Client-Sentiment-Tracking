@@ -44,6 +44,7 @@ const PERMISSION_CATALOG = [
   { key: "admin_roles", label: "Manage Roles & Permissions", group: "Admin Configuration", ownerLocked: true },
 
   { key: "admin_activity_logs", label: "View Activity Logs", group: "Monitoring" },
+  { key: "admin_overview_report", label: "Generate Overview Report", group: "Monitoring", ownerLocked: true },
   { key: "activity_export", label: "Export Activity Logs", group: "Monitoring" },
   { key: "activity_sessions", label: "View Recent Sessions", group: "Monitoring" },
 ];
