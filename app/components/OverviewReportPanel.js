@@ -1290,6 +1290,283 @@ export default function OverviewReportPanel({ session }) {
           }
         }
       `}</style>
+
+      <style jsx global>{`
+        .overview-report-shell .run-date-range-picker {
+          position: relative;
+          z-index: 25;
+        }
+
+        .overview-report-shell .run-date-range-picker.open {
+          z-index: 9000;
+        }
+
+        .overview-report-shell .run-date-range-picker label {
+          display: grid;
+          gap: 10px;
+          margin: 0;
+        }
+
+        .overview-report-shell .label-with-tip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: #93c5fd;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+          font-size: 0.72rem;
+          font-weight: 900;
+        }
+
+        .overview-report-shell .run-date-button {
+          width: 100%;
+          min-height: 56px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-rows: auto auto;
+          align-items: center;
+          gap: 3px 10px;
+          padding: 10px 14px;
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          background: rgba(2, 6, 23, 0.72);
+          color: #f8fbff;
+          font: inherit;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .overview-report-shell .run-date-button:hover {
+          transform: translateY(-1px);
+          border-color: rgba(34, 211, 238, 0.32);
+        }
+
+        .overview-report-shell .run-date-button strong {
+          display: inline-flex;
+          align-items: center;
+          gap: 9px;
+          min-width: 0;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 16px;
+          font-weight: 900;
+          color: #ffffff;
+          grid-column: 1;
+          grid-row: 1;
+        }
+
+        .overview-report-shell .run-date-button strong svg {
+          flex: 0 0 17px;
+          width: 17px;
+          height: 17px;
+          color: #93c5fd;
+        }
+
+        .overview-report-shell .run-date-button small {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: #a9b4d0;
+          font-size: 13px;
+          font-weight: 800;
+          grid-column: 1;
+          grid-row: 2;
+        }
+
+        .overview-report-shell .run-date-button b {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #9fb2ee;
+          font-size: 12px;
+          font-weight: 900;
+          grid-column: 2;
+          grid-row: 1 / span 2;
+          min-width: 40px;
+        }
+
+        .overview-report-shell .run-date-popover {
+          position: absolute;
+          z-index: 9999;
+          top: calc(100% + 12px);
+          left: 0;
+          width: min(900px, calc(100vw - 76px));
+          border-radius: 24px;
+          border: 1px solid rgba(96, 165, 250, 0.22);
+          background: rgba(8, 13, 28, 0.98);
+          box-shadow: 0 34px 90px rgba(0, 0, 0, 0.55);
+          padding: 18px;
+        }
+
+        .overview-report-shell .date-popover-tabs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          padding-bottom: 12px;
+          margin-bottom: 14px;
+        }
+
+        .overview-report-shell .date-popover-tabs div {
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.035);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .overview-report-shell .date-popover-tabs div.active {
+          border-color: rgba(34, 197, 94, 0.34);
+          box-shadow: inset 0 -2px 0 rgba(34, 197, 94, 0.72);
+        }
+
+        .overview-report-shell .date-popover-tabs span,
+        .overview-report-shell .date-popover-tabs strong {
+          display: block;
+        }
+
+        .overview-report-shell .date-popover-tabs span {
+          color: #8ea0d6;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          margin-bottom: 4px;
+        }
+
+        .overview-report-shell .date-popover-tabs strong {
+          color: #f8fbff;
+          font-size: 15px;
+        }
+
+        .overview-report-shell .date-popover-body {
+          display: grid;
+          grid-template-columns: 170px minmax(0, 1fr);
+          gap: 16px;
+        }
+
+        .overview-report-shell .date-preset-column {
+          display: grid;
+          align-content: start;
+          gap: 8px;
+        }
+
+        .overview-report-shell .date-preset-column button,
+        .overview-report-shell .calendar-nav-row button {
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          color: #dbe7ff;
+          min-height: 38px;
+          padding: 0 10px;
+          font: inherit;
+          font-size: 14px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .overview-report-shell .date-preset-column button.active,
+        .overview-report-shell .date-preset-column button:hover,
+        .overview-report-shell .calendar-nav-row button:hover {
+          border-color: rgba(34, 211, 238, 0.24);
+          background: rgba(14, 165, 233, 0.12);
+        }
+
+        .overview-report-shell .calendar-nav-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .overview-report-shell .calendar-nav-row strong {
+          color: #f8fbff;
+          font-size: 16px;
+          text-align: center;
+        }
+
+        .overview-report-shell .calendar-months-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+        }
+
+        .overview-report-shell .calendar-month-card h4 {
+          margin: 0 0 12px;
+          color: #f8fbff;
+          font-size: 16px;
+        }
+
+        .overview-report-shell .calendar-weekdays,
+        .overview-report-shell .calendar-day-grid {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 4px;
+        }
+
+        .overview-report-shell .calendar-weekdays span {
+          color: #8ea0d6;
+          font-size: 11px;
+          font-weight: 900;
+          text-align: center;
+          padding: 6px 0;
+        }
+
+        .overview-report-shell .calendar-day {
+          min-height: 34px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #dbe7ff;
+          font: inherit;
+          font-size: 14px;
+          font-weight: 850;
+          cursor: pointer;
+        }
+
+        .overview-report-shell .calendar-day:hover {
+          border-color: rgba(34, 211, 238, 0.2);
+          background: rgba(14, 165, 233, 0.1);
+        }
+
+        .overview-report-shell .calendar-day.muted {
+          color: rgba(148, 163, 184, 0.36);
+        }
+
+        .overview-report-shell .calendar-day.in-range {
+          background: rgba(34, 197, 94, 0.12);
+        }
+
+        .overview-report-shell .calendar-day.range-start,
+        .overview-report-shell .calendar-day.range-end {
+          color: #ffffff;
+          border-color: rgba(34, 197, 94, 0.4);
+          background: rgba(22, 163, 74, 0.72);
+          box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.16), 0 0 20px rgba(34, 197, 94, 0.18);
+        }
+
+        .overview-report-shell .date-popover-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 16px;
+        }
+
+        @media (max-width: 980px) {
+          .overview-report-shell .date-popover-body,
+          .overview-report-shell .calendar-months-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .overview-report-shell .run-date-popover {
+            width: min(94vw, 520px);
+          }
+        }
+      `}</style>
     </section>
   );
 }
