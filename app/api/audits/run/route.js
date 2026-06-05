@@ -292,6 +292,166 @@ function shouldRetryStatus(status) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+
+async function readResponseTextSafely(response) {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+function parseProviderErrorText(text) {
+  const raw = String(text || "").trim();
+
+  if (!raw) {
+    return {
+      message: "The provider returned an empty error response.",
+      code: "",
+      type: "",
+      raw: "",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const error = parsed?.error || parsed;
+
+    return {
+      message: String(error?.message || raw).trim(),
+      code: String(error?.code || "").trim(),
+      type: String(error?.type || "").trim(),
+      raw,
+    };
+  } catch {
+    return {
+      message: raw,
+      code: "",
+      type: "",
+      raw,
+    };
+  }
+}
+
+function isFatalOpenAiProviderStatus(status, parsedError) {
+  const haystack = [
+    parsedError?.message,
+    parsedError?.code,
+    parsedError?.type,
+    parsedError?.raw,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (status === 401 || status === 403) return true;
+
+  if (status === 429) {
+    return (
+      haystack.includes("insufficient_quota") ||
+      haystack.includes("quota") ||
+      haystack.includes("billing") ||
+      haystack.includes("credit") ||
+      haystack.includes("exceeded your current")
+    );
+  }
+
+  return false;
+}
+
+function formatOpenAiProviderError({ status, parsedError, label }) {
+  const providerMessage = parsedError?.message || "OpenAI / GPT rejected the request.";
+  const providerCode = parsedError?.code ? ` Code: ${parsedError.code}.` : "";
+
+  if (status === 401 || status === 403) {
+    return `${label} failed because the OpenAI / GPT API key is invalid, expired, revoked, or not allowed to use this model. No audit rows were saved. Update the OpenAI key in Admin → API Vault, then rerun the audit. OpenAI said: ${providerMessage}.${providerCode}`;
+  }
+
+  if (status === 429) {
+    return `${label} failed because the OpenAI / GPT account is rate-limited, out of quota, or billing/recharge is required. No audit rows were saved. Ask the owner/HOD to recharge or update the OpenAI key in Admin → API Vault, then rerun the audit. OpenAI said: ${providerMessage}.${providerCode}`;
+  }
+
+  return `${label} failed: ${status} ${providerMessage}.${providerCode}`;
+}
+
+function isFatalOpenAiProcessingError(error) {
+  const message = String(error instanceof Error ? error.message : error || "").toLowerCase();
+
+  return (
+    message.includes("openai") &&
+    (
+      message.includes("api key is invalid") ||
+      message.includes("expired") ||
+      message.includes("revoked") ||
+      message.includes("not allowed to use this model") ||
+      message.includes("out of quota") ||
+      message.includes("billing") ||
+      message.includes("recharge") ||
+      message.includes("insufficient_quota") ||
+      message.includes("exceeded your current quota")
+    )
+  );
+}
+
+async function fetchOpenAIWithRetry(url, options, label) {
+  let lastErrorMessage = "";
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    const response = await fetch(url, options);
+
+    if (response.ok) return response;
+
+    const text = await readResponseTextSafely(response);
+    const parsedError = parseProviderErrorText(text);
+    const formattedError = formatOpenAiProviderError({
+      status: response.status,
+      parsedError,
+      label,
+    });
+
+    lastErrorMessage = formattedError;
+
+    if (
+      isFatalOpenAiProviderStatus(response.status, parsedError) ||
+      !shouldRetryStatus(response.status) ||
+      attempt === MAX_RETRIES
+    ) {
+      throw new Error(formattedError);
+    }
+
+    await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
+  }
+
+  throw new Error(lastErrorMessage || `${label} failed.`);
+}
+
+async function verifyOpenAiAuditAccess(openAiApiKey) {
+  const response = await fetchOpenAIWithRetry(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openAiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: "system", content: "Return only OK." },
+          { role: "user", content: "OK" },
+        ],
+        temperature: 0,
+        max_tokens: 5,
+      }),
+      cache: "no-store",
+    },
+    "OpenAI / GPT preflight check"
+  );
+
+  await response.json().catch(() => null);
+
+  return true;
+}
+
 function stripHtml(input) {
   return String(input || "")
     .replace(/<\/(p|div|br|li|h\d)>/gi, "\n")
@@ -747,7 +907,7 @@ async function runOpenAIAudit({
   conversationId,
   auditPrompt,
 }) {
-  const response = await fetchWithRetry(
+  const response = await fetchOpenAIWithRetry(
     "https://api.openai.com/v1/chat/completions",
     {
       method: "POST",
@@ -1147,6 +1307,10 @@ async function auditSingleConversation({
       resolutionStatus: audit.resolutionStatus,
     };
   } catch (error) {
+    if (isFatalOpenAiProcessingError(error)) {
+      throw error;
+    }
+
     return {
       conversationId: conversation.conversationId,
       repliedAt: conversation.repliedAt,
@@ -1617,6 +1781,8 @@ export async function POST(request) {
       });
     }
 
+    await verifyOpenAiAuditAccess(openAiApiKey);
+
     const liveAuditPrompt = await loadLiveAuditPrompt(adminClient);
     const activeCalibrationSnippets = await loadActiveCalibrationSnippets(adminClient);
     const auditPrompt = buildAuditPromptWithCalibration(liveAuditPrompt, activeCalibrationSnippets);
@@ -1653,6 +1819,11 @@ export async function POST(request) {
 
     const successCount = mappedResults.filter((item) => !item.error).length;
     const errorCount = mappedResults.filter((item) => Boolean(item.error)).length;
+
+    if (mappedResults.length > 0 && successCount === 0 && errorCount > 0) {
+      const firstError = normalizeText(mappedResults.find((item) => item?.error)?.error) || "Every conversation failed before an AI verdict could be created.";
+      throw new Error(`Audit stopped because every selected conversation failed before an AI verdict could be created. No audit rows were saved. First error: ${firstError}`);
+    }
 
     const storedRunId = await persistAuditRunAndResults({
       adminClient,
@@ -1730,7 +1901,9 @@ export async function POST(request) {
       ok: true,
       message:
         mappedResults.length > 0
-          ? "Audit completed successfully."
+          ? errorCount > 0
+            ? `Audit completed with ${errorCount} error(s). Review failed rows before using the results.`
+            : "Audit completed successfully."
           : "No conversations were available for audit.",
       meta: {
         requestedBy: email,
@@ -1743,6 +1916,8 @@ export async function POST(request) {
         promptSource,
         storedRunId,
         storageStatus: "saved_to_supabase",
+        successCount,
+        errorCount,
         mappedCount,
         unmappedCount,
         batchMode: batchInfo.batchMode,
@@ -1763,7 +1938,7 @@ export async function POST(request) {
         ok: false,
         error: error instanceof Error ? error.message : "Unknown server error.",
       },
-      { status: 500 }
+      { status: isFatalOpenAiProcessingError(error) ? 502 : 500 }
     );
   }
 }
