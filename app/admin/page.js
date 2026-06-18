@@ -1330,6 +1330,8 @@ function AdminPageContent() {
   const mappingFormRef = useRef(null);
   const roleFormRef = useRef(null);
   const supervisorFormRef = useRef(null);
+  const supervisorCandidateRef = useRef(null);
+  const roleCandidateRef = useRef(null);
   const loadedSectionKeysRef = useRef(new Set());
 
   const [session, setSession] = useState(null);
@@ -1366,6 +1368,7 @@ function AdminPageContent() {
   const [roleForm, setRoleForm] = useState(createEmptyRoleForm());
   const [roleSearch, setRoleSearch] = useState("");
   const [roleCandidateSearch, setRoleCandidateSearch] = useState("");
+  const [roleCandidateOpen, setRoleCandidateOpen] = useState(false);
   const [roleSaveLoading, setRoleSaveLoading] = useState(false);
   const [permissionCatalog, setPermissionCatalog] = useState(PERMISSION_CATALOG);
   const [permissionRows, setPermissionRows] = useState(normalizePermissionRows([]));
@@ -1390,6 +1393,7 @@ function AdminPageContent() {
   const [supervisorForm, setSupervisorForm] = useState(createEmptySupervisorForm());
   const [supervisorSearch, setSupervisorSearch] = useState("");
   const [supervisorMemberSearch, setSupervisorMemberSearch] = useState("");
+  const [supervisorCandidateOpen, setSupervisorCandidateOpen] = useState(false);
 
   const [activityLogs, setActivityLogs] = useState([]);
   const [activitySessions, setActivitySessions] = useState([]);
@@ -2366,6 +2370,38 @@ function AdminPageContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  useEffect(() => {
+    function handleOutsideCandidateClick(event) {
+      if (
+        supervisorCandidateRef.current &&
+        !supervisorCandidateRef.current.contains(event.target)
+      ) {
+        setSupervisorCandidateOpen(false);
+      }
+
+      if (
+        roleCandidateRef.current &&
+        !roleCandidateRef.current.contains(event.target)
+      ) {
+        setRoleCandidateOpen(false);
+      }
+    }
+
+    function handleCandidateEscape(event) {
+      if (event.key !== "Escape") return;
+      setSupervisorCandidateOpen(false);
+      setRoleCandidateOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleOutsideCandidateClick);
+    document.addEventListener("keydown", handleCandidateEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideCandidateClick);
+      document.removeEventListener("keydown", handleCandidateEscape);
+    };
+  }, []);
+
   async function handleReload() {
     setPageError("");
     setPageSuccess("");
@@ -2876,6 +2912,7 @@ function AdminPageContent() {
       supervisor_name: option.employee_name || prev.supervisor_name,
       supervisor_email: option.employee_email || prev.supervisor_email,
     }));
+    setSupervisorCandidateOpen(false);
   }
 
   function handleEditSupervisorTeam(team) {
@@ -2889,6 +2926,7 @@ function AdminPageContent() {
     });
 
     setSupervisorMemberSearch("");
+    setSupervisorCandidateOpen(false);
     setPageError("");
     setPageSuccess(`Editing Supervisor Team for ${team?.supervisor_name || "selected supervisor"}.`);
     scrollToSupervisorForm();
@@ -2897,6 +2935,7 @@ function AdminPageContent() {
   function handleClearSupervisorForm() {
     setSupervisorForm(createEmptySupervisorForm());
     setSupervisorMemberSearch("");
+    setSupervisorCandidateOpen(false);
     setPageError("");
     setPageSuccess("");
   }
@@ -3038,6 +3077,7 @@ function AdminPageContent() {
       : null;
 
     setRoleCandidateSearch(option?.employee_name || "");
+    setRoleCandidateOpen(false);
     setRoleForm({
       id: existingAccess?.id || "",
       email,
@@ -3069,6 +3109,7 @@ function AdminPageContent() {
     });
 
     setRoleCandidateSearch(row?.full_name || row?.email || "");
+    setRoleCandidateOpen(false);
     setPageError("");
     setPageSuccess(`Editing access for ${email}.`);
 
@@ -3093,6 +3134,7 @@ function AdminPageContent() {
   function handleClearRoleForm() {
     setRoleForm(createEmptyRoleForm());
     setRoleCandidateSearch("");
+    setRoleCandidateOpen(false);
     setPageError("");
     setPageSuccess("");
   }
@@ -4337,20 +4379,22 @@ function AdminPageContent() {
 
               <div className="form-grid single">
                 <div className="form-grid two">
-                  <label className="supervisor-name-field">
+                  <label className="supervisor-name-field" ref={supervisorCandidateRef}>
                     <span>Supervisor Name</span>
                     <input
                       value={supervisorForm.supervisor_name}
-                      onChange={(event) =>
+                      onFocus={() => setSupervisorCandidateOpen(true)}
+                      onChange={(event) => {
+                        setSupervisorCandidateOpen(true);
                         setSupervisorForm((prev) => ({
                           ...prev,
                           supervisor_name: event.target.value,
-                        }))
-                      }
+                        }));
+                      }}
                       placeholder="Search Existing Employee or type a new supervisor"
                     />
 
-                    {supervisorForm.supervisor_name.trim().length >= 2 ? (
+                    {supervisorCandidateOpen && supervisorForm.supervisor_name.trim().length >= 2 ? (
                       <div className="supervisor-suggestion-list">
                         {filteredSupervisorCandidateOptions.length ? (
                           filteredSupervisorCandidateOptions.map((option) => (
@@ -4358,6 +4402,7 @@ function AdminPageContent() {
                               type="button"
                               key={getMemberKey(option)}
                               className="supervisor-suggestion"
+                              onMouseDown={(event) => event.preventDefault()}
                               onClick={() => handleUseSupervisorCandidate(option)}
                             >
                               <strong>{option.employee_name}</strong>
@@ -4987,15 +5032,19 @@ function AdminPageContent() {
                 <h3>{roleForm.id ? "Edit user access" : "Select A User To Edit"}</h3>
 
                 <div className="form-grid single">
-                  <label className="role-candidate-field">
+                  <label className="role-candidate-field" ref={roleCandidateRef}>
                     <span>Search Existing Employee</span>
                     <input
                       value={roleCandidateSearch}
-                      onChange={(event) => setRoleCandidateSearch(event.target.value)}
+                      onFocus={() => setRoleCandidateOpen(true)}
+                      onChange={(event) => {
+                        setRoleCandidateOpen(true);
+                        setRoleCandidateSearch(event.target.value);
+                      }}
                       placeholder="Search mapped employee, email, Intercom name, or team"
                     />
 
-                    {roleCandidateSearch.trim().length >= 2 ? (
+                    {roleCandidateOpen && roleCandidateSearch.trim().length >= 2 ? (
                       <div className="role-candidate-list">
                         {filteredRoleCandidateOptions.length ? (
                           filteredRoleCandidateOptions.map((option) => (
@@ -5003,6 +5052,7 @@ function AdminPageContent() {
                               type="button"
                               key={getMemberKey(option)}
                               className="role-candidate-option"
+                              onMouseDown={(event) => event.preventDefault()}
                               onClick={() => handleUseRoleCandidate(option)}
                             >
                               <strong>{option.employee_name}</strong>
