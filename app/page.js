@@ -776,8 +776,8 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
   const canDisputePreview = canUserDisputeResult(profile, supervisorTeams, disputeResultContext);
 
   return createPortal(
-    <div className="conversation-preview-backdrop" onClick={onClose}>
-      <div className="conversation-preview-modal" onClick={(event) => event.stopPropagation()}>
+    <div className="conversation-preview-backdrop" translate="yes" onClick={onClose}>
+      <div className="conversation-preview-modal" translate="yes" onClick={(event) => event.stopPropagation()}>
         <div className="conversation-preview-head">
           <div>
             <p>Conversation Preview</p>
@@ -853,7 +853,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
                   </section>
                 ) : null}
               </aside>
-              <section className="conversation-preview-main">
+              <section className="conversation-preview-main" translate="yes">
                 {mergedMetadata.aiVerdict ? (
                   <div className="conversation-preview-verdict">
                     <div className="conversation-preview-verdict-head">
@@ -863,7 +863,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
                     <pre>{mergedMetadata.aiVerdict}</pre>
                   </div>
                 ) : null}
-                <div className="conversation-transcript-list">
+                <div className="conversation-transcript-list" translate="yes">
                   {messages.length ? messages.map((message) => {
                     const isEvent = isCompactPreviewEvent(message);
                     return isEvent ? (
@@ -7660,5 +7660,190 @@ const dashboardStyles = `
   html[data-theme="light"] .dashboard-loader-card h1 { color: #0f172a !important; }
   html[data-theme="light"] .dashboard-loader-card > span { color: #475569 !important; }
   html[data-theme="light"] .dashboard-loader-bar { background: rgba(0,0,0,0.08) !important; }
+
+
+  /* ═══════════════════════════════════════════
+     CEO HANDOVER HARDENING — DASHBOARD LIGHT MODE
+     Root cause fixed here: dashboard calendar and preview components inherited dark
+     typography from nested selectors, so light mode made titles/messages disappear.
+  ═══════════════════════════════════════════ */
+
+  html[data-theme="light"] .upgraded-date-popover,
+  html[data-theme="light"] .premium-calendar-panel,
+  html[data-theme="light"] .upgraded-date-popover * {
+    text-shadow: none !important;
+  }
+
+  html[data-theme="light"] .premium-calendar-panel {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .calendar-panel-head small,
+  html[data-theme="light"] .range-field-tabs span {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .calendar-panel-head > div:first-child strong,
+  html[data-theme="light"] .calendar-toolbar span,
+  html[data-theme="light"] .calendar-month h4,
+  html[data-theme="light"] .calendar-weekdays span {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .calendar-weekdays span {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .range-field-tabs button {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  html[data-theme="light"] .range-field-tabs button.active {
+    background: #e0f2fe !important;
+    border-color: #38bdf8 !important;
+    box-shadow: inset 0 -2px 0 #22c55e !important;
+  }
+
+  html[data-theme="light"] .range-field-tabs strong,
+  html[data-theme="light"] .date-preset-list button,
+  html[data-theme="light"] .date-preset-list button span,
+  html[data-theme="light"] .date-preset-list button b {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .calendar-toolbar button {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  html[data-theme="light"] .calendar-day {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    background: transparent !important;
+  }
+
+  html[data-theme="light"] .calendar-day.in-range {
+    background: #dbeafe !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .calendar-day.range-start,
+  html[data-theme="light"] .calendar-day.range-end {
+    background: #22c55e !important;
+    color: #052e16 !important;
+    -webkit-text-fill-color: #052e16 !important;
+    box-shadow: 0 8px 18px rgba(34, 197, 94, 0.22) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-backdrop {
+    background: rgba(15, 23, 42, 0.42) !important;
+    backdrop-filter: blur(8px) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-modal {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 32px 90px rgba(15, 23, 42, 0.26) !important;
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head {
+    background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%) !important;
+    border-bottom-color: #cbd5e1 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head h2,
+  html[data-theme="light"] .conversation-preview-sidebar-title span,
+  html[data-theme="light"] .conversation-preview-section-head span,
+  html[data-theme="light"] .conversation-preview-attr-row strong,
+  html[data-theme="light"] .conversation-message strong,
+  html[data-theme="light"] .conversation-message p {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head p,
+  html[data-theme="light"] .conversation-preview-head span,
+  html[data-theme="light"] .conversation-preview-sidebar-title small,
+  html[data-theme="light"] .conversation-preview-section-head small,
+  html[data-theme="light"] .conversation-preview-attr-row span,
+  html[data-theme="light"] .conversation-message-top span,
+  html[data-theme="light"] .conversation-message small {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar,
+  html[data-theme="light"] .conversation-preview-result-strip {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar-title,
+  html[data-theme="light"] .conversation-preview-compact-section,
+  html[data-theme="light"] .conversation-preview-result-card,
+  html[data-theme="light"] .conversation-preview-verdict,
+  html[data-theme="light"] .conversation-message {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-body,
+  html[data-theme="light"] .conversation-preview-main,
+  html[data-theme="light"] .conversation-transcript-list {
+    background: #f8fafc !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-verdict pre {
+    color: #1e293b !important;
+    -webkit-text-fill-color: #1e293b !important;
+    white-space: pre-wrap !important;
+    line-height: 1.65 !important;
+  }
+
+  html[data-theme="light"] .conversation-message.user,
+  html[data-theme="light"] .conversation-message.customer,
+  html[data-theme="light"] .conversation-message.lead {
+    background: #eff6ff !important;
+    border-color: #bfdbfe !important;
+  }
+
+  html[data-theme="light"] .conversation-message.admin,
+  html[data-theme="light"] .conversation-message.teammate,
+  html[data-theme="light"] .conversation-message.agent {
+    background: #ecfdf5 !important;
+    border-color: #bbf7d0 !important;
+  }
+
+  html[data-theme="light"] .conversation-timeline-event {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+  }
+
+  html[data-theme="light"] .conversation-timeline-event span,
+  html[data-theme="light"] .conversation-timeline-event p {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
+  }
 
 `;
