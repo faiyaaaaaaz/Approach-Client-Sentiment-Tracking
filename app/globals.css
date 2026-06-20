@@ -2,14 +2,88 @@ html {
   font-size: 16px;
 }
 
+/* ── Theme tokens ──────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  /* backgrounds */
+  --bg-body:        #040714;
+  --bg-sidebar:     rgba(8, 14, 32, 0.92);
+  --bg-topbar:      rgba(11, 18, 39, 0.94);
+  --bg-card:        rgba(15, 23, 42, 0.72);
+  --bg-card-hover:  rgba(21, 32, 56, 0.82);
+  --bg-input:       rgba(255,255,255,0.06);
+  --bg-skeleton:    rgba(255,255,255,0.07);
+  --bg-skeleton-shine: rgba(255,255,255,0.13);
+
+  /* borders */
+  --border-subtle:  rgba(255,255,255,0.08);
+  --border-medium:  rgba(255,255,255,0.12);
+  --border-accent:  rgba(34,211,238,0.28);
+
+  /* text */
+  --text-primary:   #f5f7ff;
+  --text-secondary: #9caed3;
+  --text-muted:     #7e92bd;
+  --text-accent:    #22d3ee;
+
+  /* brand */
+  --brand-cyan:    #22d3ee;
+  --brand-violet:  #8b5cf6;
+  --brand-pink:    #ec4899;
+  --brand-yellow:  #fde047;
+  --brand-orange:  #f97316;
+
+  /* status colors */
+  --color-positive: #34d399;
+  --color-negative: #f87171;
+  --color-warning:  #fbbf24;
+  --color-neutral:  #94a3b8;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-body:        #f0f4f8;
+  --bg-sidebar:     rgba(255,255,255,0.96);
+  --bg-topbar:      rgba(255,255,255,0.92);
+  --bg-card:        rgba(255,255,255,0.9);
+  --bg-card-hover:  rgba(241,245,249,0.98);
+  --bg-input:       rgba(0,0,0,0.05);
+  --bg-skeleton:    rgba(0,0,0,0.07);
+  --bg-skeleton-shine: rgba(255,255,255,0.6);
+
+  --border-subtle:  rgba(0,0,0,0.09);
+  --border-medium:  rgba(0,0,0,0.14);
+  --border-accent:  rgba(8,145,178,0.36);
+
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #64748b;
+  --text-accent:    #0891b2;
+
+  --brand-cyan:    #0891b2;
+  --brand-violet:  #7c3aed;
+  --brand-pink:    #db2777;
+  --brand-yellow:  #d97706;
+  --brand-orange:  #ea580c;
+
+  --color-positive: #059669;
+  --color-negative: #dc2626;
+  --color-warning:  #d97706;
+  --color-neutral:  #64748b;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
 body {
   margin: 0;
   min-height: 100vh;
-  background: #040714;
-  color: #f5f7ff;
+  background: var(--bg-body);
+  color: var(--text-primary);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 * {
@@ -26,4 +100,30 @@ textarea {
 img {
   max-width: 100%;
   height: auto;
+}
+
+/* ── Skeleton loader utility ───────────────────────────────── */
+@keyframes skeletonShimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-skeleton);
+  border-radius: 10px;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--bg-skeleton-shine) 50%,
+    transparent 100%
+  );
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
 }
