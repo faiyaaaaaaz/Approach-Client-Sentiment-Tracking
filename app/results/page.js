@@ -357,8 +357,8 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
   const canDisputePreview = canUserDisputeResult(profile, supervisorTeams, disputeResultContext);
 
   return createPortal(
-    <div className="conversation-preview-backdrop" onClick={onClose}>
-      <div className="conversation-preview-modal" onClick={(event) => event.stopPropagation()}>
+    <div className="conversation-preview-backdrop" translate="yes" onClick={onClose}>
+      <div className="conversation-preview-modal" translate="yes" onClick={(event) => event.stopPropagation()}>
         <div className="conversation-preview-head">
           <div>
             <p>Conversation Preview</p>
@@ -434,7 +434,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
                   </section>
                 ) : null}
               </aside>
-              <section className="conversation-preview-main">
+              <section className="conversation-preview-main" translate="yes">
                 {mergedMetadata.aiVerdict ? (
                   <div className="conversation-preview-verdict">
                     <div className="conversation-preview-verdict-head">
@@ -444,7 +444,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
                     <pre>{mergedMetadata.aiVerdict}</pre>
                   </div>
                 ) : null}
-                <div className="conversation-transcript-list">
+                <div className="conversation-transcript-list" translate="yes">
                   {messages.length ? messages.map((message) => {
                     const isEvent = isCompactPreviewEvent(message);
                     return isEvent ? (
@@ -4702,6 +4702,277 @@ const resultsStyles = `
     background: rgba(248,250,252,0.96) !important;
     border-color: rgba(0,0,0,0.09) !important;
     box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
+  }
+
+
+  /* ═══════════════════════════════════════════
+     CEO HANDOVER HARDENING — RESULTS + PREVIEW LIGHT MODE
+     Root cause fixed here: older light-mode rules only changed parent td/card colors.
+     Many nested strong/small/pre/bubble rules still used dark-theme colors, which made
+     table rows and conversation previews unreadable in light mode.
+  ═══════════════════════════════════════════ */
+
+  html[data-theme="light"] .results-page table,
+  html[data-theme="light"] .results-page tbody,
+  html[data-theme="light"] .results-page tr,
+  html[data-theme="light"] .results-page td {
+    color: #0f172a !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  html[data-theme="light"] .results-page td strong,
+  html[data-theme="light"] .results-page td b,
+  html[data-theme="light"] .results-page td .text-link {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .results-page td small,
+  html[data-theme="light"] .results-page td em,
+  html[data-theme="light"] .table-summary span,
+  html[data-theme="light"] .selection-row > span {
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .results-page tbody tr,
+  html[data-theme="light"] .results-page tbody tr td {
+    background: #ffffff !important;
+  }
+
+  html[data-theme="light"] .results-page tbody tr:nth-child(even) td {
+    background: #f8fafc !important;
+  }
+
+  html[data-theme="light"] .results-page tbody tr:hover td {
+    background: #eff6ff !important;
+  }
+
+  html[data-theme="light"] .results-page .team-chip {
+    color: #2563eb !important;
+    -webkit-text-fill-color: #2563eb !important;
+    background: #dbeafe !important;
+    border-color: #bfdbfe !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .results-date-popover,
+  html[data-theme="light"] .results-date-popover * {
+    text-shadow: none !important;
+  }
+
+  html[data-theme="light"] .results-calendar-nav-row strong,
+  html[data-theme="light"] .results-calendar-month-card h4,
+  html[data-theme="light"] .results-calendar-weekdays span {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .results-calendar-weekdays span {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .results-calendar-day.in-range {
+    background: #dbeafe !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .results-calendar-day.range-start,
+  html[data-theme="light"] .results-calendar-day.range-end {
+    background: #22c55e !important;
+    color: #052e16 !important;
+    -webkit-text-fill-color: #052e16 !important;
+    border-color: #16a34a !important;
+    box-shadow: 0 8px 18px rgba(34, 197, 94, 0.22) !important;
+  }
+
+  html[data-theme="light"] .results-date-preset-column button,
+  html[data-theme="light"] .results-date-preset-column button span,
+  html[data-theme="light"] .results-date-preset-column button b {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .results-date-preset-column button.active {
+    background: #dbeafe !important;
+    border-color: #bfdbfe !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-backdrop {
+    background: rgba(15, 23, 42, 0.42) !important;
+    backdrop-filter: blur(8px) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-modal {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 32px 90px rgba(15, 23, 42, 0.26) !important;
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head {
+    background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%) !important;
+    border-bottom-color: #cbd5e1 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head p,
+  html[data-theme="light"] .conversation-preview-head span {
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-head h2 {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-result-strip {
+    background: #ffffff !important;
+    border-bottom-color: #e2e8f0 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-result-card {
+    background: #ffffff !important;
+    border-color: #dbe3ef !important;
+    color: #0f172a !important;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-result-card span {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-result-card strong {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-body {
+    background: #f8fafc !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar {
+    background: #ffffff !important;
+    border-right-color: #e2e8f0 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar-title,
+  html[data-theme="light"] .conversation-preview-compact-section {
+    background: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar-title span,
+  html[data-theme="light"] .conversation-preview-section-head span {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-sidebar-title small,
+  html[data-theme="light"] .conversation-preview-section-head small,
+  html[data-theme="light"] .conversation-preview-attr-row span {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-attr-row {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-attr-row strong {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-main {
+    background: #f8fafc !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-verdict {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05) !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-verdict-head span {
+    color: #7c3aed !important;
+    -webkit-text-fill-color: #7c3aed !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-verdict-head small {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .conversation-preview-verdict pre {
+    color: #1e293b !important;
+    -webkit-text-fill-color: #1e293b !important;
+    white-space: pre-wrap !important;
+    line-height: 1.65 !important;
+  }
+
+  html[data-theme="light"] .conversation-transcript-list {
+    background: #f8fafc !important;
+  }
+
+  html[data-theme="light"] .conversation-message {
+    background: #ffffff !important;
+    border-color: #dbe3ef !important;
+    color: #0f172a !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-theme="light"] .conversation-message.user,
+  html[data-theme="light"] .conversation-message.customer,
+  html[data-theme="light"] .conversation-message.lead {
+    background: #eff6ff !important;
+    border-color: #bfdbfe !important;
+  }
+
+  html[data-theme="light"] .conversation-message.admin,
+  html[data-theme="light"] .conversation-message.teammate,
+  html[data-theme="light"] .conversation-message.agent {
+    background: #ecfdf5 !important;
+    border-color: #bbf7d0 !important;
+  }
+
+  html[data-theme="light"] .conversation-message p,
+  html[data-theme="light"] .conversation-message small,
+  html[data-theme="light"] .conversation-message strong,
+  html[data-theme="light"] .conversation-message span {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme="light"] .conversation-message-top span,
+  html[data-theme="light"] .conversation-message small {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+
+  html[data-theme="light"] .conversation-timeline-event {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+  }
+
+  html[data-theme="light"] .conversation-timeline-event span,
+  html[data-theme="light"] .conversation-timeline-event p {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
   }
 
 `;
