@@ -236,7 +236,6 @@ function getAvatarUrl(profile, session) {
   return "";
 }
 
-
 async function postClientActivity(session, payload) {
   const token = session?.access_token;
 
@@ -402,6 +401,43 @@ function SidebarIcon({ kind, active = false }) {
         <path d="M9 9.8H14" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     </span>
+  );
+}
+
+function ThemeToggleIcon({ isDark }) {
+  if (isDark) {
+    // Sun icon for "switch to light"
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M12 2.5V5M12 19V21.5M2.5 12H5M19 12H21.5M5.3 5.3L7.1 7.1M16.9 16.9L18.7 18.7M18.7 5.3L16.9 7.1M7.1 16.9L5.3 18.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  // Moon icon for "switch to dark"
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function HamburgerIcon({ open }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      {open ? (
+        <>
+          <path d="M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M4 7H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M4 12H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <path d="M4 17H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
   );
 }
 
@@ -610,6 +646,7 @@ function AppShellClientInner({ children }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const profileMenuRef = useRef(null);
+  const sidebarRef = useRef(null);
   const authRunIdRef = useRef(0);
   const lastAuthUserIdRef = useRef("");
 
@@ -618,6 +655,47 @@ function AppShellClientInner({ children }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(true);
+
+  // ── Theme init & persistence ──
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const useDark = stored ? stored === "dark" : prefersDark;
+      setIsDarkTheme(useDark);
+      document.documentElement.setAttribute("data-theme", useDark ? "dark" : "light");
+    } catch (_) {
+      // localStorage unavailable, stay dark
+    }
+  }, []);
+
+  function toggleTheme() {
+    const next = !isDarkTheme;
+    setIsDarkTheme(next);
+    try {
+      localStorage.setItem("theme", next ? "dark" : "light");
+    } catch (_) {}
+    document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
+  }
+
+  // ── Close mobile nav on route change ──
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  // ── Close mobile nav on outside click ──
+  useEffect(() => {
+    function handleOutsideClick(event) {
+      if (!sidebarRef.current) return;
+      if (!sidebarRef.current.contains(event.target) && !event.target.closest(".hamburger-btn")) {
+        setMobileNavOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const displayName = useMemo(() => {
     return (
@@ -966,6 +1044,103 @@ function AppShellClientInner({ children }) {
     return <LoginScreen authMessage={authMessage} onGoogleLogin={handleGoogleLogin} />;
   }
 
+  const SidebarContent = (
+    <>
+      <div className="brand-wrap">
+        <div className="brand-badge">NEXT Ventures</div>
+
+        <div className="brand-block">
+          <div className="brand-mark" aria-hidden="true">
+            <span className="brand-mark-halo" />
+            <span className="brand-orbit orbit-one" />
+            <span className="brand-orbit orbit-two" />
+            <span className="brand-node node-one" />
+            <span className="brand-node node-two" />
+            <span className="brand-node node-three" />
+            <div className="brand-mark-core">
+              <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#brandGradientMain)" />
+                <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#brandGradientAccent)" opacity="0.92" />
+                <defs>
+                  <linearGradient id="brandGradientMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#22D3EE" />
+                    <stop offset="0.48" stopColor="#8B5CF6" />
+                    <stop offset="1" stopColor="#EC4899" />
+                  </linearGradient>
+                  <linearGradient id="brandGradientAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#FDE047" />
+                    <stop offset="1" stopColor="#F97316" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          </div>
+
+          <div>
+            <h1 className="brand-title">AI Auditor & Insights Platform</h1>
+            <p className="brand-subtitle">
+              Review Approach & Client Sentiment Tracking.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <nav className="nav">
+        <div className="nav-section-label">Navigation</div>
+
+        <div className="nav-list">
+          {navItems.map((item) => {
+            const allowed = canViewNavItem(item, profile, session);
+            const active =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${active ? "nav-link active" : "nav-link"} ${
+                  !allowed && session?.user ? "locked-nav" : ""
+                }`}
+              >
+                <SidebarIcon kind={item.icon} active={active} />
+                <span>{item.label}</span>
+                {!allowed && session?.user ? <em>Locked</em> : null}
+              </Link>
+            );
+          })}
+
+          {pathname.startsWith("/admin") && adminNavGroups.length ? (
+            <div className="admin-subnav" aria-label="Admin sections">
+              {adminNavGroups.map((group) => (
+                <div className="admin-subnav-group" key={group.label}>
+                  <div className="admin-subnav-label">{group.label}</div>
+                  {group.items.map((item) => {
+                    const active = activeAdminSection === item.key;
+                    return (
+                      <Link
+                        key={item.key}
+                        href={`/admin?section=${item.key}`}
+                        className={active ? "admin-subnav-link active" : "admin-subnav-link"}
+                      >
+                        <SidebarIcon kind={item.icon} active={active} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </nav>
+
+      <div className="sidebar-mini developer-credit">
+        <span>Developed by</span>
+        <strong>Faiyaz Ahmed</strong>
+      </div>
+    </>
+  );
+
   return (
     <div className="app-shell">
       <div className="app-bg">
@@ -976,190 +1151,143 @@ function AppShellClientInner({ children }) {
         <div className="bg-vignette" />
       </div>
 
+      {/* Mobile nav overlay */}
+      {mobileNavOpen && (
+        <div
+          className="mobile-nav-overlay"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <div className="shell-frame">
-        <aside className="sidebar">
-          <div className="brand-wrap">
-            <div className="brand-badge">NEXT Ventures</div>
+        {/* Desktop sidebar */}
+        <aside className="sidebar desktop-sidebar">
+          {SidebarContent}
+        </aside>
 
-            <div className="brand-block">
-              <div className="brand-mark" aria-hidden="true">
-                <span className="brand-mark-halo" />
-                <span className="brand-orbit orbit-one" />
-                <span className="brand-orbit orbit-two" />
-                <span className="brand-node node-one" />
-                <span className="brand-node node-two" />
-                <span className="brand-node node-three" />
-                <div className="brand-mark-core">
-                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#brandGradientMain)" />
-                    <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#brandGradientAccent)" opacity="0.92" />
-                    <defs>
-                      <linearGradient id="brandGradientMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
-                        <stop stopColor="#22D3EE" />
-                        <stop offset="0.48" stopColor="#8B5CF6" />
-                        <stop offset="1" stopColor="#EC4899" />
-                      </linearGradient>
-                      <linearGradient id="brandGradientAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
-                        <stop stopColor="#FDE047" />
-                        <stop offset="1" stopColor="#F97316" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                </div>
-              </div>
-
-              <div>
-                <h1 className="brand-title">AI Auditor & Insights Platform</h1>
-                <p className="brand-subtitle">
-                  Review Approach & Client Sentiment Tracking.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <nav className="nav">
-            <div className="nav-section-label">Navigation</div>
-
-            <div className="nav-list">
-              {navItems.map((item) => {
-                const allowed = canViewNavItem(item, profile, session);
-                const active =
-                  item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`${active ? "nav-link active" : "nav-link"} ${
-                      !allowed && session?.user ? "locked-nav" : ""
-                    }`}
-                  >
-                    <SidebarIcon kind={item.icon} active={active} />
-                    <span>{item.label}</span>
-                    {!allowed && session?.user ? <em>Locked</em> : null}
-                  </Link>
-                );
-              })}
-
-              {pathname.startsWith("/admin") && adminNavGroups.length ? (
-                <div className="admin-subnav" aria-label="Admin sections">
-                  {adminNavGroups.map((group) => (
-                    <div className="admin-subnav-group" key={group.label}>
-                      <div className="admin-subnav-label">{group.label}</div>
-                      {group.items.map((item) => {
-                        const active = activeAdminSection === item.key;
-                        return (
-                          <Link
-                            key={item.key}
-                            href={`/admin?section=${item.key}`}
-                            className={active ? "admin-subnav-link active" : "admin-subnav-link"}
-                          >
-                            <SidebarIcon kind={item.icon} active={active} />
-                            <span>{item.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </nav>
-
-          <div className="sidebar-mini developer-credit">
-            <span>Developed by</span>
-            <strong>Faiyaz Ahmed</strong>
-          </div>
+        {/* Mobile sidebar (slide-in) */}
+        <aside
+          ref={sidebarRef}
+          className={`sidebar mobile-sidebar ${mobileNavOpen ? "mobile-sidebar-open" : ""}`}
+          aria-hidden={!mobileNavOpen}
+        >
+          {SidebarContent}
         </aside>
 
         <div className="content-shell">
           <header className="topbar">
-            <div>
+            {/* Mobile hamburger */}
+            <button
+              type="button"
+              className="hamburger-btn"
+              onClick={() => setMobileNavOpen((prev) => !prev)}
+              aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={mobileNavOpen}
+            >
+              <HamburgerIcon open={mobileNavOpen} />
+            </button>
+
+            <div className="topbar-titles">
               <div className="topbar-kicker">Internal quality platform</div>
               <div className="topbar-title">Review Approach, Client Sentiment & Resolution Status Tracking</div>
             </div>
 
-            <div ref={profileMenuRef} className="profile-wrap">
-              {authLoading ? (
-                <div className="profile-loading">Checking session</div>
-              ) : session?.user ? (
-                <>
-                  <button
-                    type="button"
-                    className="profile-button"
-                    onClick={() => setProfileOpen((prev) => !prev)}
-                  >
-                    <span className="profile-avatar">
-                      {displayAvatarUrl ? (
-                        <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
-                      ) : (
-                        getInitials(displayName)
-                      )}
-                    </span>
+            <div className="topbar-actions">
+              {/* Theme toggle */}
+              <button
+                type="button"
+                className="theme-toggle-btn"
+                onClick={toggleTheme}
+                aria-label={isDarkTheme ? "Switch to light mode" : "Switch to dark mode"}
+                title={isDarkTheme ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                <ThemeToggleIcon isDark={isDarkTheme} />
+              </button>
 
-                    <span className="profile-copy">
-                      <strong>{displayName}</strong>
-                      <small>{roleLabel(profile?.role, displayEmail)}</small>
-                    </span>
+              {/* Profile */}
+              <div ref={profileMenuRef} className="profile-wrap">
+                {authLoading ? (
+                  <div className="profile-loading">Checking session</div>
+                ) : session?.user ? (
+                  <>
+                    <button
+                      type="button"
+                      className="profile-button"
+                      onClick={() => setProfileOpen((prev) => !prev)}
+                    >
+                      <span className="profile-avatar">
+                        {displayAvatarUrl ? (
+                          <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                        ) : (
+                          getInitials(displayName)
+                        )}
+                      </span>
 
-                    <b>{profileOpen ? "Up" : "Down"}</b>
+                      <span className="profile-copy">
+                        <strong>{displayName}</strong>
+                        <small>{roleLabel(profile?.role, displayEmail)}</small>
+                      </span>
+
+                      <b className="profile-chevron">{profileOpen ? "▲" : "▼"}</b>
+                    </button>
+
+                    {profileOpen ? (
+                      <div className="profile-menu">
+                        <div className="profile-menu-head">
+                          <span className="profile-avatar large">
+                            {displayAvatarUrl ? (
+                              <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                            ) : (
+                              getInitials(displayName)
+                            )}
+                          </span>
+                          <div>
+                            <strong>{displayName}</strong>
+                            <small>{displayEmail}</small>
+                          </div>
+                        </div>
+
+                        <div className="profile-detail-grid">
+                          <div>
+                            <span>Role</span>
+                            <strong>{roleLabel(profile?.role, displayEmail)}</strong>
+                          </div>
+
+                          <div>
+                            <span>Run Audit</span>
+                            <strong>{canRunAudits(profile, session) ? "Allowed" : "Locked"}</strong>
+                          </div>
+
+                          <div>
+                            <span>Admin</span>
+                            <strong>{canAccessAdmin(profile, session) ? "Allowed" : "Locked"}</strong>
+                          </div>
+
+                          <div>
+                            <span>Status</span>
+                            <strong>{profile?.is_active ? "Active" : "Inactive"}</strong>
+                          </div>
+                        </div>
+
+                        <p className="profile-note">
+                          Roles are controlled from Admin. Users cannot change their own role here.
+                        </p>
+
+                        {authMessage ? <p className="profile-warning">{authMessage}</p> : null}
+
+                        <button type="button" className="signout-btn" onClick={handleLogout}>
+                          Sign Out
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <button type="button" className="signin-btn" onClick={handleGoogleLogin}>
+                    Sign In
                   </button>
-
-                  {profileOpen ? (
-                    <div className="profile-menu">
-                      <div className="profile-menu-head">
-                        <span className="profile-avatar large">
-                          {displayAvatarUrl ? (
-                            <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
-                          ) : (
-                            getInitials(displayName)
-                          )}
-                        </span>
-                        <div>
-                          <strong>{displayName}</strong>
-                          <small>{displayEmail}</small>
-                        </div>
-                      </div>
-
-                      <div className="profile-detail-grid">
-                        <div>
-                          <span>Role</span>
-                          <strong>{roleLabel(profile?.role, displayEmail)}</strong>
-                        </div>
-
-                        <div>
-                          <span>Run Audit</span>
-                          <strong>{canRunAudits(profile, session) ? "Allowed" : "Locked"}</strong>
-                        </div>
-
-                        <div>
-                          <span>Admin</span>
-                          <strong>{canAccessAdmin(profile, session) ? "Allowed" : "Locked"}</strong>
-                        </div>
-
-                        <div>
-                          <span>Status</span>
-                          <strong>{profile?.is_active ? "Active" : "Inactive"}</strong>
-                        </div>
-                      </div>
-
-                      <p className="profile-note">
-                        Roles are controlled from Admin. Users cannot change their own role here.
-                      </p>
-
-                      {authMessage ? <p className="profile-warning">{authMessage}</p> : null}
-
-                      <button type="button" className="signout-btn" onClick={handleLogout}>
-                        Sign Out
-                      </button>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <button type="button" className="signin-btn" onClick={handleGoogleLogin}>
-                  Sign In
-                </button>
-              )}
+                )}
+              </div>
             </div>
           </header>
 
@@ -1289,19 +1417,10 @@ const appShellStyles = `
     box-shadow: 0 0 16px rgba(34, 211, 238, 0.88);
   }
 
-  .platform-logo .node-a {
-    top: 19%;
-    right: 21%;
-  }
-
-  .platform-logo .node-b {
-    left: 22%;
-    bottom: 24%;
-  }
-
+  .platform-logo .node-a { top: 19%; right: 21%; }
+  .platform-logo .node-b { left: 22%; bottom: 24%; }
   .platform-logo .node-c {
-    right: 22%;
-    bottom: 20%;
+    right: 22%; bottom: 20%;
     background: #f0abfc;
     box-shadow: 0 0 16px rgba(217, 70, 239, 0.78);
   }
@@ -1404,8 +1523,7 @@ const appShellStyles = `
   }
 
   .launch-gear.gear-one {
-    left: 34px;
-    top: 60px;
+    left: 34px; top: 60px;
     color: #8b5cf6;
     font-size: 86px;
     filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.34));
@@ -1413,8 +1531,7 @@ const appShellStyles = `
   }
 
   .launch-gear.gear-two {
-    left: 90px;
-    top: 30px;
+    left: 90px; top: 30px;
     color: #38bdf8;
     font-size: 76px;
     filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.32));
@@ -1422,8 +1539,7 @@ const appShellStyles = `
   }
 
   .launch-gear.gear-three {
-    left: 104px;
-    top: 104px;
+    left: 104px; top: 104px;
     color: #ec4899;
     font-size: 54px;
     filter: drop-shadow(0 0 18px rgba(236, 72, 153, 0.3));
@@ -1431,8 +1547,7 @@ const appShellStyles = `
   }
 
   .launch-gear-dot {
-    width: 9px;
-    height: 9px;
+    width: 9px; height: 9px;
     border-radius: 999px;
     background: currentColor;
     box-shadow: 0 0 18px currentColor;
@@ -1503,18 +1618,14 @@ const appShellStyles = `
   }
 
   .login-orb.orb-a {
-    width: 320px;
-    height: 320px;
-    top: -110px;
-    right: -70px;
+    width: 320px; height: 320px;
+    top: -110px; right: -70px;
     background: rgba(139, 92, 246, 0.26);
   }
 
   .login-orb.orb-b {
-    width: 300px;
-    height: 300px;
-    bottom: -120px;
-    left: -80px;
+    width: 300px; height: 300px;
+    bottom: -120px; left: -80px;
     background: rgba(34, 211, 238, 0.12);
   }
 
@@ -1593,8 +1704,7 @@ const appShellStyles = `
   }
 
   .login-google-btn svg {
-    width: 22px;
-    height: 22px;
+    width: 22px; height: 22px;
     padding: 3px;
     border-radius: 999px;
     background: #ffffff;
@@ -1662,9 +1772,20 @@ const appShellStyles = `
     color: #f8fbff;
   }
 
+  html[data-theme="light"],
+  html[data-theme="light"] body {
+    background:
+      radial-gradient(circle at top left, rgba(219,234,254,0.8), transparent 30%),
+      radial-gradient(circle at 85% 12%, rgba(196,181,253,0.4), transparent 28%),
+      #f0f4f8;
+    color: #0f172a;
+  }
+
   a {
     color: inherit;
   }
+
+  /* ── App shell ──────────────────────────────────────────── */
 
   .app-shell {
     position: relative;
@@ -1678,6 +1799,10 @@ const appShellStyles = `
     overflow: hidden;
   }
 
+  html[data-theme="light"] .app-bg {
+    display: none;
+  }
+
   .bg-orb {
     position: absolute;
     border-radius: 999px;
@@ -1686,26 +1811,20 @@ const appShellStyles = `
   }
 
   .orb-one {
-    top: -120px;
-    left: -100px;
-    height: 340px;
-    width: 340px;
+    top: -120px; left: -100px;
+    height: 340px; width: 340px;
     background: rgba(139, 92, 246, 0.18);
   }
 
   .orb-two {
-    top: 70px;
-    right: -60px;
-    height: 300px;
-    width: 300px;
+    top: 70px; right: -60px;
+    height: 300px; width: 300px;
     background: rgba(59, 130, 246, 0.16);
   }
 
   .orb-three {
-    bottom: -80px;
-    left: 22%;
-    height: 320px;
-    width: 320px;
+    bottom: -80px; left: 22%;
+    height: 320px; width: 320px;
     background: rgba(217, 70, 239, 0.12);
   }
 
@@ -1723,8 +1842,7 @@ const appShellStyles = `
   .bg-vignette {
     position: absolute;
     inset: 0;
-    background:
-      radial-gradient(circle at center, transparent 40%, rgba(2, 6, 23, 0.28) 78%, rgba(2, 6, 23, 0.62) 100%);
+    background: radial-gradient(circle at center, transparent 40%, rgba(2, 6, 23, 0.28) 78%, rgba(2, 6, 23, 0.62) 100%);
   }
 
   .shell-frame {
@@ -1736,6 +1854,8 @@ const appShellStyles = `
     align-items: start;
   }
 
+  /* ── Sidebar ──────────────────────────────────────────── */
+
   .sidebar {
     position: sticky;
     top: 0;
@@ -1746,13 +1866,22 @@ const appShellStyles = `
     gap: 26px;
     padding: 22px 16px 18px;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
-    background:
-      linear-gradient(180deg, rgba(8, 14, 32, 0.92) 0%, rgba(5, 10, 24, 0.88) 100%);
+    background: linear-gradient(180deg, rgba(8, 14, 32, 0.92) 0%, rgba(5, 10, 24, 0.88) 100%);
     backdrop-filter: blur(22px);
-    box-shadow:
-      inset -1px 0 0 rgba(255, 255, 255, 0.03),
-      20px 0 80px rgba(2, 6, 23, 0.25);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03), 20px 0 80px rgba(2, 6, 23, 0.25);
   }
+
+  html[data-theme="light"] .sidebar {
+    background: rgba(255,255,255,0.96);
+    border-right-color: rgba(0,0,0,0.1);
+    box-shadow: 2px 0 20px rgba(0,0,0,0.06);
+  }
+
+  .mobile-sidebar {
+    display: none;
+  }
+
+  /* ── Brand ──────────────────────────────────────────── */
 
   .brand-wrap {
     display: grid;
@@ -1770,6 +1899,12 @@ const appShellStyles = `
     font-size: 13px;
     font-weight: 850;
     letter-spacing: 0.12em;
+  }
+
+  html[data-theme="light"] .brand-badge {
+    background: rgba(139,92,246,0.1);
+    border-color: rgba(139,92,246,0.2);
+    color: #6d28d9;
   }
 
   .brand-block {
@@ -1817,38 +1952,20 @@ const appShellStyles = `
     transform: rotate(-24deg);
   }
 
-  .orbit-one {
-    width: 48px;
-    height: 23px;
-  }
-
-  .orbit-two {
-    width: 23px;
-    height: 48px;
-    transform: rotate(28deg);
-  }
+  .orbit-one { width: 48px; height: 23px; }
+  .orbit-two { width: 23px; height: 48px; transform: rotate(28deg); }
 
   .brand-node {
-    width: 6px;
-    height: 6px;
+    width: 6px; height: 6px;
     border-radius: 999px;
     background: #cffafe;
     box-shadow: 0 0 14px rgba(34, 211, 238, 0.8);
   }
 
-  .node-one {
-    top: 12px;
-    right: 14px;
-  }
-
-  .node-two {
-    left: 13px;
-    bottom: 15px;
-  }
-
+  .node-one { top: 12px; right: 14px; }
+  .node-two { left: 13px; bottom: 15px; }
   .node-three {
-    right: 13px;
-    bottom: 13px;
+    right: 13px; bottom: 13px;
     background: #f0abfc;
     box-shadow: 0 0 14px rgba(217, 70, 239, 0.75);
   }
@@ -1856,16 +1973,14 @@ const appShellStyles = `
   .brand-mark-core {
     position: relative;
     z-index: 1;
-    width: 34px;
-    height: 34px;
+    width: 34px; height: 34px;
     display: grid;
     place-items: center;
     filter: drop-shadow(0 0 18px rgba(139, 92, 246, 0.4));
   }
 
   .brand-mark-core svg {
-    width: 34px;
-    height: 34px;
+    width: 34px; height: 34px;
     display: block;
   }
 
@@ -1879,6 +1994,10 @@ const appShellStyles = `
     color: #ffffff;
   }
 
+  html[data-theme="light"] .brand-title {
+    color: #0f172a;
+  }
+
   .brand-subtitle {
     margin: 8px 0 0;
     max-width: 170px;
@@ -1886,6 +2005,12 @@ const appShellStyles = `
     line-height: 1.45;
     color: #9caed3;
   }
+
+  html[data-theme="light"] .brand-subtitle {
+    color: #64748b;
+  }
+
+  /* ── Nav ──────────────────────────────────────────── */
 
   .nav {
     display: grid;
@@ -1898,6 +2023,10 @@ const appShellStyles = `
     font-weight: 900;
     letter-spacing: 0.14em;
     color: #8296c4;
+  }
+
+  html[data-theme="light"] .nav-section-label {
+    color: #64748b;
   }
 
   .nav-list {
@@ -1918,12 +2047,17 @@ const appShellStyles = `
     color: #dce7ff;
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 10px 24px rgba(2, 6, 23, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 24px rgba(2, 6, 23, 0.18);
     font-size: 17px;
     font-weight: 800;
     transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  }
+
+  html[data-theme="light"] .nav-link {
+    color: #1e293b;
+    border-color: rgba(0,0,0,0.07);
+    background: rgba(255,255,255,0.7);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   }
 
   .nav-link:hover,
@@ -1933,9 +2067,15 @@ const appShellStyles = `
     background: linear-gradient(180deg, rgba(91, 33, 182, 0.18), rgba(255, 255, 255, 0.03));
   }
 
+  html[data-theme="light"] .nav-link:hover,
+  html[data-theme="light"] .nav-link.active {
+    border-color: rgba(139,92,246,0.3);
+    background: rgba(237,233,254,0.8);
+    color: #4c1d95;
+  }
+
   .nav-link-icon {
-    width: 36px;
-    height: 36px;
+    width: 36px; height: 36px;
     display: grid;
     place-items: center;
     border-radius: 14px;
@@ -1956,6 +2096,8 @@ const appShellStyles = `
     font-weight: 850;
   }
 
+  /* ── Admin subnav ──────────────────────────────────────────── */
+
   .admin-subnav {
     position: relative;
     margin-top: 8px;
@@ -1966,20 +2108,27 @@ const appShellStyles = `
       radial-gradient(circle at 14% 8%, rgba(34, 211, 238, 0.09), transparent 32%),
       radial-gradient(circle at 88% 16%, rgba(139, 92, 246, 0.11), transparent 34%),
       linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(8, 13, 30, 0.42));
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 18px 38px rgba(2, 6, 23, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 38px rgba(2, 6, 23, 0.2);
+  }
+
+  html[data-theme="light"] .admin-subnav {
+    background: rgba(248,250,252,0.9);
+    border-color: rgba(0,0,0,0.08);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
   }
 
   .admin-subnav::before {
     content: "";
     position: absolute;
-    left: 18px;
-    top: 18px;
-    bottom: 18px;
+    left: 18px; top: 18px; bottom: 18px;
     width: 1px;
     background: linear-gradient(180deg, rgba(34, 211, 238, 0.28), rgba(139, 92, 246, 0.16), rgba(236, 72, 153, 0.08));
     opacity: 0.75;
+  }
+
+  html[data-theme="light"] .admin-subnav::before {
+    background: linear-gradient(180deg, rgba(99,102,241,0.3), rgba(139,92,246,0.15));
+    opacity: 0.5;
   }
 
   .admin-subnav-group {
@@ -1993,6 +2142,10 @@ const appShellStyles = `
     margin-top: 13px;
     padding-top: 13px;
     border-top: 1px solid rgba(255, 255, 255, 0.055);
+  }
+
+  html[data-theme="light"] .admin-subnav-group + .admin-subnav-group {
+    border-top-color: rgba(0,0,0,0.07);
   }
 
   .admin-subnav-label {
@@ -2011,6 +2164,12 @@ const appShellStyles = `
     text-transform: uppercase;
   }
 
+  html[data-theme="light"] .admin-subnav-label {
+    background: rgba(241,245,249,0.9);
+    color: #64748b;
+    border-color: rgba(0,0,0,0.1);
+  }
+
   .admin-subnav-link {
     position: relative;
     display: grid;
@@ -2025,21 +2184,20 @@ const appShellStyles = `
     border: 1px solid rgba(255, 255, 255, 0.055);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.016));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
-    transition:
-      transform 0.16s ease,
-      border-color 0.16s ease,
-      background 0.16s ease,
-      box-shadow 0.16s ease,
-      color 0.16s ease;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+  }
+
+  html[data-theme="light"] .admin-subnav-link {
+    color: #374151;
+    border-color: rgba(0,0,0,0.07);
+    background: rgba(255,255,255,0.8);
   }
 
   .admin-subnav-link::after {
     content: "";
     position: absolute;
-    right: 10px;
-    top: 50%;
-    width: 6px;
-    height: 6px;
+    right: 10px; top: 50%;
+    width: 6px; height: 6px;
     border-top: 1.5px solid currentColor;
     border-right: 1.5px solid currentColor;
     transform: translateY(-50%) rotate(45deg);
@@ -2061,23 +2219,30 @@ const appShellStyles = `
   }
 
   .admin-subnav-link .nav-link-icon {
-    width: 30px;
-    height: 30px;
+    width: 30px; height: 30px;
     border-radius: 12px;
     background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(11, 18, 35, 0.7));
     border: 1px solid rgba(148, 163, 184, 0.1);
+  }
+
+  html[data-theme="light"] .admin-subnav-link .nav-link-icon {
+    background: rgba(241,245,249,0.9);
+    border-color: rgba(0,0,0,0.08);
   }
 
   .admin-subnav-link:hover {
     transform: translateX(3px);
     color: #ffffff;
     border-color: rgba(34, 211, 238, 0.22);
-    background:
-      linear-gradient(135deg, rgba(14, 116, 144, 0.18), rgba(91, 33, 182, 0.14)),
-      rgba(15, 23, 42, 0.76);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      0 12px 24px rgba(2, 6, 23, 0.24);
+    background: linear-gradient(135deg, rgba(14, 116, 144, 0.18), rgba(91, 33, 182, 0.14)), rgba(15, 23, 42, 0.76);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 24px rgba(2, 6, 23, 0.24);
+  }
+
+  html[data-theme="light"] .admin-subnav-link:hover {
+    color: #4c1d95;
+    border-color: rgba(139,92,246,0.3);
+    background: rgba(237,233,254,0.8);
+    box-shadow: 0 4px 14px rgba(139,92,246,0.1);
   }
 
   .admin-subnav-link:hover::after,
@@ -2092,10 +2257,14 @@ const appShellStyles = `
     background:
       radial-gradient(circle at 16% 18%, rgba(34, 211, 238, 0.2), transparent 44%),
       linear-gradient(135deg, rgba(21, 94, 117, 0.33), rgba(88, 28, 135, 0.25));
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 14px 34px rgba(8, 47, 73, 0.24),
-      0 0 0 1px rgba(34, 211, 238, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 34px rgba(8, 47, 73, 0.24), 0 0 0 1px rgba(34, 211, 238, 0.08);
+  }
+
+  html[data-theme="light"] .admin-subnav-link.active {
+    color: #4c1d95;
+    border-color: rgba(139,92,246,0.4);
+    background: rgba(237,233,254,0.95);
+    box-shadow: 0 4px 18px rgba(139,92,246,0.15);
   }
 
   .admin-subnav-link:hover .nav-link-icon,
@@ -2109,12 +2278,19 @@ const appShellStyles = `
     opacity: 0.72;
   }
 
+  /* ── Sidebar footer ──────────────────────────────────────────── */
+
   .sidebar-mini {
     margin-top: auto;
     border-radius: 20px;
     border: 1px solid rgba(255,255,255,0.08);
     background: rgba(255,255,255,0.035);
     padding: 14px;
+  }
+
+  html[data-theme="light"] .sidebar-mini {
+    background: rgba(248,250,252,0.9);
+    border-color: rgba(0,0,0,0.08);
   }
 
   .sidebar-mini span {
@@ -2126,10 +2302,20 @@ const appShellStyles = `
     margin-bottom: 8px;
   }
 
+  html[data-theme="light"] .sidebar-mini span {
+    color: #64748b;
+  }
+
   .sidebar-mini strong {
     color: #ffffff;
     font-size: 17px;
   }
+
+  html[data-theme="light"] .sidebar-mini strong {
+    color: #0f172a;
+  }
+
+  /* ── Content shell ──────────────────────────────────────────── */
 
   .content-shell {
     min-width: 0;
@@ -2138,6 +2324,8 @@ const appShellStyles = `
     flex-direction: column;
     padding: 14px 18px 24px;
   }
+
+  /* ── Topbar ──────────────────────────────────────────── */
 
   .topbar {
     position: relative;
@@ -2155,9 +2343,48 @@ const appShellStyles = `
       radial-gradient(circle at top right, rgba(139, 92, 246, 0.1), transparent 34%),
       linear-gradient(180deg, rgba(11, 18, 39, 0.94), rgba(7, 12, 28, 0.9));
     backdrop-filter: blur(18px);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 18px 60px rgba(2, 6, 23, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 60px rgba(2, 6, 23, 0.18);
+  }
+
+  html[data-theme="light"] .topbar {
+    background: rgba(255,255,255,0.92);
+    border-color: rgba(0,0,0,0.08);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+    backdrop-filter: blur(12px);
+  }
+
+  .hamburger-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.06);
+    color: #ffffff;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.18s ease;
+  }
+
+  html[data-theme="light"] .hamburger-btn {
+    border-color: rgba(0,0,0,0.1);
+    background: rgba(0,0,0,0.04);
+    color: #1e293b;
+  }
+
+  .hamburger-btn:hover {
+    background: rgba(255,255,255,0.12);
+  }
+
+  html[data-theme="light"] .hamburger-btn:hover {
+    background: rgba(0,0,0,0.08);
+  }
+
+  .topbar-titles {
+    flex: 1;
+    min-width: 0;
   }
 
   .topbar-kicker {
@@ -2165,6 +2392,10 @@ const appShellStyles = `
     font-weight: 850;
     letter-spacing: 0.12em;
     color: #7e92bd;
+  }
+
+  html[data-theme="light"] .topbar-kicker {
+    color: #64748b;
   }
 
   .topbar-title {
@@ -2178,6 +2409,54 @@ const appShellStyles = `
     white-space: normal;
     line-height: 1.15;
   }
+
+  html[data-theme="light"] .topbar-title {
+    color: #0f172a;
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  /* ── Theme toggle ──────────────────────────────────────────── */
+
+  .theme-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.06);
+    color: #94a3b8;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .theme-toggle-btn:hover {
+    background: rgba(255,255,255,0.12);
+    color: #22d3ee;
+    border-color: rgba(34,211,238,0.3);
+  }
+
+  html[data-theme="light"] .theme-toggle-btn {
+    border-color: rgba(0,0,0,0.1);
+    background: rgba(0,0,0,0.04);
+    color: #64748b;
+  }
+
+  html[data-theme="light"] .theme-toggle-btn:hover {
+    background: rgba(99,102,241,0.1);
+    color: #6366f1;
+    border-color: rgba(99,102,241,0.3);
+  }
+
+  /* ── Profile ──────────────────────────────────────────── */
 
   .profile-wrap {
     position: relative;
@@ -2195,7 +2474,7 @@ const appShellStyles = `
   }
 
   .profile-button {
-    min-width: 260px;
+    min-width: 240px;
     min-height: 52px;
     display: grid;
     grid-template-columns: 38px minmax(0, 1fr) auto;
@@ -2205,13 +2484,22 @@ const appShellStyles = `
     border-radius: 18px;
     color: #ffffff;
     border: 1px solid rgba(255,255,255,0.08);
-    background:
-      linear-gradient(135deg, rgba(59,130,246,0.14), rgba(139,92,246,0.16), rgba(236,72,153,0.08));
+    background: linear-gradient(135deg, rgba(59,130,246,0.14), rgba(139,92,246,0.16), rgba(236,72,153,0.08));
+    transition: border-color 0.18s ease, background 0.18s ease;
+  }
+
+  html[data-theme="light"] .profile-button {
+    color: #0f172a;
+    border-color: rgba(0,0,0,0.1);
+    background: rgba(248,250,252,0.9);
+  }
+
+  .profile-button:hover {
+    border-color: rgba(139,92,246,0.3);
   }
 
   .profile-avatar {
-    width: 38px;
-    height: 38px;
+    width: 38px; height: 38px;
     display: grid;
     place-items: center;
     overflow: hidden;
@@ -2221,18 +2509,17 @@ const appShellStyles = `
     font-weight: 900;
     background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777);
     box-shadow: 0 0 24px rgba(139,92,246,0.42);
+    flex-shrink: 0;
   }
 
   .profile-avatar-image {
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     object-fit: cover;
     display: block;
   }
 
   .profile-avatar.large {
-    width: 48px;
-    height: 48px;
+    width: 48px; height: 48px;
     border-radius: 17px;
   }
 
@@ -2259,9 +2546,18 @@ const appShellStyles = `
     font-size: 14px;
   }
 
-  .profile-button b {
+  html[data-theme="light"] .profile-copy small {
+    color: #64748b;
+  }
+
+  .profile-chevron {
     color: #8ea0d6;
-    font-size: 13px;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  html[data-theme="light"] .profile-chevron {
+    color: #94a3b8;
   }
 
   .profile-menu {
@@ -2275,6 +2571,12 @@ const appShellStyles = `
     border: 1px solid rgba(255,255,255,0.1);
     background: rgba(9, 14, 30, 0.98);
     box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  }
+
+  html[data-theme="light"] .profile-menu {
+    background: rgba(255,255,255,0.98);
+    border-color: rgba(0,0,0,0.1);
+    box-shadow: 0 14px 50px rgba(0,0,0,0.15);
   }
 
   .profile-menu-head {
@@ -2294,6 +2596,10 @@ const appShellStyles = `
     color: #9caed3;
   }
 
+  html[data-theme="light"] .profile-menu-head small {
+    color: #64748b;
+  }
+
   .profile-detail-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2308,6 +2614,11 @@ const appShellStyles = `
     border: 1px solid rgba(255,255,255,0.07);
   }
 
+  html[data-theme="light"] .profile-detail-grid div {
+    background: rgba(248,250,252,0.9);
+    border-color: rgba(0,0,0,0.08);
+  }
+
   .profile-detail-grid span {
     display: block;
     color: #8ea0d6;
@@ -2316,9 +2627,17 @@ const appShellStyles = `
     margin-bottom: 6px;
   }
 
+  html[data-theme="light"] .profile-detail-grid span {
+    color: #64748b;
+  }
+
   .profile-detail-grid strong {
     color: #ffffff;
     font-size: 15px;
+  }
+
+  html[data-theme="light"] .profile-detail-grid strong {
+    color: #0f172a;
   }
 
   .profile-note,
@@ -2327,6 +2646,10 @@ const appShellStyles = `
     color: #a9b4d0;
     font-size: 15px;
     line-height: 1.6;
+  }
+
+  html[data-theme="light"] .profile-note {
+    color: #64748b;
   }
 
   .profile-warning {
@@ -2360,6 +2683,11 @@ const appShellStyles = `
     background: rgba(244,63,94,0.12);
     border: 1px solid rgba(244,63,94,0.24);
     box-shadow: none;
+    color: #f87171;
+  }
+
+  html[data-theme="light"] .signout-btn {
+    color: #dc2626;
   }
 
   .profile-loading {
@@ -2374,6 +2702,14 @@ const appShellStyles = `
     font-size: 15px;
     font-weight: 800;
   }
+
+  html[data-theme="light"] .profile-loading {
+    color: #64748b;
+    border-color: rgba(0,0,0,0.1);
+    background: rgba(248,250,252,0.9);
+  }
+
+  /* ── Page content ──────────────────────────────────────────── */
 
   .page-content {
     position: relative;
@@ -2409,16 +2745,20 @@ const appShellStyles = `
     border-radius: 30px;
     text-align: center;
     border: 1px solid rgba(255,255,255,0.1);
-    background:
-      linear-gradient(180deg, rgba(15,22,43,0.96), rgba(7,10,24,0.98));
+    background: linear-gradient(180deg, rgba(15,22,43,0.96), rgba(7,10,24,0.98));
     box-shadow: 0 30px 90px rgba(0,0,0,0.55);
+  }
+
+  html[data-theme="light"] .locked-card {
+    background: rgba(255,255,255,0.97);
+    border-color: rgba(0,0,0,0.1);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.12);
   }
 
   .locked-orb {
     position: absolute;
     inset: -120px -100px auto auto;
-    width: 300px;
-    height: 300px;
+    width: 300px; height: 300px;
     border-radius: 999px;
     background: rgba(168,85,247,0.2);
     filter: blur(40px);
@@ -2440,11 +2780,19 @@ const appShellStyles = `
     letter-spacing: 0.14em;
   }
 
+  html[data-theme="light"] .locked-card span {
+    color: #6366f1;
+  }
+
   .locked-card h2 {
     margin: 12px 0 10px;
     color: #ffffff;
     font-size: 38px;
     letter-spacing: -0.05em;
+  }
+
+  html[data-theme="light"] .locked-card h2 {
+    color: #0f172a;
   }
 
   .locked-card p {
@@ -2453,6 +2801,23 @@ const appShellStyles = `
     color: #a9b4d0;
     line-height: 1.7;
   }
+
+  html[data-theme="light"] .locked-card p {
+    color: #475569;
+  }
+
+  /* ── Mobile nav overlay ──────────────────────────────────────────── */
+
+  .mobile-nav-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(3px);
+  }
+
+  /* ── Responsive ──────────────────────────────────────────── */
 
   @media (max-width: 1100px) {
     .login-card {
@@ -2469,24 +2834,54 @@ const appShellStyles = `
       grid-template-columns: 1fr;
     }
 
-    .sidebar {
-      position: relative;
-      height: auto;
-      overflow: visible;
-      border-right: none;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+    /* Hide desktop sidebar on tablet/mobile */
+    .desktop-sidebar {
+      display: none !important;
     }
 
-    .nav-list {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Show hamburger button */
+    .hamburger-btn {
+      display: flex;
     }
 
-    .sidebar-mini {
+    /* Mobile sidebar as fixed overlay */
+    .mobile-sidebar {
+      display: flex;
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 280px;
+      z-index: 999;
+      transform: translateX(-100%);
+      transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      border-right: 1px solid rgba(255,255,255,0.1);
+      overflow-y: auto;
+    }
+
+    html[data-theme="light"] .mobile-sidebar {
+      border-right-color: rgba(0,0,0,0.1);
+    }
+
+    .mobile-sidebar-open {
+      transform: translateX(0);
+    }
+
+    .mobile-nav-overlay {
+      display: block;
+    }
+
+    .mobile-nav-overlay:not([style]) {
       display: none;
     }
 
     .content-shell {
       padding-top: 14px;
+    }
+
+    .topbar-title {
+      font-size: 18px;
+      max-width: 100%;
     }
   }
 
@@ -2511,26 +2906,39 @@ const appShellStyles = `
       font-size: 44px;
     }
 
-    .content-shell,
-    .sidebar {
-      padding-left: 12px;
-      padding-right: 12px;
+    .content-shell {
+      padding: 10px 12px 20px;
     }
 
     .topbar {
-      position: relative;
-      top: auto;
-      flex-direction: column;
-      align-items: stretch;
+      padding: 12px 14px;
+      gap: 10px;
+      min-height: 64px;
+    }
+
+    .topbar-kicker {
+      display: none;
+    }
+
+    .topbar-title {
+      font-size: 16px;
+      margin-top: 0;
+      line-height: 1.3;
     }
 
     .profile-button {
-      width: 100%;
       min-width: 0;
+      padding: 6px 8px 6px 6px;
+      gap: 8px;
     }
 
-    .nav-list {
-      grid-template-columns: 1fr;
+    /* Hide name/role on small screens, show only avatar */
+    .profile-copy {
+      display: none;
+    }
+
+    .profile-chevron {
+      display: none;
     }
 
     .locked-card {
@@ -2539,6 +2947,21 @@ const appShellStyles = `
 
     .locked-card h2 {
       font-size: 30px;
+    }
+
+    .mobile-sidebar {
+      width: 260px;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .topbar-titles {
+      display: none;
+    }
+
+    .theme-toggle-btn {
+      width: 38px;
+      height: 38px;
     }
   }
 `;
