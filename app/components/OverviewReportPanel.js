@@ -1289,6 +1289,35 @@ export default function OverviewReportPanel({ session }) {
             width: min(94vw, 520px);
           }
         }
+
+        /* ── LIGHT MODE (jsx scoped) ── */
+        html[data-theme="light"] .overview-report-hero,
+        html[data-theme="light"] .overview-report-card {
+          background: rgba(255,255,255,0.93) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
+        }
+        html[data-theme="light"] .overview-report-hero::before,
+        html[data-theme="light"] .overview-report-hero::after { display: none !important; }
+        html[data-theme="light"] .overview-report-hero h2 { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-hero p { color: #475569 !important; }
+        html[data-theme="light"] .overview-report-hero .eyebrow { color: #64748b !important; }
+        html[data-theme="light"] .report-command-control { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+        html[data-theme="light"] .report-command-control label { color: #64748b !important; }
+        html[data-theme="light"] .report-command-control strong { color: #0f172a !important; }
+        html[data-theme="light"] .ghost-btn,
+        html[data-theme="light"] .copy-btn { background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+        html[data-theme="light"] .filter-summary-grid div { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; color: #475569 !important; }
+        html[data-theme="light"] .filter-summary-grid strong { color: #0f172a !important; }
+        html[data-theme="light"] .summary-tile { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; color: #1e293b !important; }
+        html[data-theme="light"] .summary-tile strong { color: #0f172a !important; }
+        html[data-theme="light"] .summary-tile small { color: #64748b !important; }
+        html[data-theme="light"] .agent-table th { background: rgba(248,250,252,0.98) !important; color: #64748b !important; border-bottom-color: rgba(0,0,0,0.08) !important; }
+        html[data-theme="light"] .agent-table td { color: #1e293b !important; border-bottom-color: rgba(0,0,0,0.05) !important; }
+        html[data-theme="light"] .overview-report-shell input,
+        html[data-theme="light"] .overview-report-shell select,
+        html[data-theme="light"] .overview-report-shell textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
+
       `}</style>
 
       <style jsx global>{`
@@ -1566,6 +1595,20 @@ export default function OverviewReportPanel({ session }) {
             width: min(94vw, 520px);
           }
         }
+
+        /* ── LIGHT MODE (global) ── */
+        html[data-theme="light"] .overview-report-shell .run-date-popover { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; }
+        html[data-theme="light"] .overview-report-shell .run-multi-button,
+        html[data-theme="light"] .overview-report-shell .admin-date-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+        html[data-theme="light"] .overview-report-shell .date-popover-tabs div { background: rgba(0,0,0,0.03) !important; }
+        html[data-theme="light"] .overview-report-shell .date-popover-tabs span { color: #64748b !important; }
+        html[data-theme="light"] .overview-report-shell .date-popover-tabs strong { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-nav-row button { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-nav-row strong { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-day { color: #1e293b !important; background: transparent !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-day.muted { color: rgba(0,0,0,0.3) !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-day.range-start, html[data-theme="light"] .overview-report-shell .calendar-day.range-end { color: #ffffff !important; }
+
       `}</style>
     </section>
   );
