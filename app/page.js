@@ -7644,4 +7644,21 @@ const dashboardStyles = `
   html[data-theme="light"] .jump-top { background: rgba(255,255,255,0.96) !important; color: #1e293b !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important; }
   html[data-theme="light"] .loading-panel p { color: #475569 !important; }
 
+
+  /* ── DASHBOARD LOADING SCREEN — light mode ── */
+  html[data-theme="light"] .dashboard-loading-stage {
+    background: linear-gradient(180deg, #f0f4f8 0%, #eef2f8 100%) !important;
+  }
+  html[data-theme="light"] .dashboard-loader-card {
+    background: rgba(255,255,255,0.95) !important;
+    border-color: rgba(0,0,0,0.09) !important;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.12) !important;
+  }
+  html[data-theme="light"] .dashboard-loader-card::before,
+  html[data-theme="light"] .dashboard-loader-card::after { display: none !important; }
+  html[data-theme="light"] .dashboard-loader-card p { color: #0891b2 !important; }
+  html[data-theme="light"] .dashboard-loader-card h1 { color: #0f172a !important; }
+  html[data-theme="light"] .dashboard-loader-card > span { color: #475569 !important; }
+  html[data-theme="light"] .dashboard-loader-bar { background: rgba(0,0,0,0.08) !important; }
+
 `;
