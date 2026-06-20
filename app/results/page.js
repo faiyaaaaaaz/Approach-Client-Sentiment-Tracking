@@ -4686,4 +4686,22 @@ const resultsStyles = `
   html[data-theme="light"] .conversation-message-top strong { color: #0f172a !important; }
   html[data-theme="light"] .conversation-message-top span { color: #64748b !important; }
 
+
+  /* ── RESULTS LOADING SCREEN — light mode ── */
+  html[data-theme="light"] .results-loading-page {
+    background: linear-gradient(180deg, #f0f4f8 0%, #eef2f8 100%) !important;
+  }
+  html[data-theme="light"] .results-loading-card {
+    background: rgba(255,255,255,0.95) !important;
+    border-color: rgba(0,0,0,0.09) !important;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.12) !important;
+  }
+  html[data-theme="light"] .results-loading-card::before,
+  html[data-theme="light"] .results-loading-card::after { display: none !important; }
+  html[data-theme="light"] .results-loader-visual {
+    background: rgba(248,250,252,0.96) !important;
+    border-color: rgba(0,0,0,0.09) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
+  }
+
 `;
