@@ -8357,4 +8357,366 @@ const runStyles = `
   .gear-loader { display: none !important; }
 
 
+
+  /* ═══════════════════════════════════════════════════════════
+     RUN AUDIT VISUAL ENHANCEMENTS
+     These rules layer on top of the existing styles to improve
+     visual quality without touching any interactive logic.
+  ═══════════════════════════════════════════════════════════ */
+
+  /* ── Run intro strip: bigger, bolder header card ─── */
+
+  .run-intro-strip {
+    padding: 28px 32px !important;
+    border-radius: 30px !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    background:
+      radial-gradient(circle at 4% 0%, rgba(34,211,238,0.1), transparent 28%),
+      radial-gradient(circle at 94% 4%, rgba(139,92,246,0.18), transparent 30%),
+      linear-gradient(180deg, rgba(14,20,42,0.96), rgba(7,10,24,0.98)) !important;
+    box-shadow: 0 28px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.06) !important;
+    margin-bottom: 18px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 24px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .run-intro-strip h1 {
+    font-size: clamp(36px, 4vw, 62px) !important;
+    letter-spacing: -0.07em !important;
+    margin-bottom: 8px !important;
+  }
+
+  .run-intro-strip .mini-label {
+    font-size: 13px !important;
+    color: #22d3ee !important;
+    letter-spacing: 0.18em !important;
+    margin-bottom: 8px !important;
+  }
+
+  .run-intro-strip > div:first-child p {
+    margin-bottom: 6px !important;
+    color: #a9b4d0 !important;
+    font-size: 17px !important;
+    line-height: 1.6 !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    font-weight: 700 !important;
+  }
+
+  .run-intro-meta {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 8px !important;
+    flex-shrink: 0 !important;
+    padding: 20px 22px !important;
+    border-radius: 22px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    background: rgba(255,255,255,0.04) !important;
+    min-width: 240px !important;
+    text-align: right !important;
+  }
+
+  .run-intro-meta strong {
+    color: #ffffff !important;
+    font-size: 20px !important;
+    letter-spacing: -0.03em !important;
+  }
+
+  .run-intro-meta small {
+    color: #8ea0d6 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+  }
+
+  /* ── Audit Command Panel: improved card look ─── */
+
+  .audit-command-panel {
+    border-radius: 28px !important;
+    border: 1px solid rgba(255,255,255,0.09) !important;
+    background: rgba(10,15,30,0.96) !important;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+    overflow: visible !important;
+    margin-bottom: 18px !important;
+  }
+
+  .audit-command-head {
+    padding: 22px 24px 18px !important;
+    border-bottom: 1px solid rgba(255,255,255,0.07) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 16px !important;
+  }
+
+  .audit-command-head .mini-label {
+    color: #22d3ee !important;
+    font-size: 13px !important;
+    letter-spacing: 0.18em !important;
+    margin-bottom: 4px !important;
+  }
+
+  .audit-command-head h2 {
+    font-size: 24px !important;
+    letter-spacing: -0.04em !important;
+    color: #ffffff !important;
+  }
+
+  .audit-command-grid {
+    display: grid !important;
+    grid-template-columns: minmax(280px,1.1fr) minmax(320px,1.3fr) minmax(240px,0.9fr) !important;
+    gap: 0 !important;
+    align-items: stretch !important;
+    min-height: 200px !important;
+  }
+
+  .audit-command-column {
+    padding: 20px 22px !important;
+    border-right: 1px solid rgba(255,255,255,0.07) !important;
+  }
+
+  .audit-command-column:last-child {
+    border-right: 0 !important;
+  }
+
+  /* ── Fetch & Run buttons: bigger, more prominent ─── */
+
+  .audit-command-column-actions .primary-btn,
+  .audit-command-column-actions button[class*="primary"],
+  .action-block .primary-btn {
+    min-height: 52px !important;
+    font-size: 16px !important;
+    border-radius: 18px !important;
+    letter-spacing: -0.01em !important;
+    box-shadow: 0 18px 40px rgba(91,33,182,0.38) !important;
+    transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+  }
+
+  .audit-command-column-actions .primary-btn:hover,
+  .action-block .primary-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 24px 50px rgba(91,33,182,0.5) !important;
+  }
+
+  /* Run Audit button: hot pink/magenta gradient */
+  .audit-command-column-actions button.run-audit-btn,
+  .action-block button.run-audit-btn {
+    background: linear-gradient(135deg, #7c3aed, #db2777, #f97316) !important;
+    box-shadow: 0 18px 40px rgba(219,39,119,0.36) !important;
+  }
+
+  /* ── Action summary cards improved ─── */
+
+  .action-summary-grid div {
+    border-radius: 18px !important;
+    border: 1px solid rgba(148,163,184,0.12) !important;
+    background: linear-gradient(180deg, rgba(21,30,52,0.8), rgba(11,17,36,0.72)) !important;
+    transition: border-color 0.18s ease, background 0.18s ease !important;
+  }
+
+  .action-summary-grid div:hover {
+    border-color: rgba(96,165,250,0.2) !important;
+    background: linear-gradient(180deg, rgba(30,47,80,0.8), rgba(15,23,48,0.72)) !important;
+  }
+
+  /* ── Summary bar below command grid ─── */
+
+  .run-intro-strip + .surface-card {
+    border-radius: 28px !important;
+  }
+
+  /* ── Workflow transparency panel ─── */
+
+  .readiness-card-shell,
+  .monitor-card {
+    border-radius: 28px !important;
+    border: 1px solid rgba(148,163,184,0.12) !important;
+    background: linear-gradient(180deg, rgba(14,20,40,0.94), rgba(7,10,24,0.98)) !important;
+    box-shadow: 0 20px 56px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+    transition: box-shadow 0.2s ease !important;
+  }
+
+  .readiness-card-shell:hover, .monitor-card:hover {
+    box-shadow: 0 26px 70px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  }
+
+  /* ── Readiness cards: better contrast ─── */
+
+  .readiness-card {
+    border-radius: 18px !important;
+    padding: 15px 16px !important;
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease !important;
+  }
+
+  .readiness-card:hover {
+    transform: translateY(-1px) !important;
+  }
+
+  /* ── Progress bar: animated gradient ─── */
+
+  .progress-meter-fill {
+    background: linear-gradient(90deg, #2563eb, #7c3aed, #db2777) !important;
+    box-shadow: 0 0 22px rgba(124,58,237,0.38) !important;
+    position: relative !important;
+    overflow: hidden !important;
+    transition: width 0.5s cubic-bezier(0.34,1.56,0.64,1) !important;
+  }
+
+  .progress-meter-fill::after {
+    content: "" !important;
+    position: absolute !important;
+    inset: 0 !important;
+    background: linear-gradient(90deg, transparent 60%, rgba(255,255,255,0.2)) !important;
+    animation: progressShine 1.8s ease-in-out infinite !important;
+  }
+
+  @keyframes progressShine {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* ── Progress metrics grid ─── */
+
+  .progress-metrics-grid div {
+    border-radius: 16px !important;
+    border: 1px solid rgba(255,255,255,0.07) !important;
+    background: rgba(255,255,255,0.03) !important;
+    transition: border-color 0.18s ease, background 0.18s ease !important;
+  }
+
+  .progress-metrics-grid div:hover {
+    border-color: rgba(96,165,250,0.18) !important;
+    background: rgba(59,130,246,0.05) !important;
+  }
+
+  /* ── Log panel: better readability ─── */
+
+  .log-panel {
+    border-radius: 28px !important;
+    border: 1px solid rgba(148,163,184,0.1) !important;
+    background: linear-gradient(180deg, rgba(8,12,24,0.98), rgba(5,8,16,0.99)) !important;
+    box-shadow: 0 20px 56px rgba(0,0,0,0.3) !important;
+  }
+
+  /* ── Workflow steps: subtle glow on active ─── */
+
+  .workflow-step.active {
+    border-color: rgba(59,130,246,0.28) !important;
+    background: linear-gradient(135deg, rgba(30,64,175,0.12), rgba(59,130,246,0.06)) !important;
+    box-shadow: 0 0 0 1px rgba(59,130,246,0.08) !important;
+  }
+
+  .workflow-step.done {
+    border-color: rgba(16,185,129,0.24) !important;
+    background: linear-gradient(135deg, rgba(6,78,59,0.14), rgba(16,185,129,0.06)) !important;
+  }
+
+  .workflow-dot {
+    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777) !important;
+    box-shadow: 0 8px 20px rgba(91,33,182,0.32) !important;
+  }
+
+  /* ── Filter controls: better hover states ─── */
+
+  .run-filter-button,
+  .run-date-button {
+    transition: border-color 0.18s ease, background 0.18s ease !important;
+  }
+
+  .run-filter-button:hover,
+  .run-date-button:hover {
+    border-color: rgba(96,165,250,0.28) !important;
+    background: rgba(15,25,55,0.96) !important;
+  }
+
+  /* ── Surface cards: more depth ─── */
+
+  .surface-card {
+    transition: box-shadow 0.2s ease !important;
+  }
+
+  .surface-card:hover {
+    box-shadow: 0 28px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  }
+
+  /* ── Stat cards ─── */
+
+  .stat-card {
+    border-radius: 24px !important;
+    transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 28px 70px rgba(0,0,0,0.38) !important;
+  }
+
+  .stat-card strong {
+    background: linear-gradient(135deg, #ffffff, rgba(255,255,255,0.85)) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+  }
+
+  /* ── Duplicate/safety modal: better visual ─── */
+
+  .duplicate-modal,
+  .safety-modal-card {
+    border-radius: 30px !important;
+    animation: modalSlideIn 0.22s ease-out !important;
+  }
+
+  @keyframes modalSlideIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ── Run page mobile ─── */
+
+  @media (max-width: 1100px) {
+    .audit-command-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .audit-command-column {
+      border-right: 0 !important;
+      border-bottom: 1px solid rgba(255,255,255,0.07) !important;
+    }
+    .audit-command-column:last-child {
+      border-bottom: 0 !important;
+    }
+    .run-intro-strip {
+      flex-direction: column !important;
+      align-items: stretch !important;
+    }
+    .run-intro-meta {
+      align-items: flex-start !important;
+      text-align: left !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .run-intro-strip {
+      padding: 20px !important;
+      border-radius: 22px !important;
+    }
+    .run-intro-strip h1 {
+      font-size: 36px !important;
+    }
+    .audit-command-head {
+      padding: 16px 18px 14px !important;
+    }
+    .audit-command-column {
+      padding: 16px !important;
+    }
+    .run-readiness-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .progress-metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+  }
+
 `;
