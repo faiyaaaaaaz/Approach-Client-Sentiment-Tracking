@@ -1363,6 +1363,69 @@ export default function CalibrationSnippetsPanel({ session }) {
             grid-template-columns: 1fr;
           }
         }
+      
+        /* ── LIGHT MODE ── */
+        html[data-theme="light"] .calibration-panel .snippet-hero {
+          background: rgba(255,255,255,0.96) !important;
+          border-color: rgba(0,0,0,0.09) !important;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
+        }
+        html[data-theme="light"] .calibration-panel .snippet-stat-card {
+          background: rgba(255,255,255,0.93) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+        }
+        html[data-theme="light"] .calibration-panel .active-card { background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
+        html[data-theme="light"] .calibration-panel .source-card { background: rgba(59,130,246,0.08) !important; border-color: rgba(59,130,246,0.2) !important; }
+        html[data-theme="light"] .calibration-panel .manual-card { background: rgba(168,85,247,0.08) !important; border-color: rgba(168,85,247,0.18) !important; }
+        html[data-theme="light"] .calibration-panel .pending-card { background: rgba(245,158,11,0.08) !important; border-color: rgba(245,158,11,0.2) !important; }
+        html[data-theme="light"] .calibration-panel .snippet-stat-card strong { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel .snippet-stat-card small { color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel .snippet-impact-card {
+          background: rgba(255,255,255,0.93) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+        }
+        html[data-theme="light"] .calibration-panel .impact-log-row {
+          background: rgba(248,250,252,0.9) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+          color: #1e293b !important;
+        }
+        html[data-theme="light"] .calibration-panel .impact-log-row:hover { background: rgba(59,130,246,0.05) !important; }
+        html[data-theme="light"] .calibration-panel .impact-log-title h3 { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel .impact-log-meta div { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; color: #475569 !important; }
+        html[data-theme="light"] .calibration-panel .impact-log-meta strong { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel .impact-log-meta small { color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel .impact-pill { background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.1) !important; color: #475569 !important; }
+        html[data-theme="light"] .calibration-panel .impact-pill.success { background: rgba(16,185,129,0.1) !important; border-color: rgba(16,185,129,0.22) !important; color: #065f46 !important; }
+        html[data-theme="light"] .calibration-panel .impact-verdict-path span { background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.08) !important; color: #475569 !important; }
+        html[data-theme="light"] .calibration-panel .source-trace-card {
+          background: rgba(255,255,255,0.93) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+        }
+        html[data-theme="light"] .calibration-panel .source-trace-head { border-bottom-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .source-chip { background: rgba(59,130,246,0.1) !important; border-color: rgba(59,130,246,0.2) !important; color: #1e40af !important; }
+        html[data-theme="light"] .calibration-panel .source-chip.manual { background: rgba(168,85,247,0.1) !important; border-color: rgba(168,85,247,0.2) !important; color: #6d28d9 !important; }
+        html[data-theme="light"] .calibration-panel .calibration-detail-row { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .calibration-detail-label { color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel .calibration-detail-value { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel .snippet-form-section { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .snippet-form-section.boundaries { background: rgba(241,245,249,0.9) !important; }
+        html[data-theme="light"] .calibration-panel .source-dispute-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+        html[data-theme="light"] .calibration-panel .saved-snippet-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+        html[data-theme="light"] .calibration-panel .saved-snippet-head { border-bottom-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .saved-source-panel { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .calibration-text-block { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; color: #1e293b !important; }
+        html[data-theme="light"] .calibration-panel h3 { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel .muted { color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel strong { color: #0f172a !important; }
+        html[data-theme="light"] .calibration-panel small { color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel .snippet-card-head { border-bottom-color: rgba(0,0,0,0.07) !important; }
+        html[data-theme="light"] .calibration-panel .snippet-editor-card,
+        html[data-theme="light"] .calibration-panel .snippet-source-card,
+        html[data-theme="light"] .calibration-panel .snippet-list-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+        html[data-theme="light"] .calibration-panel .form-section-title { border-bottom-color: rgba(0,0,0,0.07) !important; color: #64748b !important; }
+        html[data-theme="light"] .calibration-panel input,
+        html[data-theme="light"] .calibration-panel select,
+        html[data-theme="light"] .calibration-panel textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
       `}</style>
     </section>
   );
