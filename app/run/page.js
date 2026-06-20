@@ -8359,13 +8359,10 @@ const runStyles = `
 
 
   /* ═══════════════════════════════════════════════════════════
-     RUN AUDIT VISUAL ENHANCEMENTS
-     These rules layer on top of the existing styles to improve
-     visual quality without touching any interactive logic.
+     RUN AUDIT VISUAL ENHANCEMENTS — added on top of originals
   ═══════════════════════════════════════════════════════════ */
 
-  /* ── Run intro strip: bigger, bolder header card ─── */
-
+  /* ── Intro strip: hero card feel ─── */
   .run-intro-strip {
     padding: 28px 32px !important;
     border-radius: 30px !important;
@@ -8376,190 +8373,29 @@ const runStyles = `
       linear-gradient(180deg, rgba(14,20,42,0.96), rgba(7,10,24,0.98)) !important;
     box-shadow: 0 28px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.06) !important;
     margin-bottom: 18px !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    gap: 24px !important;
-    flex-wrap: wrap !important;
   }
 
-  .run-intro-strip h1 {
-    font-size: clamp(36px, 4vw, 62px) !important;
-    letter-spacing: -0.07em !important;
-    margin-bottom: 8px !important;
-  }
-
-  .run-intro-strip .mini-label {
-    font-size: 13px !important;
-    color: #22d3ee !important;
-    letter-spacing: 0.18em !important;
-    margin-bottom: 8px !important;
-  }
-
-  .run-intro-strip > div:first-child p {
-    margin-bottom: 6px !important;
-    color: #a9b4d0 !important;
-    font-size: 17px !important;
-    line-height: 1.6 !important;
-    letter-spacing: 0 !important;
-    text-transform: none !important;
-    font-weight: 700 !important;
-  }
-
-  .run-intro-meta {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: flex-end !important;
-    gap: 8px !important;
-    flex-shrink: 0 !important;
-    padding: 20px 22px !important;
-    border-radius: 22px !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    background: rgba(255,255,255,0.04) !important;
-    min-width: 240px !important;
-    text-align: right !important;
-  }
-
-  .run-intro-meta strong {
-    color: #ffffff !important;
-    font-size: 20px !important;
-    letter-spacing: -0.03em !important;
-  }
-
-  .run-intro-meta small {
-    color: #8ea0d6 !important;
-    font-size: 15px !important;
-    font-weight: 800 !important;
-  }
-
-  /* ── Audit Command Panel: improved card look ─── */
-
+  /* ── Audit command panel: cleaner card ─── */
   .audit-command-panel {
     border-radius: 28px !important;
     border: 1px solid rgba(255,255,255,0.09) !important;
     background: rgba(10,15,30,0.96) !important;
     box-shadow: 0 24px 80px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04) !important;
-    overflow: visible !important;
-    margin-bottom: 18px !important;
   }
 
-  .audit-command-head {
-    padding: 22px 24px 18px !important;
-    border-bottom: 1px solid rgba(255,255,255,0.07) !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 16px !important;
-  }
-
-  .audit-command-head .mini-label {
-    color: #22d3ee !important;
-    font-size: 13px !important;
-    letter-spacing: 0.18em !important;
-    margin-bottom: 4px !important;
-  }
-
-  .audit-command-head h2 {
-    font-size: 24px !important;
-    letter-spacing: -0.04em !important;
-    color: #ffffff !important;
-  }
-
-  .audit-command-grid {
-    display: grid !important;
-    grid-template-columns: minmax(280px,1.1fr) minmax(320px,1.3fr) minmax(240px,0.9fr) !important;
-    gap: 0 !important;
-    align-items: stretch !important;
-    min-height: 200px !important;
-  }
-
-  .audit-command-column {
-    padding: 20px 22px !important;
-    border-right: 1px solid rgba(255,255,255,0.07) !important;
-  }
-
-  .audit-command-column:last-child {
-    border-right: 0 !important;
-  }
-
-  /* ── Fetch & Run buttons: bigger, more prominent ─── */
-
-  .audit-command-column-actions .primary-btn,
-  .audit-command-column-actions button[class*="primary"],
-  .action-block .primary-btn {
-    min-height: 52px !important;
-    font-size: 16px !important;
-    border-radius: 18px !important;
-    letter-spacing: -0.01em !important;
+  /* ── Primary buttons: stronger presence ─── */
+  .primary-btn {
     box-shadow: 0 18px 40px rgba(91,33,182,0.38) !important;
     transition: transform 0.18s ease, box-shadow 0.18s ease !important;
   }
 
-  .audit-command-column-actions .primary-btn:hover,
-  .action-block .primary-btn:hover {
+  .primary-btn:hover {
     transform: translateY(-2px) !important;
     box-shadow: 0 24px 50px rgba(91,33,182,0.5) !important;
   }
 
-  /* Run Audit button: hot pink/magenta gradient */
-  .audit-command-column-actions button.run-audit-btn,
-  .action-block button.run-audit-btn {
-    background: linear-gradient(135deg, #7c3aed, #db2777, #f97316) !important;
-    box-shadow: 0 18px 40px rgba(219,39,119,0.36) !important;
-  }
-
-  /* ── Action summary cards improved ─── */
-
-  .action-summary-grid div {
-    border-radius: 18px !important;
-    border: 1px solid rgba(148,163,184,0.12) !important;
-    background: linear-gradient(180deg, rgba(21,30,52,0.8), rgba(11,17,36,0.72)) !important;
-    transition: border-color 0.18s ease, background 0.18s ease !important;
-  }
-
-  .action-summary-grid div:hover {
-    border-color: rgba(96,165,250,0.2) !important;
-    background: linear-gradient(180deg, rgba(30,47,80,0.8), rgba(15,23,48,0.72)) !important;
-  }
-
-  /* ── Summary bar below command grid ─── */
-
-  .run-intro-strip + .surface-card {
-    border-radius: 28px !important;
-  }
-
-  /* ── Workflow transparency panel ─── */
-
-  .readiness-card-shell,
-  .monitor-card {
-    border-radius: 28px !important;
-    border: 1px solid rgba(148,163,184,0.12) !important;
-    background: linear-gradient(180deg, rgba(14,20,40,0.94), rgba(7,10,24,0.98)) !important;
-    box-shadow: 0 20px 56px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04) !important;
-    transition: box-shadow 0.2s ease !important;
-  }
-
-  .readiness-card-shell:hover, .monitor-card:hover {
-    box-shadow: 0 26px 70px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.05) !important;
-  }
-
-  /* ── Readiness cards: better contrast ─── */
-
-  .readiness-card {
-    border-radius: 18px !important;
-    padding: 15px 16px !important;
-    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease !important;
-  }
-
-  .readiness-card:hover {
-    transform: translateY(-1px) !important;
-  }
-
-  /* ── Progress bar: animated gradient ─── */
-
+  /* ── Progress bar: animated shine ─── */
   .progress-meter-fill {
-    background: linear-gradient(90deg, #2563eb, #7c3aed, #db2777) !important;
-    box-shadow: 0 0 22px rgba(124,58,237,0.38) !important;
     position: relative !important;
     overflow: hidden !important;
     transition: width 0.5s cubic-bezier(0.34,1.56,0.64,1) !important;
@@ -8570,153 +8406,218 @@ const runStyles = `
     position: absolute !important;
     inset: 0 !important;
     background: linear-gradient(90deg, transparent 60%, rgba(255,255,255,0.2)) !important;
-    animation: progressShine 1.8s ease-in-out infinite !important;
+    animation: runProgressShine 1.8s ease-in-out infinite !important;
   }
 
-  @keyframes progressShine {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+  @keyframes runProgressShine {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%);  }
   }
 
-  /* ── Progress metrics grid ─── */
-
-  .progress-metrics-grid div {
-    border-radius: 16px !important;
-    border: 1px solid rgba(255,255,255,0.07) !important;
-    background: rgba(255,255,255,0.03) !important;
-    transition: border-color 0.18s ease, background 0.18s ease !important;
-  }
-
-  .progress-metrics-grid div:hover {
-    border-color: rgba(96,165,250,0.18) !important;
-    background: rgba(59,130,246,0.05) !important;
-  }
-
-  /* ── Log panel: better readability ─── */
-
-  .log-panel {
-    border-radius: 28px !important;
-    border: 1px solid rgba(148,163,184,0.1) !important;
-    background: linear-gradient(180deg, rgba(8,12,24,0.98), rgba(5,8,16,0.99)) !important;
-    box-shadow: 0 20px 56px rgba(0,0,0,0.3) !important;
-  }
-
-  /* ── Workflow steps: subtle glow on active ─── */
-
-  .workflow-step.active {
-    border-color: rgba(59,130,246,0.28) !important;
-    background: linear-gradient(135deg, rgba(30,64,175,0.12), rgba(59,130,246,0.06)) !important;
-    box-shadow: 0 0 0 1px rgba(59,130,246,0.08) !important;
-  }
-
-  .workflow-step.done {
-    border-color: rgba(16,185,129,0.24) !important;
-    background: linear-gradient(135deg, rgba(6,78,59,0.14), rgba(16,185,129,0.06)) !important;
-  }
-
-  .workflow-dot {
-    background: linear-gradient(135deg, #2563eb, #7c3aed, #db2777) !important;
-    box-shadow: 0 8px 20px rgba(91,33,182,0.32) !important;
-  }
-
-  /* ── Filter controls: better hover states ─── */
-
-  .run-filter-button,
-  .run-date-button {
-    transition: border-color 0.18s ease, background 0.18s ease !important;
-  }
-
-  .run-filter-button:hover,
-  .run-date-button:hover {
-    border-color: rgba(96,165,250,0.28) !important;
-    background: rgba(15,25,55,0.96) !important;
-  }
-
-  /* ── Surface cards: more depth ─── */
-
+  /* ── Surface cards: hover depth ─── */
   .surface-card {
     transition: box-shadow 0.2s ease !important;
   }
-
   .surface-card:hover {
     box-shadow: 0 28px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05) !important;
   }
 
-  /* ── Stat cards ─── */
-
+  /* ── Stat cards: hover lift ─── */
   .stat-card {
-    border-radius: 24px !important;
     transition: transform 0.18s ease, box-shadow 0.18s ease !important;
   }
-
   .stat-card:hover {
     transform: translateY(-2px) !important;
     box-shadow: 0 28px 70px rgba(0,0,0,0.38) !important;
   }
 
-  .stat-card strong {
-    background: linear-gradient(135deg, #ffffff, rgba(255,255,255,0.85)) !important;
-    -webkit-background-clip: text !important;
-    -webkit-text-fill-color: transparent !important;
-    background-clip: text !important;
+  /* ── Readiness cards: hover ─── */
+  .readiness-card {
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease !important;
+  }
+  .readiness-card:hover {
+    transform: translateY(-1px) !important;
   }
 
-  /* ── Duplicate/safety modal: better visual ─── */
+  /* ═══════════════════════════════════════════════════════════
+     LIGHT MODE for Run Audit page
+  ═══════════════════════════════════════════════════════════ */
 
-  .duplicate-modal,
-  .safety-modal-card {
-    border-radius: 30px !important;
-    animation: modalSlideIn 0.22s ease-out !important;
+  html[data-theme="light"] .run-page {
+    background:
+      radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%),
+      radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%),
+      linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
+    color: #0f172a !important;
   }
 
-  @keyframes modalSlideIn {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+  html[data-theme="light"] .surface-card,
+  html[data-theme="light"] .stat-card,
+  html[data-theme="light"] .hero-copy-card,
+  html[data-theme="light"] .workflow-card,
+  html[data-theme="light"] .insight-card {
+    background: rgba(255,255,255,0.92) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
   }
 
-  /* ── Run page mobile ─── */
-
-  @media (max-width: 1100px) {
-    .audit-command-grid {
-      grid-template-columns: 1fr !important;
-    }
-    .audit-command-column {
-      border-right: 0 !important;
-      border-bottom: 1px solid rgba(255,255,255,0.07) !important;
-    }
-    .audit-command-column:last-child {
-      border-bottom: 0 !important;
-    }
-    .run-intro-strip {
-      flex-direction: column !important;
-      align-items: stretch !important;
-    }
-    .run-intro-meta {
-      align-items: flex-start !important;
-      text-align: left !important;
-    }
+  html[data-theme="light"] .run-intro-strip {
+    background:
+      radial-gradient(circle at 4% 0%, rgba(219,234,254,0.7), transparent 28%),
+      rgba(255,255,255,0.96) !important;
+    border-color: rgba(0,0,0,0.09) !important;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important;
   }
 
-  @media (max-width: 760px) {
-    .run-intro-strip {
-      padding: 20px !important;
-      border-radius: 22px !important;
-    }
-    .run-intro-strip h1 {
-      font-size: 36px !important;
-    }
-    .audit-command-head {
-      padding: 16px 18px 14px !important;
-    }
-    .audit-command-column {
-      padding: 16px !important;
-    }
-    .run-readiness-grid {
-      grid-template-columns: 1fr !important;
-    }
-    .progress-metrics-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    }
+  html[data-theme="light"] .run-intro-strip h1,
+  html[data-theme="light"] .run-intro-strip h2 { color: #0f172a !important; }
+
+  html[data-theme="light"] .run-intro-strip p,
+  html[data-theme="light"] .run-intro-strip .hero-copy { color: #475569 !important; }
+
+  html[data-theme="light"] .mini-label { color: #0891b2 !important; }
+
+  html[data-theme="light"] .audit-command-panel {
+    background: rgba(255,255,255,0.94) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.07) !important;
   }
+
+  html[data-theme="light"] .audit-command-head { border-bottom-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .audit-command-head h2 { color: #0f172a !important; }
+  html[data-theme="light"] .audit-command-column { border-right-color: rgba(0,0,0,0.07) !important; }
+
+  html[data-theme="light"] input,
+  html[data-theme="light"] textarea {
+    background: rgba(248,250,252,0.96) !important;
+    border-color: rgba(0,0,0,0.1) !important;
+    color: #1e293b !important;
+    color-scheme: light !important;
+  }
+
+  html[data-theme="light"] label span { color: #64748b !important; }
+
+  html[data-theme="light"] .run-filter-button,
+  html[data-theme="light"] .run-date-button,
+  html[data-theme="light"] .preset-button {
+    background: rgba(248,250,252,0.96) !important;
+    border-color: rgba(0,0,0,0.1) !important;
+    color: #1e293b !important;
+  }
+
+  html[data-theme="light"] .run-multi-menu,
+  html[data-theme="light"] .run-date-popover,
+  html[data-theme="light"] .preset-menu {
+    background: #ffffff !important;
+    border-color: rgba(0,0,0,0.1) !important;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important;
+  }
+
+  html[data-theme="light"] .workflow-step {
+    background: rgba(0,0,0,0.02) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+
+  html[data-theme="light"] .workflow-step.active {
+    background: rgba(59,130,246,0.07) !important;
+    border-color: rgba(59,130,246,0.22) !important;
+  }
+
+  html[data-theme="light"] .workflow-step.done {
+    background: rgba(16,185,129,0.07) !important;
+    border-color: rgba(16,185,129,0.2) !important;
+  }
+
+  html[data-theme="light"] .workflow-step strong { color: #0f172a !important; }
+  html[data-theme="light"] .workflow-step p { color: #475569 !important; }
+
+  html[data-theme="light"] .readiness-card {
+    background: rgba(255,255,255,0.88) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+  html[data-theme="light"] .readiness-card span { color: #64748b !important; }
+  html[data-theme="light"] .readiness-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .readiness-card small { color: #475569 !important; }
+
+  html[data-theme="light"] .readiness-card.success { background: rgba(16,185,129,0.07) !important; border-color: rgba(16,185,129,0.2) !important; }
+  html[data-theme="light"] .readiness-card.notice { background: rgba(59,130,246,0.07) !important; border-color: rgba(59,130,246,0.2) !important; }
+  html[data-theme="light"] .readiness-card.warning { background: rgba(245,158,11,0.07) !important; border-color: rgba(245,158,11,0.2) !important; }
+  html[data-theme="light"] .readiness-card.danger { background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+
+  html[data-theme="light"] .readiness-card-shell,
+  html[data-theme="light"] .monitor-card {
+    background: rgba(255,255,255,0.92) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
+  }
+
+  html[data-theme="light"] h1, html[data-theme="light"] h2, html[data-theme="light"] h3 { color: #0f172a !important; }
+  html[data-theme="light"] .hero-copy { color: #475569 !important; }
+
+  html[data-theme="light"] .stat-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .stat-card p { color: #64748b !important; }
+  html[data-theme="light"] .stat-card strong { -webkit-text-fill-color: #0f172a !important; background: none !important; color: #0f172a !important; }
+  html[data-theme="light"] .stat-card span { color: #475569 !important; }
+
+  html[data-theme="light"] .log-panel {
+    background: rgba(255,255,255,0.94) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+
+  html[data-theme="light"] .message.success { color: #065f46 !important; background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
+  html[data-theme="light"] .message.error { color: #991b1b !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.18) !important; }
+
+  html[data-theme="light"] .secondary-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+  html[data-theme="light"] .ghost-btn { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
+
+  html[data-theme="light"] .state-pill.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
+  html[data-theme="light"] .state-pill.notice { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .state-pill.warning { color: #92400e !important; background: rgba(245,158,11,0.09) !important; border-color: rgba(245,158,11,0.22) !important; }
+  html[data-theme="light"] .state-pill.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
+  html[data-theme="light"] .state-pill.neutral { color: #475569 !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+
+  html[data-theme="light"] .progress-visual {
+    background: rgba(241,245,249,0.9) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+
+  html[data-theme="light"] .progress-meter-shell { background: rgba(0,0,0,0.08) !important; }
+
+  html[data-theme="light"] .progress-metrics-grid div {
+    background: rgba(255,255,255,0.88) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+  html[data-theme="light"] .progress-metrics-grid strong { color: #0f172a !important; }
+
+  html[data-theme="light"] .empty-box, html[data-theme="light"] .resting-panel { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.09) !important; color: #475569 !important; }
+
+  html[data-theme="light"] .switch { background: rgba(0,0,0,0.08) !important; border-color: rgba(0,0,0,0.12) !important; }
+  html[data-theme="light"] .switch span { background: #94a3b8 !important; }
+  html[data-theme="light"] .switch.on { background: rgba(16,185,129,0.15) !important; border-color: rgba(16,185,129,0.28) !important; }
+  html[data-theme="light"] .switch.on span { background: #10b981 !important; }
+
+  html[data-theme="light"] .behavior-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .behavior-row strong { color: #0f172a !important; }
+  html[data-theme="light"] .behavior-copy { color: #475569 !important; }
+
+  html[data-theme="light"] .action-block {
+    background: rgba(248,250,252,0.9) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+
+  html[data-theme="light"] .action-summary-grid div {
+    background: rgba(255,255,255,0.88) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+  }
+
+  html[data-theme="light"] .action-summary-grid strong { color: #0f172a !important; }
+  html[data-theme="light"] .action-summary-grid small { color: #64748b !important; }
+
+  html[data-theme="light"] .control-block { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+
+  html[data-theme="light"] .auth-shell-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .auth-shell-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .auth-shell-card small { color: #475569 !important; }
 
 `;
