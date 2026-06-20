@@ -1597,8 +1597,13 @@ export default function OverviewReportPanel({ session }) {
         html[data-theme="light"] .overview-report-shell select,
         html[data-theme="light"] .overview-report-shell textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
         html[data-theme="light"] .overview-report-shell .run-date-popover { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; }
+        html[data-theme="light"] .overview-report-shell .run-date-button,
         html[data-theme="light"] .overview-report-shell .run-multi-button,
         html[data-theme="light"] .overview-report-shell .admin-date-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+        html[data-theme="light"] .overview-report-shell .run-date-button strong { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-shell .run-date-button small,
+        html[data-theme="light"] .overview-report-shell .run-date-button b { color: #64748b !important; }
+        html[data-theme="light"] .overview-report-shell .run-date-button svg { color: #2563eb !important; }
         html[data-theme="light"] .overview-report-shell .date-popover-tabs div { background: rgba(0,0,0,0.03) !important; }
         html[data-theme="light"] .overview-report-shell .date-popover-tabs span { color: #64748b !important; }
         html[data-theme="light"] .overview-report-shell .date-popover-tabs strong { color: #0f172a !important; }
@@ -1608,6 +1613,47 @@ export default function OverviewReportPanel({ session }) {
         html[data-theme="light"] .overview-report-shell .calendar-day.muted { color: rgba(0,0,0,0.3) !important; }
         html[data-theme="light"] .overview-report-shell .calendar-day.range-start,
         html[data-theme="light"] .overview-report-shell .calendar-day.range-end { color: #ffffff !important; }
+        html[data-theme="light"] .overview-report-shell .label-with-tip,
+        html[data-theme="light"] .overview-report-shell .filter-summary-grid span,
+        html[data-theme="light"] .overview-report-shell .summary-tile span,
+        html[data-theme="light"] .overview-report-shell .breakdown-list span,
+        html[data-theme="light"] .overview-report-shell .editable-report-label { color: #64748b !important; }
+        html[data-theme="light"] .overview-report-shell .scope-note {
+          background: rgba(241,245,249,0.96) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+          color: #334155 !important;
+        }
+        html[data-theme="light"] .overview-report-shell .scope-note strong { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-shell .empty-state {
+          background: rgba(248,250,252,0.82) !important;
+          border-color: rgba(148,163,184,0.28) !important;
+          color: #64748b !important;
+        }
+        html[data-theme="light"] .overview-report-shell .breakdown-list div,
+        html[data-theme="light"] .overview-report-shell .report-preview-panel,
+        html[data-theme="light"] .overview-report-shell .agent-table-wrap {
+          background: rgba(248,250,252,0.96) !important;
+          border-color: rgba(0,0,0,0.08) !important;
+          color: #1e293b !important;
+        }
+        html[data-theme="light"] .overview-report-shell .report-preview-line { color: #334155 !important; }
+        html[data-theme="light"] .overview-report-shell .report-preview-line.heading { color: #0f172a !important; }
+        html[data-theme="light"] .overview-report-shell .report-preview-line.sub-bullet { color: #475569 !important; }
+        html[data-theme="light"] .overview-report-shell .data-quality-note {
+          background: rgba(245,158,11,0.08) !important;
+          border-color: rgba(245,158,11,0.22) !important;
+          color: #92400e !important;
+        }
+        html[data-theme="light"] .overview-report-shell .report-message.error {
+          background: rgba(244,63,94,0.07) !important;
+          border-color: rgba(244,63,94,0.22) !important;
+          color: #991b1b !important;
+        }
+        html[data-theme="light"] .overview-report-shell .report-message.success {
+          background: rgba(16,185,129,0.08) !important;
+          border-color: rgba(16,185,129,0.22) !important;
+          color: #065f46 !important;
+        }
 
       `}</style>
     </section>
