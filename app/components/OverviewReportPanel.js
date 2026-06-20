@@ -936,6 +936,7 @@ export default function OverviewReportPanel({ session }) {
 
         .calendar-day {
           min-height: 36px;
+          width: 100%;
           border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
@@ -944,6 +945,31 @@ export default function OverviewReportPanel({ session }) {
           font-size: 15px;
           font-weight: 850;
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+          padding: 0;
+          position: relative;
+          text-align: center;
+          appearance: none;
+          -webkit-appearance: none;
+        }
+
+        .calendar-day span {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          min-height: 34px;
+          color: inherit;
+          -webkit-text-fill-color: currentColor;
+          line-height: 1;
+          text-align: center;
+          pointer-events: none;
         }
 
         .calendar-day.muted {
@@ -1518,6 +1544,7 @@ export default function OverviewReportPanel({ session }) {
 
         .overview-report-shell .calendar-day {
           min-height: 34px;
+          width: 100%;
           border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
@@ -1526,6 +1553,31 @@ export default function OverviewReportPanel({ session }) {
           font-size: 14px;
           font-weight: 850;
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+          padding: 0;
+          position: relative;
+          text-align: center;
+          appearance: none;
+          -webkit-appearance: none;
+        }
+
+        .overview-report-shell .calendar-day span {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          min-height: 32px;
+          color: inherit;
+          -webkit-text-fill-color: currentColor;
+          line-height: 1;
+          text-align: center;
+          pointer-events: none;
         }
 
         .overview-report-shell .calendar-day:hover {
@@ -1611,8 +1663,61 @@ export default function OverviewReportPanel({ session }) {
         html[data-theme="light"] .overview-report-shell .calendar-nav-row strong { color: #0f172a !important; }
         html[data-theme="light"] .overview-report-shell .calendar-day { color: #1e293b !important; background: transparent !important; }
         html[data-theme="light"] .overview-report-shell .calendar-day.muted { color: rgba(0,0,0,0.3) !important; }
+        html[data-theme="light"] .overview-report-shell .date-preset-column button {
+          color: #1e293b !important;
+          -webkit-text-fill-color: #1e293b !important;
+          background: #ffffff !important;
+          border-color: rgba(15,23,42,0.10) !important;
+          opacity: 1 !important;
+          text-shadow: none !important;
+        }
+        html[data-theme="light"] .overview-report-shell .date-preset-column button.active,
+        html[data-theme="light"] .overview-report-shell .date-preset-column button:hover {
+          color: #075985 !important;
+          -webkit-text-fill-color: #075985 !important;
+          background: #e0f2fe !important;
+          border-color: rgba(14,165,233,0.32) !important;
+          opacity: 1 !important;
+        }
+        html[data-theme="light"] .overview-report-shell .calendar-day {
+          color: #0f172a !important;
+          -webkit-text-fill-color: #0f172a !important;
+          background: transparent !important;
+          border-color: transparent !important;
+          opacity: 1 !important;
+          box-shadow: none !important;
+        }
+        html[data-theme="light"] .overview-report-shell .calendar-day span {
+          color: inherit !important;
+          -webkit-text-fill-color: currentColor !important;
+        }
+        html[data-theme="light"] .overview-report-shell .calendar-day:hover {
+          color: #0f172a !important;
+          -webkit-text-fill-color: #0f172a !important;
+          background: #e0f2fe !important;
+          border-color: rgba(14,165,233,0.24) !important;
+        }
+        html[data-theme="light"] .overview-report-shell .calendar-day.in-range {
+          color: #14532d !important;
+          -webkit-text-fill-color: #14532d !important;
+          background: #dcfce7 !important;
+          border-color: transparent !important;
+          border-radius: 10px !important;
+        }
         html[data-theme="light"] .overview-report-shell .calendar-day.range-start,
-        html[data-theme="light"] .overview-report-shell .calendar-day.range-end { color: #ffffff !important; }
+        html[data-theme="light"] .overview-report-shell .calendar-day.range-end {
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+          background: #16a34a !important;
+          border-color: #16a34a !important;
+          border-radius: 999px !important;
+          box-shadow: 0 0 0 2px rgba(22,163,74,0.16) !important;
+        }
+        html[data-theme="light"] .overview-report-shell .calendar-day.range-start span,
+        html[data-theme="light"] .overview-report-shell .calendar-day.range-end span {
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+        }
         html[data-theme="light"] .overview-report-shell .label-with-tip,
         html[data-theme="light"] .overview-report-shell .filter-summary-grid span,
         html[data-theme="light"] .overview-report-shell .summary-tile span,
