@@ -8143,6 +8143,110 @@ const adminStyles = `
   html[data-theme="light"] .admin-page .help-tip-popover { background: rgba(255,255,255,0.98) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
   html[data-theme="light"] .admin-page .member-option { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; color: #1e293b !important; }
 
+
+  /* Light theme hardening for the custom date-range popover.
+     These rules are intentionally scoped to the date picker so the global
+     light-mode text/button overrides cannot wash out preset labels or
+     selected calendar dates. */
+  html[data-theme="light"] .admin-page .admin-date-popover {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.92) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-tabs {
+    border-bottom-color: rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-tabs div {
+    background: #f8fafc !important;
+    border-color: rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-tabs div.active {
+    background: #f8fafc !important;
+    border-color: rgba(34, 197, 94, 0.5) !important;
+    box-shadow: inset 0 -2px 0 #22c55e !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-tabs span {
+    color: #64748b !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-tabs strong,
+  html[data-theme="light"] .admin-page .admin-calendar-nav-row strong,
+  html[data-theme="light"] .admin-page .admin-calendar-month-card h4 {
+    color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-preset-column button,
+  html[data-theme="light"] .admin-page .admin-calendar-nav-row button,
+  html[data-theme="light"] .admin-page .admin-calendar-day {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    background: #ffffff !important;
+    border-color: rgba(15, 23, 42, 0.1) !important;
+    text-shadow: none !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-preset-column button.active,
+  html[data-theme="light"] .admin-page .admin-date-preset-column button:hover,
+  html[data-theme="light"] .admin-page .admin-calendar-nav-row button:hover {
+    background: #dcfce7 !important;
+    color: #14532d !important;
+    -webkit-text-fill-color: #14532d !important;
+    border-color: rgba(22, 163, 74, 0.32) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-calendar-weekdays span {
+    color: #64748b !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-calendar-day:hover {
+    background: #e0f2fe !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-calendar-day.muted {
+    color: #94a3b8 !important;
+    -webkit-text-fill-color: #94a3b8 !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-calendar-day.in-range {
+    background: #dcfce7 !important;
+    color: #14532d !important;
+    -webkit-text-fill-color: #14532d !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-calendar-day.range-start,
+  html[data-theme="light"] .admin-page .admin-calendar-day.range-end {
+    background: #16a34a !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border-color: #16a34a !important;
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.16) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-actions {
+    border-top-color: rgba(15, 23, 42, 0.08) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-actions .secondary-btn {
+    background: #f8fafc !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+  }
+
+  html[data-theme="light"] .admin-page .admin-date-popover-actions .primary-btn {
+    background: linear-gradient(135deg, #7c3aed, #d946ef) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border-color: transparent !important;
+  }
+
   html[data-theme="light"] .admin-page .admin-section-indicator {
     background: rgba(248,250,252,0.96) !important;
     border-color: rgba(0,0,0,0.08) !important;
