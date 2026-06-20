@@ -8029,6 +8029,80 @@ const adminStyles = `
     max-height: 420px;
     overflow: auto;
   }
+
+  /* ═══════════════════════════════════════════
+     ADMIN PAGE — LIGHT MODE
+  ═══════════════════════════════════════════ */
+
+  html[data-theme="light"] .admin-page {
+    background: radial-gradient(circle at 8% 0%, rgba(219,234,254,0.7), transparent 28%), radial-gradient(circle at 88% 3%, rgba(221,214,254,0.5), transparent 26%), linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
+    color: #0f172a !important;
+  }
+
+  /* All main panels */
+  html[data-theme="light"] .admin-page .hero, html[data-theme="light"] .admin-page .section-page-title, html[data-theme="light"] .admin-page .panel, html[data-theme="light"] .admin-page .stat-card, html[data-theme="light"] .admin-page .mini-card, html[data-theme="light"] .admin-page .history-card, html[data-theme="light"] .admin-page .api-card, html[data-theme="light"] .admin-page .role-form-card, html[data-theme="light"] .admin-page .role-table-card, html[data-theme="light"] .admin-page .profile-card, html[data-theme="light"] .admin-page .member-picker, html[data-theme="light"] .admin-page .supervisor-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
+
+  /* Admin page headings and text */
+  html[data-theme="light"] .admin-page h1, html[data-theme="light"] .admin-page h2, html[data-theme="light"] .admin-page h3, html[data-theme="light"] .admin-page h4 { color: #0f172a !important; }
+  html[data-theme="light"] .admin-page .eyebrow { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .stat-card p { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .stat-card strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
+  html[data-theme="light"] .admin-page .stat-card span { color: #475569 !important; }
+
+  /* Inputs, selects, textareas */
+  html[data-theme="light"] .admin-page input, html[data-theme="light"] .admin-page select, html[data-theme="light"] .admin-page textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
+  html[data-theme="light"] .admin-page label span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .decision-stack label { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .decision-stack select, html[data-theme="light"] .admin-page .decision-stack textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+  html[data-theme="light"] .admin-page .decision-readonly.polished { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page .decision-readonly strong { color: #0f172a !important; }
+  html[data-theme="light"] .admin-page .decision-readonly small { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .wide-cell span { color: #475569 !important; }
+
+  /* Buttons */
+  html[data-theme="light"] .admin-page .secondary-btn, html[data-theme="light"] .admin-page .ghost-btn, html[data-theme="light"] .admin-page .small-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .admin-page .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+
+  /* Table */
+  html[data-theme="light"] .admin-page .table-shell, html[data-theme="light"] .admin-page .scroll-stack { background: rgba(255,255,255,0.96) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page th { background: rgba(248,250,252,0.98) !important; color: #64748b !important; border-bottom-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page td { color: #1e293b !important; border-bottom-color: rgba(0,0,0,0.05) !important; }
+  html[data-theme="light"] .admin-page tr:nth-child(even) td { background: rgba(0,0,0,0.015) !important; }
+  html[data-theme="light"] .admin-page tr:hover td { background: rgba(59,130,246,0.04) !important; }
+  html[data-theme="light"] .admin-page td small { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .sticky-col, html[data-theme="light"] .admin-page td.sticky-col { background: rgba(248,250,252,0.98) !important; }
+
+  /* Dispute cards */
+  html[data-theme="light"] .dispute-review-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .dispute-title-row h3 { color: #0f172a !important; }
+  html[data-theme="light"] .dispute-detail-grid strong { color: #0f172a !important; }
+  html[data-theme="light"] .dispute-submitter-box span, html[data-theme="light"] .dispute-detail-grid span { color: #64748b !important; }
+  html[data-theme="light"] .dispute-reason-box p:last-child { color: #1e293b !important; }
+  html[data-theme="light"] .dispute-action-panel { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .dispute-guidance-card { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .dispute-guidance-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .dispute-guidance-card span { color: #475569 !important; }
+  html[data-theme="light"] .dispute-guidance-metrics span { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.08) !important; color: #64748b !important; }
+  html[data-theme="light"] .dispute-guidance-metrics strong { color: #0f172a !important; }
+
+  /* Mini cards and other cards */
+  html[data-theme="light"] .admin-page .mini-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page .history-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page .api-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+
+  /* Status pills */
+  html[data-theme="light"] .admin-page .pill.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
+  html[data-theme="light"] .admin-page .pill.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
+  html[data-theme="light"] .admin-page .pill.warning { color: #92400e !important; background: rgba(245,158,11,0.09) !important; border-color: rgba(245,158,11,0.22) !important; }
+  html[data-theme="light"] .admin-page .pill.notice { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .admin-page .pill.neutral { color: #475569 !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+
+  /* Messages */
+  html[data-theme="light"] .admin-page .message.success { color: #065f46 !important; background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
+  html[data-theme="light"] .admin-page .message.error { color: #991b1b !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.18) !important; }
+  html[data-theme="light"] .admin-page .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.1) !important; color: #64748b !important; }
+
+`;
 `;
 
 export default function AdminPage() {
