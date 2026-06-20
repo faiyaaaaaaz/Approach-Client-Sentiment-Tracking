@@ -8103,7 +8103,6 @@ const adminStyles = `
   html[data-theme="light"] .admin-page .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.1) !important; color: #64748b !important; }
 
 `;
-`;
 
 export default function AdminPage() {
   return (
