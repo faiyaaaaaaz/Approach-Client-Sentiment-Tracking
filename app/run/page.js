@@ -8359,265 +8359,221 @@ const runStyles = `
 
 
   /* ═══════════════════════════════════════════════════════════
-     RUN AUDIT VISUAL ENHANCEMENTS — added on top of originals
+     RUN AUDIT VISUAL ENHANCEMENTS (dark mode)
   ═══════════════════════════════════════════════════════════ */
 
-  /* ── Intro strip: hero card feel ─── */
-  .run-intro-strip {
-    padding: 28px 32px !important;
-    border-radius: 30px !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    background:
-      radial-gradient(circle at 4% 0%, rgba(34,211,238,0.1), transparent 28%),
-      radial-gradient(circle at 94% 4%, rgba(139,92,246,0.18), transparent 30%),
-      linear-gradient(180deg, rgba(14,20,42,0.96), rgba(7,10,24,0.98)) !important;
-    box-shadow: 0 28px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.06) !important;
-    margin-bottom: 18px !important;
-  }
-
-  /* ── Audit command panel: cleaner card ─── */
-  .audit-command-panel {
-    border-radius: 28px !important;
-    border: 1px solid rgba(255,255,255,0.09) !important;
-    background: rgba(10,15,30,0.96) !important;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04) !important;
-  }
-
-  /* ── Primary buttons: stronger presence ─── */
-  .primary-btn {
-    box-shadow: 0 18px 40px rgba(91,33,182,0.38) !important;
-    transition: transform 0.18s ease, box-shadow 0.18s ease !important;
-  }
-
-  .primary-btn:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 24px 50px rgba(91,33,182,0.5) !important;
-  }
-
-  /* ── Progress bar: animated shine ─── */
-  .progress-meter-fill {
-    position: relative !important;
-    overflow: hidden !important;
-    transition: width 0.5s cubic-bezier(0.34,1.56,0.64,1) !important;
-  }
-
-  .progress-meter-fill::after {
-    content: "" !important;
-    position: absolute !important;
-    inset: 0 !important;
-    background: linear-gradient(90deg, transparent 60%, rgba(255,255,255,0.2)) !important;
-    animation: runProgressShine 1.8s ease-in-out infinite !important;
-  }
-
-  @keyframes runProgressShine {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(100%);  }
-  }
-
-  /* ── Surface cards: hover depth ─── */
-  .surface-card {
-    transition: box-shadow 0.2s ease !important;
-  }
-  .surface-card:hover {
-    box-shadow: 0 28px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05) !important;
-  }
-
-  /* ── Stat cards: hover lift ─── */
-  .stat-card {
-    transition: transform 0.18s ease, box-shadow 0.18s ease !important;
-  }
-  .stat-card:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 28px 70px rgba(0,0,0,0.38) !important;
-  }
-
-  /* ── Readiness cards: hover ─── */
-  .readiness-card {
-    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease !important;
-  }
-  .readiness-card:hover {
-    transform: translateY(-1px) !important;
-  }
+  .run-intro-strip { padding: 28px 32px !important; border-radius: 30px !important; border: 1px solid rgba(255,255,255,0.1) !important; background: radial-gradient(circle at 4% 0%, rgba(34,211,238,0.1), transparent 28%), radial-gradient(circle at 94% 4%, rgba(139,92,246,0.18), transparent 30%), linear-gradient(180deg, rgba(14,20,42,0.96), rgba(7,10,24,0.98)) !important; box-shadow: 0 28px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.06) !important; margin-bottom: 18px !important; }
+  .primary-btn { box-shadow: 0 18px 40px rgba(91,33,182,0.38) !important; transition: transform 0.18s ease, box-shadow 0.18s ease !important; }
+  .primary-btn:hover { transform: translateY(-2px) !important; box-shadow: 0 24px 50px rgba(91,33,182,0.5) !important; }
+  .progress-meter-fill { position: relative !important; overflow: hidden !important; transition: width 0.5s cubic-bezier(0.34,1.56,0.64,1) !important; }
+  .progress-meter-fill::after { content: "" !important; position: absolute !important; inset: 0 !important; background: linear-gradient(90deg, transparent 60%, rgba(255,255,255,0.2)) !important; animation: runProgressShine 1.8s ease-in-out infinite !important; }
+  @keyframes runProgressShine { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+  .surface-card { transition: box-shadow 0.2s ease !important; }
+  .surface-card:hover { box-shadow: 0 28px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05) !important; }
+  .stat-card { transition: transform 0.18s ease, box-shadow 0.18s ease !important; }
+  .stat-card:hover { transform: translateY(-2px) !important; box-shadow: 0 28px 70px rgba(0,0,0,0.38) !important; }
+  .readiness-card { transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease !important; }
+  .readiness-card:hover { transform: translateY(-1px) !important; }
 
   /* ═══════════════════════════════════════════════════════════
-     LIGHT MODE for Run Audit page
+     LIGHT MODE — run audit page complete overrides
   ═══════════════════════════════════════════════════════════ */
 
   html[data-theme="light"] .run-page {
-    background:
-      radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%),
-      radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%),
-      linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
+    background: radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%), radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%), linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
     color: #0f172a !important;
   }
 
+  /* Intro strip */
+  html[data-theme="light"] .run-intro-strip { background: rgba(255,255,255,0.96) !important; border-color: rgba(0,0,0,0.09) !important; box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .run-intro-strip h1 { color: #0f172a !important; }
+  html[data-theme="light"] .run-intro-strip .mini-label { color: #0891b2 !important; }
+  html[data-theme="light"] .run-intro-strip > div:first-child p { color: #475569 !important; }
+  html[data-theme="light"] .run-intro-meta { color: #0f172a !important; }
+  html[data-theme="light"] .run-intro-meta strong { color: #0f172a !important; }
+  html[data-theme="light"] .run-intro-meta small { color: #64748b !important; }
+
+  /* Surface cards — ALL variants */
   html[data-theme="light"] .surface-card,
   html[data-theme="light"] .stat-card,
   html[data-theme="light"] .hero-copy-card,
   html[data-theme="light"] .workflow-card,
-  html[data-theme="light"] .insight-card {
+  html[data-theme="light"] .insight-card,
+  html[data-theme="light"] .command-card,
+  html[data-theme="light"] .monitor-card,
+  html[data-theme="light"] .run-summary-card,
+  html[data-theme="light"] .log-panel,
+  html[data-theme="light"] .preview-panel,
+  html[data-theme="light"] .output-panel,
+  html[data-theme="light"] .diagnostics-panel {
     background: rgba(255,255,255,0.92) !important;
     border-color: rgba(0,0,0,0.08) !important;
     box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
   }
 
-  html[data-theme="light"] .run-intro-strip {
-    background:
-      radial-gradient(circle at 4% 0%, rgba(219,234,254,0.7), transparent 28%),
-      rgba(255,255,255,0.96) !important;
+  /* Audit command panel AND all its children */
+  html[data-theme="light"] .audit-command-panel {
+    background: rgba(255,255,255,0.94) !important;
     border-color: rgba(0,0,0,0.09) !important;
     box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important;
   }
-
-  html[data-theme="light"] .run-intro-strip h1,
-  html[data-theme="light"] .run-intro-strip h2 { color: #0f172a !important; }
-
-  html[data-theme="light"] .run-intro-strip p,
-  html[data-theme="light"] .run-intro-strip .hero-copy { color: #475569 !important; }
-
-  html[data-theme="light"] .mini-label { color: #0891b2 !important; }
-
-  html[data-theme="light"] .audit-command-panel {
-    background: rgba(255,255,255,0.94) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.07) !important;
-  }
-
-  html[data-theme="light"] .audit-command-head { border-bottom-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .audit-command-head { border-bottom-color: rgba(0,0,0,0.08) !important; background: transparent !important; }
   html[data-theme="light"] .audit-command-head h2 { color: #0f172a !important; }
-  html[data-theme="light"] .audit-command-column { border-right-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .audit-command-head .mini-label { color: #0891b2 !important; }
+  html[data-theme="light"] .audit-command-column { border-right-color: rgba(0,0,0,0.07) !important; background: transparent !important; }
+  html[data-theme="light"] .audit-command-column:last-child { border-right: none !important; }
+  html[data-theme="light"] .audit-command-status .state-pill { background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.12) !important; color: #1e293b !important; }
+  html[data-theme="light"] .compact-command-head { background: transparent !important; }
 
-  html[data-theme="light"] input,
-  html[data-theme="light"] textarea {
-    background: rgba(248,250,252,0.96) !important;
-    border-color: rgba(0,0,0,0.1) !important;
-    color: #1e293b !important;
-    color-scheme: light !important;
-  }
+  /* Summary strip below command panel */
+  html[data-theme="light"] .audit-command-panel + * { background: rgba(248,250,252,0.96) !important; }
+  html[data-theme="light"] [class*="run-summary"],
+  html[data-theme="light"] .mini-label { color: #0891b2 !important; }
+  html[data-theme="light"] .action-block { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .action-summary-grid div { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .action-summary-grid strong { color: #0f172a !important; }
+  html[data-theme="light"] .action-summary-grid small { color: #64748b !important; }
 
-  html[data-theme="light"] label span { color: #64748b !important; }
+  /* Inputs, labels, form controls */
+  html[data-theme="light"] .run-page input,
+  html[data-theme="light"] .run-page textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
+  html[data-theme="light"] .run-page label span,
+  html[data-theme="light"] .run-page .mini-label,
+  html[data-theme="light"] .run-page .eyebrow { color: #64748b !important; }
+  html[data-theme="light"] .run-page .conversation-head span,
+  html[data-theme="light"] .run-page .mini-grid span { color: #64748b !important; }
+  html[data-theme="light"] .conversation-id-control small { color: #64748b !important; }
 
+  /* Filter buttons in run audit */
   html[data-theme="light"] .run-filter-button,
+  html[data-theme="light"] .run-multi-button,
   html[data-theme="light"] .run-date-button,
   html[data-theme="light"] .preset-button {
     background: rgba(248,250,252,0.96) !important;
     border-color: rgba(0,0,0,0.1) !important;
     color: #1e293b !important;
   }
-
+  html[data-theme="light"] .run-filter-button b,
+  html[data-theme="light"] .run-date-button b { color: #64748b !important; }
+  html[data-theme="light"] .run-filter-button strong,
+  html[data-theme="light"] .run-date-button strong,
+  html[data-theme="light"] .preset-button span { color: #0f172a !important; }
+  html[data-theme="light"] .preset-button small { color: #64748b !important; }
   html[data-theme="light"] .run-multi-menu,
   html[data-theme="light"] .run-date-popover,
-  html[data-theme="light"] .preset-menu {
+  html[data-theme="light"] .preset-menu,
+  html[data-theme="light"] .run-multi-menu[style] {
     background: #ffffff !important;
+    background-image: none !important;
     border-color: rgba(0,0,0,0.1) !important;
     box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important;
   }
+  html[data-theme="light"] .run-multi-menu * { color: #1e293b !important; }
 
-  html[data-theme="light"] .workflow-step {
-    background: rgba(0,0,0,0.02) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
+  /* State pills */
+  html[data-theme="light"] .state-pill.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
+  html[data-theme="light"] .state-pill.notice,
+  html[data-theme="light"] .count-pill { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .state-pill.warning { color: #92400e !important; background: rgba(245,158,11,0.09) !important; border-color: rgba(245,158,11,0.22) !important; }
+  html[data-theme="light"] .state-pill.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
+  html[data-theme="light"] .state-pill.neutral { color: #475569 !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .access-badge.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
+  html[data-theme="light"] .access-badge.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
 
-  html[data-theme="light"] .workflow-step.active {
-    background: rgba(59,130,246,0.07) !important;
-    border-color: rgba(59,130,246,0.22) !important;
-  }
-
-  html[data-theme="light"] .workflow-step.done {
-    background: rgba(16,185,129,0.07) !important;
-    border-color: rgba(16,185,129,0.2) !important;
-  }
-
+  /* Workflow steps */
+  html[data-theme="light"] .workflow-step { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .workflow-step.active { background: rgba(59,130,246,0.07) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .workflow-step.done { background: rgba(16,185,129,0.07) !important; border-color: rgba(16,185,129,0.2) !important; }
   html[data-theme="light"] .workflow-step strong { color: #0f172a !important; }
   html[data-theme="light"] .workflow-step p { color: #475569 !important; }
 
-  html[data-theme="light"] .readiness-card {
-    background: rgba(255,255,255,0.88) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
+  /* Readiness cards */
+  html[data-theme="light"] .readiness-card-shell,
+  html[data-theme="light"] .monitor-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .readiness-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .readiness-card span { color: #64748b !important; }
   html[data-theme="light"] .readiness-card strong { color: #0f172a !important; }
   html[data-theme="light"] .readiness-card small { color: #475569 !important; }
-
   html[data-theme="light"] .readiness-card.success { background: rgba(16,185,129,0.07) !important; border-color: rgba(16,185,129,0.2) !important; }
   html[data-theme="light"] .readiness-card.notice { background: rgba(59,130,246,0.07) !important; border-color: rgba(59,130,246,0.2) !important; }
   html[data-theme="light"] .readiness-card.warning { background: rgba(245,158,11,0.07) !important; border-color: rgba(245,158,11,0.2) !important; }
   html[data-theme="light"] .readiness-card.danger { background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+  html[data-theme="light"] .compact-readiness-stack .workflow-dot { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #475569 !important; box-shadow: none !important; }
+  html[data-theme="light"] .compact-readiness-stack .workflow-step.done .workflow-dot { color: #065f46 !important; border-color: rgba(16,185,129,0.26) !important; background: rgba(16,185,129,0.1) !important; }
+  html[data-theme="light"] .compact-readiness-stack .workflow-step strong { color: #0f172a !important; }
+  html[data-theme="light"] .compact-readiness-stack .workflow-step p { color: #64748b !important; }
 
-  html[data-theme="light"] .readiness-card-shell,
-  html[data-theme="light"] .monitor-card {
-    background: rgba(255,255,255,0.92) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
-  }
-
-  html[data-theme="light"] h1, html[data-theme="light"] h2, html[data-theme="light"] h3 { color: #0f172a !important; }
+  /* Headings and body text */
+  html[data-theme="light"] .run-page h1,
+  html[data-theme="light"] .run-page h2,
+  html[data-theme="light"] .run-page h3 { color: #0f172a !important; }
   html[data-theme="light"] .hero-copy { color: #475569 !important; }
+  html[data-theme="light"] .section-head h2, html[data-theme="light"] .section-head h3 { color: #0f172a !important; }
 
-  html[data-theme="light"] .stat-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
+  /* Stat cards */
   html[data-theme="light"] .stat-card p { color: #64748b !important; }
-  html[data-theme="light"] .stat-card strong { -webkit-text-fill-color: #0f172a !important; background: none !important; color: #0f172a !important; }
+  html[data-theme="light"] .stat-card strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
   html[data-theme="light"] .stat-card span { color: #475569 !important; }
 
-  html[data-theme="light"] .log-panel {
-    background: rgba(255,255,255,0.94) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
+  /* Progress */
+  html[data-theme="light"] .progress-visual { background: rgba(241,245,249,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .progress-meter-shell { background: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .progress-panel.enhanced { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .progress-panel-head h3 { color: #0f172a !important; }
+  html[data-theme="light"] .progress-panel-head p { color: #64748b !important; }
+  html[data-theme="light"] .progress-metrics-grid div { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .progress-metrics-grid strong { color: #0f172a !important; }
+  html[data-theme="light"] .progress-metrics-grid span { color: #64748b !important; }
+  html[data-theme="light"] .progress-stage-panel { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .progress-percent-chip { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .progress-tip small { color: #475569 !important; }
 
+  /* Log panel */
+  html[data-theme="light"] .log-panel { background: rgba(255,255,255,0.94) !important; border-color: rgba(0,0,0,0.08) !important; }
+
+  /* Messages */
   html[data-theme="light"] .message.success { color: #065f46 !important; background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
   html[data-theme="light"] .message.error { color: #991b1b !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.18) !important; }
 
-  html[data-theme="light"] .secondary-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
-  html[data-theme="light"] .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
-  html[data-theme="light"] .ghost-btn { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
+  /* Buttons */
+  html[data-theme="light"] .run-page .secondary-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .run-page .secondary-btn:hover { background: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .run-page .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+  html[data-theme="light"] .run-page .ghost-btn { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
 
-  html[data-theme="light"] .state-pill.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
-  html[data-theme="light"] .state-pill.notice { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
-  html[data-theme="light"] .state-pill.warning { color: #92400e !important; background: rgba(245,158,11,0.09) !important; border-color: rgba(245,158,11,0.22) !important; }
-  html[data-theme="light"] .state-pill.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
-  html[data-theme="light"] .state-pill.neutral { color: #475569 !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
-
-  html[data-theme="light"] .progress-visual {
-    background: rgba(241,245,249,0.9) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
-
-  html[data-theme="light"] .progress-meter-shell { background: rgba(0,0,0,0.08) !important; }
-
-  html[data-theme="light"] .progress-metrics-grid div {
-    background: rgba(255,255,255,0.88) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
-  html[data-theme="light"] .progress-metrics-grid strong { color: #0f172a !important; }
-
-  html[data-theme="light"] .empty-box, html[data-theme="light"] .resting-panel { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.09) !important; color: #475569 !important; }
-
+  /* Behavior cards and controls */
+  html[data-theme="light"] .behavior-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .behavior-row strong { color: #0f172a !important; }
+  html[data-theme="light"] .behavior-copy { color: #475569 !important; }
+  html[data-theme="light"] .control-block { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .auth-shell-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .auth-shell-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .auth-shell-card small { color: #475569 !important; }
   html[data-theme="light"] .switch { background: rgba(0,0,0,0.08) !important; border-color: rgba(0,0,0,0.12) !important; }
   html[data-theme="light"] .switch span { background: #94a3b8 !important; }
   html[data-theme="light"] .switch.on { background: rgba(16,185,129,0.15) !important; border-color: rgba(16,185,129,0.28) !important; }
   html[data-theme="light"] .switch.on span { background: #10b981 !important; }
+  html[data-theme="light"] .resting-panel { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .resting-panel strong { color: #0f172a !important; }
+  html[data-theme="light"] .resting-panel p { color: #475569 !important; }
+  html[data-theme="light"] .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.1) !important; color: #64748b !important; }
 
-  html[data-theme="light"] .behavior-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
-  html[data-theme="light"] .behavior-row strong { color: #0f172a !important; }
-  html[data-theme="light"] .behavior-copy { color: #475569 !important; }
+  /* Hero copy card */
+  html[data-theme="light"] .hero-copy-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .hero-copy-card::before { display: none !important; }
+  html[data-theme="light"] .hero-badge { color: #4338ca !important; background: rgba(99,102,241,0.09) !important; border-color: rgba(99,102,241,0.22) !important; }
+  html[data-theme="light"] .hero-summary-card { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .hero-summary-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .hero-quick-card { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .hero-quick-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .hero-quick-card small { color: #475569 !important; }
 
-  html[data-theme="light"] .action-block {
-    background: rgba(248,250,252,0.9) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
+  /* Workflow and insight cards */
+  html[data-theme="light"] .workflow-card, html[data-theme="light"] .insight-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .insight-line { color: #1e293b !important; }
+  html[data-theme="light"] .insight-line svg { color: #7c3aed !important; }
 
-  html[data-theme="light"] .action-summary-grid div {
-    background: rgba(255,255,255,0.88) !important;
-    border-color: rgba(0,0,0,0.08) !important;
-  }
-
-  html[data-theme="light"] .action-summary-grid strong { color: #0f172a !important; }
-  html[data-theme="light"] .action-summary-grid small { color: #64748b !important; }
-
-  html[data-theme="light"] .control-block { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
-
-  html[data-theme="light"] .auth-shell-card { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
-  html[data-theme="light"] .auth-shell-card strong { color: #0f172a !important; }
-  html[data-theme="light"] .auth-shell-card small { color: #475569 !important; }
+  /* Modals */
+  html[data-theme="light"] .run-page .modal-backdrop, html[data-theme="light"] .run-page .modal-overlay { background: rgba(241,245,249,0.75) !important; }
 
 `;
