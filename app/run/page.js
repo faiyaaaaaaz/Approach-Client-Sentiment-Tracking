@@ -8359,7 +8359,7 @@ const runStyles = `
 
 
   /* ═══════════════════════════════════════════
-     DARK MODE VISUAL ENHANCEMENTS
+     DARK MODE ENHANCEMENTS
   ═══════════════════════════════════════════ */
 
   .run-intro-strip { padding: 28px 32px !important; border-radius: 30px !important; border: 1px solid rgba(255,255,255,0.1) !important; background: radial-gradient(circle at 4% 0%, rgba(34,211,238,0.1), transparent 28%), radial-gradient(circle at 94% 4%, rgba(139,92,246,0.18), transparent 30%), linear-gradient(180deg, rgba(14,20,42,0.96), rgba(7,10,24,0.98)) !important; box-shadow: 0 28px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.06) !important; margin-bottom: 18px !important; }
@@ -8371,82 +8371,82 @@ const runStyles = `
   .surface-card { transition: box-shadow 0.2s ease !important; }
   .surface-card:hover { box-shadow: 0 28px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05) !important; }
   .stat-card { transition: transform 0.18s ease, box-shadow 0.18s ease !important; }
-  .stat-card:hover { transform: translateY(-2px) !important; box-shadow: 0 28px 70px rgba(0,0,0,0.38) !important; }
+  .stat-card:hover { transform: translateY(-2px) !important; }
 
   /* ═══════════════════════════════════════════
-     LIGHT MODE — run audit, complete & correct
+     LIGHT MODE — run audit COMPLETE
   ═══════════════════════════════════════════ */
 
-  html[data-theme="light"] .run-page {
-    background: radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%), radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%), linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
-    color: #0f172a !important;
-  }
+  html[data-theme="light"] .run-page { background: radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%), radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%), linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important; color: #0f172a !important; }
 
   /* Intro strip */
   html[data-theme="light"] .run-intro-strip { background: rgba(255,255,255,0.96) !important; border-color: rgba(0,0,0,0.09) !important; box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .run-intro-strip h1 { color: #0f172a !important; }
   html[data-theme="light"] .run-intro-strip .mini-label { color: #0891b2 !important; }
   html[data-theme="light"] .run-intro-strip > div:first-child p { color: #475569 !important; }
-  html[data-theme="light"] .run-intro-meta { color: #0f172a !important; }
   html[data-theme="light"] .run-intro-meta strong { color: #0f172a !important; }
   html[data-theme="light"] .run-intro-meta small { color: #64748b !important; }
 
   /* Surface cards */
-  html[data-theme="light"] .surface-card, html[data-theme="light"] .stat-card, html[data-theme="light"] .hero-copy-card, html[data-theme="light"] .workflow-card, html[data-theme="light"] .insight-card, html[data-theme="light"] .command-card, html[data-theme="light"] .monitor-card, html[data-theme="light"] .run-summary-card, html[data-theme="light"] .log-panel, html[data-theme="light"] .diagnostics-panel { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .surface-card, html[data-theme="light"] .stat-card, html[data-theme="light"] .hero-copy-card, html[data-theme="light"] .workflow-card, html[data-theme="light"] .insight-card, html[data-theme="light"] .monitor-card, html[data-theme="light"] .run-summary-card, html[data-theme="light"] .log-panel { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
 
-  /* ── AUDIT COMMAND PANEL — THE KEY FIX ── */
-  /* The panel outer container */
-  html[data-theme="light"] .audit-command-panel { background: #f8fafc !important; border-color: rgba(0,0,0,0.09) !important; box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important; }
-  /* The grid: had background: #080d18 */
-  html[data-theme="light"] .audit-command-grid { background: #f1f5f9 !important; }
-  /* Each column: had background: #111625 */
-  html[data-theme="light"] .audit-command-column { background: #ffffff !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: none !important; }
+  /* ── AUDIT COMMAND PANEL — outer, grid, columns ── */
+  html[data-theme="light"] .audit-command-panel { background: #f1f5f9 !important; border-color: rgba(0,0,0,0.09) !important; box-shadow: 0 8px 28px rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .audit-command-grid { background: #e8edf5 !important; }
+  html[data-theme="light"] .audit-command-column { background: #ffffff !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important; }
   html[data-theme="light"] .audit-command-column-filters { background: #fafbfc !important; }
   html[data-theme="light"] .audit-command-column-actions { background: #fafbfc !important; }
-  /* Column heading text */
+
+  /* ── TOGGLE CELLS (Limiter + Auto-Run) — had background: #161c2d ── */
+  html[data-theme="light"] .audit-command-toggle { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .audit-command-toggle.auto.active { background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.22) !important; }
+  html[data-theme="light"] .audit-command-toggle strong { color: #0f172a !important; }
+
+  /* ── COMPACT LIMIT FIELD input — had background: #0b101c ── */
+  html[data-theme="light"] .compact-limit-field input { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+
+  /* ── ACTIONS area (Fetch + Run buttons) — had background: #111625 ── */
+  html[data-theme="light"] .audit-command-actions { background: transparent !important; }
+
+  /* Column heading */
   html[data-theme="light"] .audit-column-heading .mini-label { color: #0891b2 !important; }
   html[data-theme="light"] .audit-column-heading strong { color: #64748b !important; }
-  /* Panel header */
   html[data-theme="light"] .audit-command-head { background: transparent !important; border-bottom-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .audit-command-head h2 { color: #0f172a !important; }
-  html[data-theme="light"] .audit-command-head p { color: #64748b !important; }
-  /* mini-label inside panel */
   html[data-theme="light"] .audit-command-panel .mini-label, html[data-theme="light"] .audit-command-panel label span { color: #64748b !important; }
-  /* Buttons inside panel: had background: #090e1a */
+
+  /* ── RATING PILLS — had color: #e5ecff (near-white, invisible on white) ── */
+  html[data-theme="light"] .run-multi-pill-row i { color: #1e293b !important; background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .audit-command-panel .run-multi-pill-row i { color: #1e293b !important; background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.1) !important; }
+
+  /* Filter buttons inside command panel */
   html[data-theme="light"] .audit-command-panel .run-multi-button, html[data-theme="light"] .audit-command-panel .run-date-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
   html[data-theme="light"] .audit-command-panel .run-multi-button strong, html[data-theme="light"] .audit-command-panel .run-date-button strong { color: #0f172a !important; }
   html[data-theme="light"] .audit-command-panel .run-multi-button b, html[data-theme="light"] .audit-command-panel .run-date-button b { color: #64748b !important; }
-  /* Status / READY pill in panel */
-  html[data-theme="light"] .audit-command-status .state-pill { color: #1e293b !important; background: rgba(0,0,0,0.06) !important; border-color: rgba(0,0,0,0.12) !important; }
 
-  /* ── STATUS STRIP BELOW PANEL — THE OTHER KEY FIX ── */
-  /* run-setup-strip divs had background: #0f1523 !important */
+  /* ── STATUS STRIP — had background: #0f1523 !important ── */
   html[data-theme="light"] .run-setup-strip div { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .run-setup-strip span { color: #64748b !important; }
   html[data-theme="light"] .run-setup-strip strong { color: #0f172a !important; }
 
-  /* ── DROPDOWNS IN RUN AUDIT — THE DROPDOWN FIX ── */
-  /* run-multi-menu had background: #050a16 with !important */
+  /* ── DROPDOWNS — had background: #050a16 !important ── */
   html[data-theme="light"] .run-multi-menu { background: #ffffff !important; background-image: none !important; border-color: rgba(0,0,0,0.12) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; }
-  /* Search input inside: had background: #020617 */
   html[data-theme="light"] .run-multi-menu input { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
-  /* Options: had background: #0b1326 with !important */
+  /* ── DROPDOWN OPTIONS — had background: #0b1326 !important ── */
   html[data-theme="light"] .run-multi-option { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; color: #1e293b !important; }
   html[data-theme="light"] .run-multi-option span { color: #64748b !important; }
   html[data-theme="light"] .run-multi-option strong { color: #0f172a !important; }
   html[data-theme="light"] .run-multi-option em { color: #475569 !important; }
-  /* Active/hover options: had dark gradient with !important */
   html[data-theme="light"] .run-multi-option.active, html[data-theme="light"] .run-multi-option:hover { background: rgba(59,130,246,0.1) !important; border-color: rgba(59,130,246,0.24) !important; }
   html[data-theme="light"] .run-multi-empty { color: #64748b !important; }
 
-  /* ── RUN DATE PICKER DROPDOWN ── */
+  /* Run date picker */
   html[data-theme="light"] .run-date-popover { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; color: #0f172a !important; }
-  html[data-theme="light"] .date-popover-tabs { border-bottom-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .date-popover-tabs div { background: rgba(0,0,0,0.03) !important; }
   html[data-theme="light"] .date-popover-tabs span { color: #64748b !important; }
   html[data-theme="light"] .date-popover-tabs strong { color: #0f172a !important; }
   html[data-theme="light"] .date-preset-column button, html[data-theme="light"] .calendar-nav-row button { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
-  html[data-theme="light"] .date-preset-column button.active, html[data-theme="light"] .date-preset-column button:hover { background: rgba(59,130,246,0.1) !important; border-color: rgba(59,130,246,0.22) !important; }
+  html[data-theme="light"] .date-preset-column button.active, html[data-theme="light"] .date-preset-column button:hover { background: rgba(59,130,246,0.1) !important; }
   html[data-theme="light"] .calendar-nav-row strong { color: #0f172a !important; }
   html[data-theme="light"] .calendar-month-card h4 { color: #0f172a !important; }
   html[data-theme="light"] .calendar-weekdays span { color: #64748b !important; }
@@ -8454,18 +8454,17 @@ const runStyles = `
   html[data-theme="light"] .calendar-day.in-range { background: rgba(34,197,94,0.1) !important; }
   html[data-theme="light"] .calendar-day.range-start, html[data-theme="light"] .calendar-day.range-end { color: #ffffff !important; }
   html[data-theme="light"] .calendar-day.muted { color: rgba(0,0,0,0.3) !important; }
-  html[data-theme="light"] .date-popover-actions button { color: #1e293b !important; }
 
-  /* Inputs/labels */
+  /* General inputs/labels */
   html[data-theme="light"] .run-page input, html[data-theme="light"] .run-page textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
-  html[data-theme="light"] .run-page label span, html[data-theme="light"] .run-page .mini-label, html[data-theme="light"] .run-page .eyebrow { color: #64748b !important; }
+  html[data-theme="light"] .run-page label span, html[data-theme="light"] .run-page .mini-label { color: #64748b !important; }
   html[data-theme="light"] .conversation-id-control small { color: #64748b !important; }
-  html[data-theme="light"] .run-filter-button, html[data-theme="light"] .run-multi-button:not(.audit-command-panel *), html[data-theme="light"] .run-date-button:not(.audit-command-panel *), html[data-theme="light"] .preset-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+  html[data-theme="light"] .run-filter-button, html[data-theme="light"] .run-date-button, html[data-theme="light"] .preset-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
   html[data-theme="light"] .preset-button span { color: #0f172a !important; }
   html[data-theme="light"] .preset-button small { color: #64748b !important; }
-  html[data-theme="light"] .preset-menu { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; }
+  html[data-theme="light"] .preset-menu { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; }
   html[data-theme="light"] .preset-menu button { color: #1e293b !important; background: transparent !important; }
-  html[data-theme="light"] .preset-menu button.active, html[data-theme="light"] .preset-menu button:hover { background: rgba(59,130,246,0.08) !important; border-color: rgba(59,130,246,0.2) !important; }
+  html[data-theme="light"] .preset-menu button.active, html[data-theme="light"] .preset-menu button:hover { background: rgba(59,130,246,0.08) !important; }
 
   /* State pills */
   html[data-theme="light"] .state-pill.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
@@ -8473,8 +8472,6 @@ const runStyles = `
   html[data-theme="light"] .state-pill.warning { color: #92400e !important; background: rgba(245,158,11,0.09) !important; border-color: rgba(245,158,11,0.22) !important; }
   html[data-theme="light"] .state-pill.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
   html[data-theme="light"] .state-pill.neutral { color: #475569 !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
-  html[data-theme="light"] .access-badge.success { color: #065f46 !important; background: rgba(16,185,129,0.09) !important; border-color: rgba(16,185,129,0.22) !important; }
-  html[data-theme="light"] .access-badge.danger { color: #991b1b !important; background: rgba(244,63,94,0.09) !important; border-color: rgba(244,63,94,0.22) !important; }
 
   /* Workflow steps */
   html[data-theme="light"] .workflow-step { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.08) !important; }
@@ -8484,7 +8481,7 @@ const runStyles = `
   html[data-theme="light"] .workflow-step p { color: #475569 !important; }
 
   /* Readiness */
-  html[data-theme="light"] .readiness-card-shell, html[data-theme="light"] .monitor-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .readiness-card-shell, html[data-theme="light"] .monitor-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .readiness-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .readiness-card span { color: #64748b !important; }
   html[data-theme="light"] .readiness-card strong { color: #0f172a !important; }
@@ -8494,15 +8491,12 @@ const runStyles = `
   html[data-theme="light"] .readiness-card.warning { background: rgba(245,158,11,0.07) !important; border-color: rgba(245,158,11,0.2) !important; }
   html[data-theme="light"] .readiness-card.danger { background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
   html[data-theme="light"] .compact-readiness-stack .workflow-dot { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #475569 !important; box-shadow: none !important; }
-  html[data-theme="light"] .compact-readiness-stack .workflow-step.done .workflow-dot { color: #065f46 !important; border-color: rgba(16,185,129,0.26) !important; background: rgba(16,185,129,0.1) !important; }
   html[data-theme="light"] .compact-readiness-stack .workflow-step strong { color: #0f172a !important; }
   html[data-theme="light"] .compact-readiness-stack .workflow-step p { color: #64748b !important; }
 
   /* Headings */
   html[data-theme="light"] .run-page h1, html[data-theme="light"] .run-page h2, html[data-theme="light"] .run-page h3 { color: #0f172a !important; }
   html[data-theme="light"] .hero-copy { color: #475569 !important; }
-  html[data-theme="light"] .section-head { color: #0f172a !important; }
-  html[data-theme="light"] .mini-label { color: #64748b !important; }
 
   /* Stat cards */
   html[data-theme="light"] .stat-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
@@ -8519,18 +8513,15 @@ const runStyles = `
   html[data-theme="light"] .progress-metrics-grid div { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .progress-metrics-grid strong { color: #0f172a !important; }
   html[data-theme="light"] .progress-metrics-grid span { color: #64748b !important; }
-  html[data-theme="light"] .progress-stage-panel { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .progress-percent-chip { color: #1e40af !important; background: rgba(59,130,246,0.09) !important; border-color: rgba(59,130,246,0.22) !important; }
   html[data-theme="light"] .progress-tip small { color: #475569 !important; }
 
-  /* Messages & buttons */
+  /* Messages + buttons */
   html[data-theme="light"] .message.success { color: #065f46 !important; background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
   html[data-theme="light"] .message.error { color: #991b1b !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.18) !important; }
   html[data-theme="light"] .run-page .secondary-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
   html[data-theme="light"] .run-page .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
   html[data-theme="light"] .run-page .ghost-btn { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
-
-  /* Cards */
   html[data-theme="light"] .behavior-card, html[data-theme="light"] .control-block, html[data-theme="light"] .auth-shell-card, html[data-theme="light"] .resting-panel, html[data-theme="light"] .hero-summary-card, html[data-theme="light"] .hero-quick-card { background: rgba(255,255,255,0.88) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .behavior-row strong, html[data-theme="light"] .auth-shell-card strong, html[data-theme="light"] .resting-panel strong, html[data-theme="light"] .hero-quick-card strong, html[data-theme="light"] .hero-summary-card strong { color: #0f172a !important; }
   html[data-theme="light"] .behavior-copy, html[data-theme="light"] .auth-shell-card small, html[data-theme="light"] .resting-panel p, html[data-theme="light"] .hero-quick-card small { color: #475569 !important; }
@@ -8545,6 +8536,6 @@ const runStyles = `
   html[data-theme="light"] .hero-copy-card { background: rgba(255,255,255,0.92) !important; border-color: rgba(0,0,0,0.08) !important; }
   html[data-theme="light"] .hero-copy-card::before { display: none !important; }
   html[data-theme="light"] .hero-badge { color: #4338ca !important; background: rgba(99,102,241,0.09) !important; border-color: rgba(99,102,241,0.22) !important; }
-  html[data-theme="light"] .empty-box, html[data-theme="light"] .resting-panel { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.09) !important; color: #475569 !important; }
+  html[data-theme="light"] .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.09) !important; color: #475569 !important; }
 
 `;
