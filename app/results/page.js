@@ -4603,4 +4603,87 @@ const resultsStyles = `
     }
   }
 
+
+  /* ═══════════════════════════════════════════
+     RESULTS PAGE — LIGHT MODE
+  ═══════════════════════════════════════════ */
+
+  html[data-theme="light"] .results-page {
+    background: radial-gradient(circle at 10% 0%, rgba(219,234,254,0.7), transparent 28%), radial-gradient(circle at 88% 2%, rgba(221,214,254,0.5), transparent 28%), linear-gradient(180deg, #f0f4f8 0%, #eef2f8 46%, #e8edf5 100%) !important;
+    color: #0f172a !important;
+  }
+
+  /* All main panels share the same dark gradient background */
+  html[data-theme="light"] .hero, html[data-theme="light"] .action-strip, html[data-theme="light"] .import-panel, html[data-theme="light"] .filters-panel, html[data-theme="light"] .table-panel, html[data-theme="light"] .stat-card, html[data-theme="light"] .import-modal { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important; }
+
+  /* Text colors */
+  html[data-theme="light"] .eyebrow, html[data-theme="light"] .results-page label span, html[data-theme="light"] .hero-panel span, html[data-theme="light"] .hero-panel small, html[data-theme="light"] .stat-card p, html[data-theme="light"] .verdict-head span, html[data-theme="light"] .verdict-head small, html[data-theme="light"] .run-id-box span { color: #64748b !important; }
+  html[data-theme="light"] .results-page h1, html[data-theme="light"] .results-page h2, html[data-theme="light"] .results-page h3 { color: #0f172a !important; }
+  html[data-theme="light"] .hero-badge { color: #4338ca !important; background: rgba(99,102,241,0.09) !important; border-color: rgba(99,102,241,0.22) !important; }
+  html[data-theme="light"] .stat-card strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
+  html[data-theme="light"] .stat-card span { color: #475569 !important; }
+
+  /* Inputs / selects / buttons */
+  html[data-theme="light"] .results-page input, html[data-theme="light"] .results-page select, html[data-theme="light"] .date-preset-btn { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
+  html[data-theme="light"] .results-page .secondary-btn, html[data-theme="light"] .results-page .ghost-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .results-page .danger-btn { color: #dc2626 !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.2) !important; }
+
+  /* Date picker */
+  html[data-theme="light"] .results-date-button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+  html[data-theme="light"] .results-date-popover { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; color: #0f172a !important; }
+  html[data-theme="light"] .results-date-preset-column button { color: #1e293b !important; background: rgba(0,0,0,0.04) !important; border-color: rgba(0,0,0,0.1) !important; }
+  html[data-theme="light"] .results-date-preset-column button.active, html[data-theme="light"] .results-date-preset-column button:hover { background: rgba(59,130,246,0.1) !important; }
+  html[data-theme="light"] .results-calendar-nav-row strong { color: #0f172a !important; }
+  html[data-theme="light"] .results-calendar-day { color: #1e293b !important; background: transparent !important; }
+  html[data-theme="light"] .results-calendar-day.muted { color: rgba(0,0,0,0.3) !important; }
+
+  /* Multi-select filter */
+  html[data-theme="light"] .multi-filter button { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+  html[data-theme="light"] .multi-filter-menu { background: #ffffff !important; border-color: rgba(0,0,0,0.1) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.14) !important; }
+  html[data-theme="light"] .multi-filter-menu input { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
+  html[data-theme="light"] .multi-filter-option { color: #1e293b !important; background: rgba(0,0,0,0.02) !important; }
+  html[data-theme="light"] .multi-filter-option:hover, html[data-theme="light"] .multi-filter-option.active { background: rgba(59,130,246,0.08) !important; }
+  html[data-theme="light"] .multi-filter-option span { color: #64748b !important; }
+  html[data-theme="light"] .multi-filter-option strong { color: #0f172a !important; }
+
+  /* Table */
+  html[data-theme="light"] .table-shell { background: rgba(255,255,255,0.96) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .results-page th { background: rgba(248,250,252,0.98) !important; color: #64748b !important; border-bottom-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .results-page td { color: #1e293b !important; border-bottom-color: rgba(0,0,0,0.05) !important; }
+  html[data-theme="light"] .results-page tr:nth-child(even) td { background: rgba(0,0,0,0.015) !important; }
+  html[data-theme="light"] .results-page tr:hover td { background: rgba(59,130,246,0.04) !important; }
+  html[data-theme="light"] .results-page td small { color: #64748b !important; }
+  html[data-theme="light"] .results-page .sticky-col, html[data-theme="light"] .results-page td.sticky-col { background: rgba(248,250,252,0.98) !important; }
+
+  /* Verdict box */
+  html[data-theme="light"] .verdict-box { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .verdict-head { color: #0f172a !important; }
+  html[data-theme="light"] .verdict-head span, html[data-theme="light"] .verdict-head small { color: #64748b !important; }
+
+  /* Import panel */
+  html[data-theme="light"] .import-pill { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; color: #1e293b !important; }
+
+  /* Status pills */
+  html[data-theme="light"] .results-page .pill.success, html[data-theme="light"] .results-page .good { color: #065f46 !important; }
+  html[data-theme="light"] .results-page .pill.danger, html[data-theme="light"] .results-page .bad { color: #991b1b !important; }
+  html[data-theme="light"] .results-page .pill.warning { color: #92400e !important; }
+  html[data-theme="light"] .results-page .pill.notice { color: #1e40af !important; }
+
+  /* Empty box, messages */
+  html[data-theme="light"] .results-page .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.1) !important; color: #64748b !important; }
+  html[data-theme="light"] .results-page .message.success { color: #065f46 !important; background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; }
+  html[data-theme="light"] .results-page .message.error { color: #991b1b !important; background: rgba(244,63,94,0.07) !important; border-color: rgba(244,63,94,0.18) !important; }
+
+  /* Conversation preview (shared with dashboard) */
+  html[data-theme="light"] .conversation-preview-backdrop { background: rgba(241,245,249,0.78) !important; }
+  html[data-theme="light"] .conversation-preview-modal { background: linear-gradient(180deg,rgba(248,250,252,0.99),rgba(241,245,249,0.99)) !important; border-color: rgba(0,0,0,0.09) !important; }
+  html[data-theme="light"] .conversation-preview-head { border-bottom-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .conversation-preview-sidebar { border-right-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .conversation-preview-sidebar-title { color: #64748b !important; }
+  html[data-theme="light"] .conversation-preview-attr-row { background: rgba(0,0,0,0.03) !important; border-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .conversation-preview-attr-row > span:first-child { color: #64748b !important; }
+  html[data-theme="light"] .conversation-preview-attr-row > span:last-child { color: #1e293b !important; }
+  html[data-theme="light"] .conversation-message-top strong { color: #0f172a !important; }
+  html[data-theme="light"] .conversation-message-top span { color: #64748b !important; }
+
 `;
