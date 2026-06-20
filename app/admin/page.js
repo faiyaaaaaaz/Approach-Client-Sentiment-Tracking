@@ -8039,13 +8039,33 @@ const adminStyles = `
     color: #0f172a !important;
   }
 
-  /* ── WILDCARD: catch ALL card/panel-type elements ── */
-  html[data-theme="light"] .admin-page [class*="-card"],
-  html[data-theme="light"] .admin-page [class*="-panel"],
-  html[data-theme="light"] .admin-page [class*="-grid"] > div,
+  /* ── LIGHT MODE SURFACES ──
+     Keep this list explicit. A previous wildcard selector targeted every class
+     containing "-card", "-panel", or "-grid" and forced light backgrounds/text
+     into nested controls. That caused the theme conflicts visible in date
+     pickers, scope notes, section indicators, and several admin widgets. */
   html[data-theme="light"] .admin-page .panel,
   html[data-theme="light"] .admin-page .hero,
-  html[data-theme="light"] .admin-page .section-page-title {
+  html[data-theme="light"] .admin-page .section-page-title,
+  html[data-theme="light"] .admin-page .gate-panel,
+  html[data-theme="light"] .admin-page .role-table-card,
+  html[data-theme="light"] .admin-page .profile-card,
+  html[data-theme="light"] .admin-page .member-picker,
+  html[data-theme="light"] .admin-page .supervisor-card,
+  html[data-theme="light"] .admin-page .hero-side-card,
+  html[data-theme="light"] .admin-page .activity-panel,
+  html[data-theme="light"] .admin-page .session-panel,
+  html[data-theme="light"] .admin-page .owner-lock-card,
+  html[data-theme="light"] .admin-page .permission-matrix-card,
+  html[data-theme="light"] .admin-page .dispute-management-panel,
+  html[data-theme="light"] .admin-page .api-card,
+  html[data-theme="light"] .admin-page .history-card,
+  html[data-theme="light"] .admin-page .mini-card,
+  html[data-theme="light"] .admin-page .stat-card,
+  html[data-theme="light"] .admin-page .role-form-card,
+  html[data-theme="light"] .admin-page .dispute-review-card,
+  html[data-theme="light"] .admin-page .dispute-action-panel,
+  html[data-theme="light"] .admin-page .dispute-guidance-card {
     background: rgba(255,255,255,0.93) !important;
     border-color: rgba(0,0,0,0.08) !important;
     box-shadow: 0 4px 24px rgba(0,0,0,0.07) !important;
@@ -8098,7 +8118,11 @@ const adminStyles = `
   html[data-theme="light"] .admin-page p { color: #475569 !important; }
   html[data-theme="light"] .admin-page strong { color: #0f172a !important; }
   html[data-theme="light"] .admin-page small { color: #64748b !important; }
-  html[data-theme="light"] .admin-page span { color: inherit !important; }
+  html[data-theme="light"] .admin-page .hero-side-card span,
+  html[data-theme="light"] .admin-page .admin-section-indicator span,
+  html[data-theme="light"] .admin-page .stat-card span,
+  html[data-theme="light"] .admin-page .profile-detail-grid span,
+  html[data-theme="light"] .admin-page .session-card span { color: #64748b !important; }
   html[data-theme="light"] .admin-page .stat-card p { color: #64748b !important; }
   html[data-theme="light"] .admin-page .stat-card strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
   html[data-theme="light"] .admin-page .stat-card span { color: #475569 !important; }
@@ -8118,6 +8142,15 @@ const adminStyles = `
   html[data-theme="light"] .admin-page .member-more-popover { background: rgba(255,255,255,0.98) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
   html[data-theme="light"] .admin-page .help-tip-popover { background: rgba(255,255,255,0.98) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; }
   html[data-theme="light"] .admin-page .member-option { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.08) !important; color: #1e293b !important; }
+
+  html[data-theme="light"] .admin-page .admin-section-indicator {
+    background: rgba(248,250,252,0.96) !important;
+    border-color: rgba(0,0,0,0.08) !important;
+    box-shadow: 0 4px 18px rgba(15,23,42,0.06) !important;
+  }
+  html[data-theme="light"] .admin-page .admin-section-indicator span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .admin-section-indicator strong { color: #0f172a !important; }
+  html[data-theme="light"] .admin-page .admin-section-indicator small { color: #475569 !important; }
 
   /* Buttons */
   html[data-theme="light"] .admin-page .secondary-btn, html[data-theme="light"] .admin-page .ghost-btn, html[data-theme="light"] .admin-page .small-btn { color: #1e293b !important; background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
