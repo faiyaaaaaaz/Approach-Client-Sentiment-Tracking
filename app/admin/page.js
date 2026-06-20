@@ -8172,6 +8172,37 @@ const adminStyles = `
     box-shadow: 0 20px 60px rgba(0,0,0,0.12) !important;
   }
 
+
+  /* ── ACTIVITY LOG TABLE — detail toggle button ── */
+  html[data-theme="light"] .admin-page .activity-detail-toggle {
+    background: rgba(59,130,246,0.08) !important;
+    border-color: rgba(59,130,246,0.18) !important;
+    color: #1e40af !important;
+  }
+  html[data-theme="light"] .admin-page .activity-detail-toggle:hover {
+    background: rgba(59,130,246,0.14) !important;
+  }
+  html[data-theme="light"] .admin-page .activity-detail-row td {
+    background: rgba(248,250,252,0.9) !important;
+  }
+  html[data-theme="light"] .admin-page .activity-detail-card { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .admin-page .activity-detail-card div { background: rgba(255,255,255,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .admin-page .activity-detail-card span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .activity-detail-card p, html[data-theme="light"] .admin-page .activity-detail-card small { color: #475569 !important; }
+  html[data-theme="light"] .admin-page .activity-json-card { background: rgba(248,250,252,0.9) !important; border-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .admin-page .activity-json-card pre { color: #1e293b !important; }
+  html[data-theme="light"] .admin-page .activity-log-pagination { background: rgba(248,250,252,0.9) !important; border-top-color: rgba(0,0,0,0.07) !important; }
+  html[data-theme="light"] .admin-page .activity-log-pagination span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .activity-summary-grid article { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page .activity-summary-grid span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .activity-summary-grid strong { color: #0f172a !important; }
+  html[data-theme="light"] .admin-page .activity-summary-grid small { color: #475569 !important; }
+  html[data-theme="light"] .admin-page .session-card { background: rgba(255,255,255,0.93) !important; border-color: rgba(0,0,0,0.08) !important; }
+  html[data-theme="light"] .admin-page .session-card strong { color: #0f172a !important; }
+  html[data-theme="light"] .admin-page .session-card span { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .session-card dt { color: #64748b !important; }
+  html[data-theme="light"] .admin-page .session-card dd { color: #1e293b !important; }
+
 `;
 
 export default function AdminPage() {
