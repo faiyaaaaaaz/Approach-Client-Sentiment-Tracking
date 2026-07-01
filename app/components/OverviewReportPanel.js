@@ -1315,7 +1315,16 @@ export default function OverviewReportPanel({ session }) {
             width: min(94vw, 520px);
           }
         }
-      `}</style>
+      
+/* Next UI component override */
+.snippet-panel, .snippets-panel, .overview-report-panel, .report-panel, .panel, .card, .report-output, .output-block, .snippet-card, .generator-row { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 18px !important; box-shadow: none !important; }
+button, .primary-btn { border-radius: 12px !important; font-weight: 800 !important; }
+.primary-btn, button[type="submit"] { background: var(--brand) !important; color: #fff !important; border: 1px solid transparent !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.2) !important; }
+.secondary-btn, .ghost-btn { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+input, select, textarea { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; }
+pre, code, .report-output, .output-block { font-family: 'JetBrains Mono', monospace !important; background: var(--raised) !important; color: var(--text) !important; }
+.eyebrow, label, .muted, small { color: var(--muted) !important; }
+`}</style>
 
       <style jsx global>{`
         .overview-report-shell .run-date-range-picker {
@@ -1760,7 +1769,16 @@ export default function OverviewReportPanel({ session }) {
           color: #065f46 !important;
         }
 
-      `}</style>
+      
+/* Next UI component override */
+.snippet-panel, .snippets-panel, .overview-report-panel, .report-panel, .panel, .card, .report-output, .output-block, .snippet-card, .generator-row { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 18px !important; box-shadow: none !important; }
+button, .primary-btn { border-radius: 12px !important; font-weight: 800 !important; }
+.primary-btn, button[type="submit"] { background: var(--brand) !important; color: #fff !important; border: 1px solid transparent !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.2) !important; }
+.secondary-btn, .ghost-btn { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+input, select, textarea { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; }
+pre, code, .report-output, .output-block { font-family: 'JetBrains Mono', monospace !important; background: var(--raised) !important; color: var(--text) !important; }
+.eyebrow, label, .muted, small { color: var(--muted) !important; }
+`}</style>
     </section>
   );
 }
