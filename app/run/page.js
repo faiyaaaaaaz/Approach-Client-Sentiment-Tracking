@@ -1527,7 +1527,24 @@ export default function RunPage() {
     [results]
   );
 
-  const handledQueueCount = Math.min(
+  const restoredWorkflowBaseHandled = Number(fetchData?.meta?.restoreHandledBase || 0);
+  const isRestoredRemainingWorkflow = Boolean(fetchData?.meta?.workflowRunId && fetchData?.meta?.restoredCount);
+
+  const handledWithinLoadedQueue = Math.min(
+    queuedConversationsForRun.length,
+    Math.max(
+      0,
+      Number(
+        runLoading
+          ? Math.max(0, Number(auditProgress.handled || 0) - restoredWorkflowBaseHandled)
+          : runData
+            ? queuedConversationsForRun.length
+            : 0
+      ) || 0
+    )
+  );
+
+  const handledQueueCount = isRestoredRemainingWorkflow ? handledWithinLoadedQueue : Math.min(
     queuedConversationsForRun.length,
     Math.max(
       0,
@@ -1539,7 +1556,7 @@ export default function RunPage() {
     )
   );
   const remainingQueueCount = Math.max(0, queuedConversationsForRun.length - handledQueueCount);
-  const handledQueueDisplayCount = Math.max(0, handledQueueCount);
+  const handledQueueDisplayCount = Math.max(0, restoredWorkflowBaseHandled + handledQueueCount);
   const skippedQueueDisplayCount = Number(runData?.meta?.skippedCount || auditProgress.skippedRows || 0);
   const failedQueueDisplayCount = Number(runData?.meta?.errorCount || auditProgress.failedRows || errorCount || 0);
 
@@ -1855,6 +1872,7 @@ export default function RunPage() {
         meta: {
           fetchedCount,
           restoredCount: restoredConversations.length,
+          restoreHandledBase: handledCount,
           workflowRunId: run.id,
           workflowStatus: run.status,
         },
@@ -8537,5 +8555,203 @@ const runStyles = `
   html[data-theme="light"] .hero-copy-card::before { display: none !important; }
   html[data-theme="light"] .hero-badge { color: #4338ca !important; background: rgba(99,102,241,0.09) !important; border-color: rgba(99,102,241,0.22) !important; }
   html[data-theme="light"] .empty-box { background: rgba(0,0,0,0.02) !important; border-color: rgba(0,0,0,0.09) !important; color: #475569 !important; }
+
+  /* ═══════════════════════════════════════════
+     V5 THEME CONTRACT — Run Audit readability + queue correctness
+  ═══════════════════════════════════════════ */
+  html[data-theme="light"] .run-page :is(p, small, span, b, strong, td, th, label, div) {
+    text-shadow: none !important;
+  }
+
+  html[data-theme="light"] .run-page :is(.surface-card, .readiness-card-shell, .monitor-card, .preview-panel, .fetched-queue-panel, .log-panel, .run-summary-card) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.10) !important;
+    color: #0f172a !important;
+    box-shadow: 0 18px 44px rgba(15,23,42,0.08) !important;
+  }
+
+  html[data-theme="light"] .run-page :is(.run-live-grid .readiness-card-shell, .run-live-grid .monitor-card) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.10) !important;
+  }
+
+  html[data-theme="light"] .run-page :is(.mini-label, .soft-copy, .result-metrics span, .run-summary-card .mini-grid span, .run-meta-card span) {
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+  }
+
+  html[data-theme="light"] .run-page :is(h1, h2, h3, h4, strong, b, td, th, .run-summary-card .mini-grid strong, .run-meta-card strong) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .run-page :is(input, textarea, select, .run-date-button, .run-multi-button) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.14) !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    color-scheme: light !important;
+  }
+
+  html[data-theme="light"] .run-page select option,
+  html[data-theme="light"] .run-page .decision-card select option {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 14px !important;
+    line-height: 1.55 !important;
+    padding: 10px 12px !important;
+  }
+
+  html[data-theme="light"] .run-date-popover {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.12) !important;
+    box-shadow: 0 26px 70px rgba(15,23,42,0.18) !important;
+  }
+  html[data-theme="light"] .run-date-popover :is(strong, h4, button, span) { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
+  html[data-theme="light"] .run-date-popover :is(.preset-button, .calendar-day) { background: #ffffff !important; border-color: rgba(15,23,42,0.14) !important; }
+  html[data-theme="light"] .run-date-popover .preset-button.active { background: #dbeafe !important; border-color: #93c5fd !important; }
+  html[data-theme="light"] .run-date-popover .calendar-day.in-range { background: #dcfce7 !important; color: #065f46 !important; -webkit-text-fill-color: #065f46 !important; }
+  html[data-theme="light"] .run-date-popover .calendar-day.range-start,
+  html[data-theme="light"] .run-date-popover .calendar-day.range-end {
+    background: #10b981 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(16,185,129,0.24) !important;
+  }
+  html[data-theme="light"] .run-date-popover .calendar-day.muted { color: #94a3b8 !important; -webkit-text-fill-color: #94a3b8 !important; }
+
+  html[data-theme="light"] .run-page :is(.state-pill, .count-pill, .status, .chip, .team-chip, .queue-status-pill) {
+    font-weight: 900 !important;
+    text-shadow: none !important;
+  }
+  html[data-theme="light"] .run-page :is(.state-pill.success, .status.active, .chip.success) { color: #047857 !important; -webkit-text-fill-color: #047857 !important; background: #d1fae5 !important; border-color: #6ee7b7 !important; }
+  html[data-theme="light"] .run-page :is(.state-pill.notice, .count-pill, .queue-status-pill, .team-chip) { color: #1d4ed8 !important; -webkit-text-fill-color: #1d4ed8 !important; background: #dbeafe !important; border-color: #93c5fd !important; }
+  html[data-theme="light"] .run-page :is(.state-pill.danger, .danger-chip) { color: #b91c1c !important; -webkit-text-fill-color: #b91c1c !important; background: #fee2e2 !important; border-color: #fecaca !important; }
+
+  html[data-theme="light"] .run-page .queue-table-wrap {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.12) !important;
+  }
+  html[data-theme="light"] .run-page .queue-table thead th {
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    border-bottom: 1px solid rgba(15,23,42,0.10) !important;
+  }
+  html[data-theme="light"] .run-page .queue-table tbody tr,
+  html[data-theme="light"] .run-page .queue-table tbody tr[class*="queue-row-"] {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+  html[data-theme="light"] .run-page .queue-table tbody tr:nth-child(even) { background: #f8fafc !important; }
+  html[data-theme="light"] .run-page .queue-table td,
+  html[data-theme="light"] .run-page .queue-table td :is(strong, span, small, a) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+  html[data-theme="light"] .run-page .queue-table td small,
+  html[data-theme="light"] .run-page .queue-table td span { color: #475569 !important; -webkit-text-fill-color: #475569 !important; }
+
+  html[data-theme="light"] .run-page .log-item {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.10) !important;
+  }
+  html[data-theme="light"] .run-page .log-item.success { background: #ecfdf5 !important; border-color: #a7f3d0 !important; }
+  html[data-theme="light"] .run-page .log-item span { color: #2563eb !important; -webkit-text-fill-color: #2563eb !important; }
+  html[data-theme="light"] .run-page .log-item strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
+
+  html[data-theme="light"] .run-page .progress-stage-panel {
+    position: relative !important;
+    overflow: hidden !important;
+    background: linear-gradient(135deg, #eef6ff, #f8fafc) !important;
+    border-color: rgba(37,99,235,0.18) !important;
+  }
+  html[data-theme="light"] .run-page .progress-stage-panel::before,
+  .run-page .progress-stage-panel::before {
+    content: "" !important;
+    position: absolute !important;
+    inset: -55% !important;
+    pointer-events: none !important;
+    background: conic-gradient(from 0deg, transparent 0 18%, rgba(34,211,238,0.14) 24%, rgba(168,85,247,0.18) 32%, transparent 42% 100%) !important;
+    animation: auditRadarSweep 3.2s linear infinite !important;
+    opacity: .9 !important;
+  }
+  .run-page .progress-stage-copy,
+  .run-page .progress-stage-percent { position: relative !important; z-index: 1 !important; }
+  @keyframes auditRadarSweep { to { transform: rotate(360deg); } }
+  .run-page .progress-meter-shell { height: 12px !important; border-radius: 999px !important; overflow: hidden !important; }
+  .run-page .progress-meter-fill {
+    background: linear-gradient(90deg, #2563eb 0%, #8b5cf6 45%, #db2777 100%) !important;
+    background-size: 180% 100% !important;
+    animation: auditBarFlow 1.4s linear infinite !important;
+  }
+  @keyframes auditBarFlow { 0% { background-position: 0% 50%; } 100% { background-position: 180% 50%; } }
+
+  html[data-theme="light"] .run-page .progress-stage-copy strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
+  html[data-theme="light"] .run-page .progress-stage-copy small { color: #475569 !important; -webkit-text-fill-color: #475569 !important; }
+
+  /* ═══════════════════════════════════════════
+     V5 THEME CONTRACT — Conversation preview readability
+  ═══════════════════════════════════════════ */
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal, .conversation-drawer) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.14) !important;
+    color: #0f172a !important;
+    box-shadow: 0 34px 90px rgba(15,23,42,0.28) !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-head, .conversation-preview-result-strip, .conversation-preview-sidebar, .conversation-preview-main, .conversation-preview-loaded, .conversation-preview-body, .conversation-main, .conversation-detail-panel) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.10) !important;
+    color: #0f172a !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal) :is(h1,h2,h3,h4,strong,b) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal) :is(p,span,small,em,td,th,label) {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-result-card, .conversation-preview-compact-section, .conversation-preview-sidebar-title, .conversation-preview-verdict, .conversation-preview-meta div, .conversation-preview-attribute-list, .conversation-card, .conversation-summary-card) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.12) !important;
+    box-shadow: 0 10px 24px rgba(15,23,42,0.06) !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-result-card.review, .conversation-preview-result-card.client, .conversation-preview-result-card.resolution) {
+    background: #ffffff !important;
+  }
+  html[data-theme="light"] :is(.conversation-message, .chat-message, .message-bubble) {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(15,23,42,0.12) !important;
+    box-shadow: 0 10px 24px rgba(15,23,42,0.07) !important;
+  }
+  html[data-theme="light"] :is(.conversation-message.client, .message-bubble.client) {
+    background: #eef6ff !important;
+    border-color: #bfdbfe !important;
+  }
+  html[data-theme="light"] :is(.conversation-message.agent, .message-bubble.agent) {
+    background: #ecfdf5 !important;
+    border-color: #a7f3d0 !important;
+  }
+  html[data-theme="light"] :is(.conversation-message, .chat-message, .message-bubble) :is(p,span,strong,small,b) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+  html[data-theme="light"] :is(.conversation-timeline-event, .system-message, .conversation-event) {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+  }
+  html[data-theme="light"] :is(.conversation-timeline-event, .system-message, .conversation-event) :is(p,span,strong,small) {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
+  }
 
 `;
