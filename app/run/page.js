@@ -8803,4 +8803,41 @@ tr:hover td { background: var(--hover) !important; }
 @media(max-width:900px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; } .conversation-preview-body{ grid-template-columns:1fr !important;} }
 @media(max-width:640px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: 1fr !important; } }
 
+
+
+/* FINAL NIGHT FIXES: Run Audit contrast, no neon/lag glow, no oval control shells */
+.run-page { background: var(--page) !important; color: var(--text) !important; overflow-x: hidden !important; }
+.run-page::before,.run-page::after,.audit-command-panel::before,.audit-command-panel::after,.surface-card::before,.surface-card::after,.workflow-card::before,.workflow-card::after,.progress-panel::before,.progress-panel::after { display: none !important; }
+.run-page *,.run-page *::before,.run-page *::after { text-shadow: none !important; }
+.surface-card,.stat-card,.workflow-card,.insight-card,.audit-command-panel,.progress-panel,.queue-card,.diagnostics-panel,.quick-run-panel { background: var(--card) !important; border: 1px solid var(--border) !important; box-shadow: none !important; filter: none !important; }
+.run-intro-strip { background: linear-gradient(135deg, rgba(99,91,255,.16), transparent 68%), var(--card) !important; }
+.audit-command-panel { padding: 0 !important; overflow: visible !important; }
+.audit-command-grid { grid-template-columns: minmax(260px,.9fr) minmax(360px,1.35fr) minmax(240px,.8fr) !important; gap: 10px !important; padding: 12px !important; background: var(--card) !important; align-items: stretch !important; }
+.audit-command-column,.audit-command-column-filters,.audit-command-column-actions { border-radius: 12px !important; background: var(--raised) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.audit-filter-matrix { grid-template-columns: repeat(2,minmax(180px,1fr)) !important; gap: 10px !important; }
+.audit-command-control,.audit-command-toggle,.audit-command-actions { border-radius: 12px !important; background: var(--card) !important; border: 1px solid var(--border) !important; box-shadow: none !important; overflow: visible !important; }
+.audit-command-control:has(textarea),.audit-command-control:has(.run-multi-filter),.audit-command-control:has(.run-date-range-picker) { border-radius: 12px !important; }
+.conversation-id-control textarea,.run-date-button,.run-multi-button,.compact-limit-field input,.queue-search input,.run-page input,.run-page textarea,.run-page select { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; border-radius: 12px !important; }
+.run-page input::placeholder,.run-page textarea::placeholder { color: var(--subtle) !important; opacity: 1 !important; }
+.audit-command-panel .mini-label,.audit-command-panel label span,.run-page label,.run-page small,.soft-copy { color: var(--muted) !important; }
+.audit-command-toggle strong,.run-date-button strong,.run-multi-button strong,.run-page strong,.run-page h1,.run-page h2,.run-page h3 { color: var(--text) !important; }
+.run-multi-pill-row i { background: var(--hover) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.run-multi-menu,.run-date-popover { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 16px !important; box-shadow: 0 18px 42px rgba(0,0,0,.32) !important; filter: none !important; backdrop-filter: none !important; }
+.date-popover-tabs div,.date-preset-column button,.calendar-nav-row button,.date-popover-actions .ghost-btn,.run-multi-option,.run-multi-search input { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.date-popover-tabs span,.calendar-weekdays span,.run-multi-option small { color: var(--muted) !important; }
+.date-popover-tabs strong,.calendar-nav-row strong,.calendar-month-card h4,.calendar-day { color: var(--text) !important; }
+.calendar-day { background: transparent !important; border-color: transparent !important; }
+.calendar-day.muted { color: var(--subtle) !important; opacity: .75 !important; }
+.calendar-day.in-range { background: var(--brand-soft) !important; color: var(--text) !important; }
+.calendar-day.range-start,.calendar-day.range-end { background: var(--brand) !important; color: #fff !important; }
+.date-preset-column button.active,.date-preset-column button:hover,.calendar-nav-row button:hover,.run-multi-option.active,.run-multi-option:hover { background: var(--brand-soft) !important; color: var(--text) !important; border-color: rgba(99,91,255,.35) !important; }
+html[data-theme="light"] .run-multi-menu,html[data-theme="light"] .run-date-popover { box-shadow: 0 18px 42px rgba(15,23,42,.14) !important; }
+.progress-visual,.audit-visual,.fetch-visual { background: var(--raised) !important; border: 1px solid var(--border) !important; box-shadow: none !important; min-height: 68px !important; }
+.mechanic-gear,.fetch-node,.fetch-stream i,.fetch-scan-line,.audit-spark,.gear-loader,.gear-loader *,.live-dot,.progress-panel [class*="gear"] { animation: none !important; filter: none !important; box-shadow: none !important; }
+.mechanic-gear,.audit-spark,.fetch-scan-line,.fetch-stream i { display: none !important; }
+.progress-bar,.progress-meter-fill,.progress-fill,.progress-line-fill { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; box-shadow: none !important; }
+.primary-btn,.fetch-main-btn { background: #635BFF !important; color: #fff !important; border-color: #635BFF !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.2) !important; }
+.secondary-btn,.run-main-btn,.ghost-btn { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.danger-btn { color: var(--danger) !important; background: transparent !important; border: 1px solid rgba(255,90,99,.35) !important; box-shadow: none !important; }
+@media (max-width: 1200px) { .audit-command-grid { grid-template-columns: 1fr !important; } .audit-filter-matrix { grid-template-columns: 1fr !important; } }
 `;
