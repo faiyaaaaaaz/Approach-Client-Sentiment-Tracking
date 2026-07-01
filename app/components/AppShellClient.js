@@ -3023,6 +3023,174 @@ const appShellStyles = `
 .login-warning { background: color-mix(in srgb, var(--danger) 12%, transparent) !important; color: var(--danger) !important; border:1px solid color-mix(in srgb, var(--danger) 25%, transparent) !important; border-radius:14px !important; }
 @media(max-width:900px){ .desktop-sidebar{ display:none !important;} .mobile-sidebar{ position:fixed !important; inset:0 auto 0 0 !important; transform:translateX(-104%); transition:transform 250ms cubic-bezier(.4,0,.2,1); z-index:80; } .mobile-sidebar-open .mobile-sidebar{ transform:translateX(0); } .mobile-nav-overlay{ background:rgba(0,0,0,.45) !important; backdrop-filter: blur(6px); } .login-card{ grid-template-columns:1fr !important;} .login-brand{ min-height:auto; padding:32px !important;} }
 
+
+
+/* FINAL NIGHT FIXES: static logos, readable sidebar, no empty loading mark */
+.auth-stage {
+  background: radial-gradient(circle at 16% 10%, rgba(99,91,255,.24), transparent 32%), #0A0B12 !important;
+}
+.auth-bg-grid,
+.login-orb,
+.brand-orbit,
+.brand-node,
+.brand-mark-halo,
+.platform-logo-halo,
+.platform-logo-orbit,
+.platform-logo-node,
+.launch-gear-glow,
+.launch-gear-ring,
+.launch-gear,
+.launch-gear-dot { display: none !important; }
+.brand-mark,
+.platform-logo,
+.platform-logo.large,
+.launch-gear-visual {
+  background: linear-gradient(150deg,#635BFF,#4E36F5) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+.platform-logo-core svg,
+.brand-mark-core svg { display: none !important; }
+.platform-logo-core::before,
+.brand-mark-core::before,
+.launch-gear-visual::before {
+  content: "ϟ" !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  color: #fff !important;
+  font-family: 'Plus Jakarta Sans','Inter',sans-serif !important;
+  font-size: 31px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  text-shadow: none !important;
+  background: transparent !important;
+}
+.platform-logo.large .platform-logo-core::before { font-size: 44px !important; }
+.launch-gear-visual {
+  position: relative !important;
+  width: 74px !important;
+  height: 74px !important;
+  border-radius: 20px !important;
+  margin: 0 auto 22px !important;
+  display: grid !important;
+  place-items: center !important;
+}
+.launch-gear-visual::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: -8px !important;
+  border-radius: 28px !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+  border-top-color: #fff !important;
+  animation: nextSpin 1.2s linear infinite !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.launch-card,
+.login-card,
+.locked-card {
+  background: #161925 !important;
+  color: #F6F7F9 !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  box-shadow: none !important;
+}
+.launch-card h1,
+.login-copy h2,
+.login-brand h1 { color: #F6F7F9 !important; }
+.launch-card span,
+.login-copy p,
+.login-copy small,
+.login-brand span { color: #9AA4B2 !important; }
+.sidebar,
+.mobile-sidebar {
+  width: 264px !important;
+  min-width: 264px !important;
+  max-width: 264px !important;
+  overflow-x: hidden !important;
+}
+.brand-title { white-space: nowrap !important; }
+.nav-link {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.nav-link span:not(.nav-link-icon) {
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.nav-link.active::before { flex: 0 0 7px !important; }
+.admin-subnav {
+  width: calc(100% - 18px) !important;
+  margin: 10px 0 0 8px !important;
+  padding: 8px 0 0 10px !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  border-left: 1px solid var(--border) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.admin-subnav::before,
+.admin-subnav-link::after { display: none !important; }
+.admin-subnav-group { padding-left: 0 !important; gap: 5px !important; min-width: 0 !important; }
+.admin-subnav-label {
+  display: block !important;
+  width: 100% !important;
+  padding: 7px 8px 5px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--subtle) !important;
+  white-space: normal !important;
+  line-height: 1.2 !important;
+}
+.admin-subnav-link,
+.admin-subnav a {
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+  min-height: 34px !important;
+  width: 100% !important;
+  padding: 7px 9px !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--muted) !important;
+}
+.admin-subnav-link .nav-link-icon { display: none !important; }
+.admin-subnav-link::before,
+.admin-subnav a::before {
+  content: "" !important;
+  display: block !important;
+  flex: 0 0 6px !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 999px !important;
+  background: var(--subtle) !important;
+  opacity: .6 !important;
+}
+.admin-subnav-link span:not(.nav-link-icon),
+.admin-subnav a span:not(.nav-link-icon) {
+  display: block !important;
+  min-width: 0 !important;
+  max-width: 180px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  font-weight: 800 !important;
+}
+.admin-subnav-link.active,
+.admin-subnav a.active { background: var(--brand-soft) !important; border-color: rgba(99,91,255,.22) !important; color: var(--text) !important; }
+.admin-subnav-link.active::before,
+.admin-subnav a.active::before { background: var(--brand) !important; opacity: 1 !important; }
+@media (max-width: 1100px) { .mobile-sidebar { width: 264px !important; } }
 `;
 
 export default function AppShellClient({ children }) {
