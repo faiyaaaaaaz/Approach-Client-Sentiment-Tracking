@@ -5134,4 +5134,18 @@ tr:hover td { background: var(--hover) !important; }
 @media(max-width:900px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; } .conversation-preview-body{ grid-template-columns:1fr !important;} }
 @media(max-width:640px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: 1fr !important; } }
 
+
+
+/* FINAL NIGHT FIXES: Results loading mark + contrast pass */
+.results-page,.results-loading-page { background: var(--page) !important; color: var(--text) !important; }
+.results-loading-card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.results-loading-card::before,.results-loading-card::after,.results-loader-glow,.results-loader-ring,.results-loader-gear,.results-loader-dot { display: none !important; }
+.results-loader-visual { position: relative !important; width: 74px !important; height: 74px !important; border-radius: 20px !important; background: linear-gradient(150deg,#635BFF,#4E36F5) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important; display: grid !important; place-items: center !important; }
+.results-loader-visual::before { content: "ϟ" !important; color: #fff !important; font-family: 'Plus Jakarta Sans','Inter',sans-serif !important; font-weight: 800 !important; font-size: 44px !important; line-height: 1 !important; }
+.results-loader-visual::after { content: "" !important; position: absolute !important; inset: -8px !important; border-radius: 28px !important; border: 1px solid rgba(255,255,255,.18) !important; border-top-color: #fff !important; animation: nextSpin 1.2s linear infinite !important; }
+.results-loading-card h1,.results-page h1,.results-page h2,.results-page h3,.results-page strong { color: var(--text) !important; }
+.results-loading-card p,.results-loading-card span,.results-page p,.results-page small,.results-page label { color: var(--muted) !important; }
+.results-page input,.results-page textarea,.results-page select { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.results-loading-bar { background: var(--hover) !important; }
+.results-loading-bar b { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; box-shadow: none !important; }
 `;
