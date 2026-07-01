@@ -5085,4 +5085,53 @@ const resultsStyles = `
     opacity: 1 !important;
   }
 
+/* Next UI page override */
+.dashboard-page, .run-page, .results-page, .admin-page { background: var(--page) !important; color: var(--text) !important; }
+.hero-panel, .run-intro-strip, .run-setup-strip, .admin-hero, .hero, .insight-strip { background: linear-gradient(135deg, rgba(99,91,255,.16), transparent 72%), var(--card) !important; border:1px solid var(--border) !important; border-radius:20px !important; box-shadow:none !important; overflow:hidden; }
+.eyebrow, .panel-eyebrow, .section-head span, .section-title-row span, .hero-badge, .admin-section-indicator, .compact-head span, .run-intro-meta span, .label-with-help, .mini-label, .inline-label { color: var(--subtle) !important; text-transform: uppercase !important; letter-spacing: .16em !important; font-size: 10.5px !important; font-weight: 800 !important; }
+h1, h2, h3, .section-page-title, .section-title-row h2, .hero-copy h1, .run-intro-strip h1, .admin-hero h1 { font-family:'Plus Jakarta Sans','Inter',sans-serif !important; color: var(--text) !important; font-weight: 800 !important; letter-spacing: -.04em !important; }
+p, small, .muted, .soft-copy, .table-note, .modal-copy { color: var(--muted) !important; }
+.panel, .surface-card, .kpi-card, .stat-card, .current-view-card, .current-view-compact-card, .leaderboard-panel, .weekly-panel, .fetched-queue-panel, .queue-table-wrap, .readiness-card, .readiness-card-shell, .command-card, .completion-report-card, .progress-panel, .results-grid > *, .filters-panel, .table-panel, .summary-grid > *, .api-card, .profile-card, .session-card, .history-card, .permission-matrix-card, .role-table-card, .supervisor-card-list, .dispute-card-main, .dispute-review-card, .dispute-guidance-card, .activity-panel, .activity-detail-card, .prompt-panel, .overview-feature-grid > *, .status-grid > *, .mini-card, .gate-panel, .notice, .warning-card, .success-box, .empty-box, .error-box, .error-detail-box, .import-panel, .modal-content-split, .modal-shell-top { background: var(--card) !important; border:1px solid var(--border) !important; border-radius:18px !important; box-shadow:none !important; color: var(--text) !important; }
+.card-action, .primary-btn, .fetch-main-btn, .run-main-btn, .small-btn.primary, button.primary-btn { background: var(--brand) !important; color:#fff !important; border:1px solid transparent !important; border-radius:12px !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.2) !important; font-weight:800 !important; text-transform:none !important; }
+.primary-btn:hover, .fetch-main-btn:hover, .run-main-btn:hover { background: var(--brand-hover) !important; color:#fff !important; }
+.secondary-btn, .ghost-btn, .light-btn, .light-action, .reset-btn, .small-btn, .import-btn, .danger-btn, .queue-action-btn, .mini-preview-btn, .mini-open-link, .mini-verdict-btn, .drill-btn, .clear-btn { background: transparent !important; color: var(--text) !important; border:1px solid var(--border) !important; border-radius:12px !important; box-shadow:none !important; font-weight:700 !important; }
+.secondary-btn:hover, .ghost-btn:hover, .light-btn:hover, .light-action:hover, .small-btn:hover, .queue-action-btn:hover, .mini-preview-btn:hover { background: var(--hover) !important; }
+.danger-btn, .danger-text { color: var(--danger) !important; }
+input, select, textarea, .search-field, .queue-search-field, .modal-search, .role-candidate-field, .supervisor-name-field, .api-key-form input, .textarea { background: var(--raised) !important; color: var(--text) !important; border:1px solid var(--border) !important; border-radius:12px !important; box-shadow:none !important; }
+::placeholder { color: var(--subtle) !important; opacity: 1; }
+.filter-panel, .filter-row, .filters-grid, .filters-top, .audit-filter-matrix, .audit-command-grid, .audit-command-panel, .control-grid { background: var(--card) !important; border:1px solid var(--border) !important; border-radius:18px !important; box-shadow:none !important; }
+.date-picker-button, .multi-button, .run-date-button, .run-multi-pill-row, .rating-control, .conversation-id-control, .results-date-button, .multi-filter, .admin-date-button, .pill, .team-chip, .team-pill, .count-pill, .state-pill, .status, .queue-status-pill, .modal-badge, .import-pill, .cex-check { background: var(--raised) !important; color: var(--text) !important; border:1px solid var(--border) !important; border-radius:999px !important; box-shadow:none !important; }
+.date-picker-popover, .multi-menu, .run-date-popover, .run-multi-menu, .results-date-popover, .multi-menu, .admin-date-popover, .member-more-popover, .help-tip-popover { background: var(--raised) !important; border:1px solid var(--border) !important; border-radius:14px !important; box-shadow: 0 18px 48px rgba(0,0,0,.28) !important; color: var(--text) !important; }
+.multi-option, .run-multi-options button, .date-preset-list button, .run-date-popover button, .results-date-popover button, .admin-date-popover button, .member-option-list button { min-height: 40px !important; border-radius:10px !important; color: var(--text) !important; }
+.multi-option:hover, .run-multi-options button:hover, .date-preset-list button:hover { background: var(--hover) !important; }
+.kpi-grid, .stats-grid, .run-readiness-grid, .run-live-grid, .summary-grid, .status-grid { gap:16px !important; }
+.kpi-card strong, .stat-card strong, .current-view-stats strong, .compact-current-stats strong { font-family:'Plus Jakarta Sans' !important; font-size:30px !important; color: var(--text) !important; }
+.kpi-change.good, .success, .success-text, .queue-status-pill.success, .status.success, .api-active-check { color: var(--success) !important; }
+.kpi-change.bad, .danger, .error, .danger-text, .status.failed { color: var(--danger) !important; }
+.warning, .amber, .status.warning, .status.pending { color: var(--warning) !important; }
+.table-wrap, .leaderboard-table-wrap, .weekly-table-wrap, .queue-table-wrap, .table-shell, .permission-matrix-scroll, .activity-table-shell, .modal-table-wrap, .explorer-table-wrap { background: var(--card) !important; border:1px solid var(--border) !important; border-radius:18px !important; box-shadow:none !important; overflow:auto !important; }
+table, .leaderboard-table-wrap table, .queue-table, .permission-matrix-table { border-collapse: separate !important; border-spacing: 0 !important; color: var(--text) !important; }
+th { color: var(--subtle) !important; text-transform: uppercase; letter-spacing:.12em; font-size:10.5px !important; background: var(--card) !important; border-bottom:1px solid var(--border) !important; }
+td { color: var(--text) !important; border-bottom:1px solid var(--border) !important; }
+tr:hover td { background: var(--hover) !important; }
+.sticky-col { background: var(--card) !important; }
+.bar-track, .progress-meter-shell, .progress-shell, .dashboard-loader-bar, .results-loading-bar, .import-percent, .progress-bar { background: var(--hover) !important; border-radius:999px !important; overflow:hidden; }
+.bar-fill, .progress-meter-fill, .progress-bar i, .progress-shell i, .import-percent i { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; border-radius:999px !important; }
+.donut, .donut-base-ring { box-shadow:none !important; }
+.donut-hole { background: var(--card) !important; color: var(--text) !important; border:1px solid var(--border) !important; }
+.conversation-preview-backdrop, .modal-backdrop, .safety-backdrop { background: rgba(5,6,10,.72) !important; backdrop-filter: blur(12px) !important; }
+.conversation-preview-modal { max-width:1060px !important; max-height:88vh !important; background: var(--card) !important; color: var(--text) !important; border:1px solid var(--border) !important; border-radius:22px !important; box-shadow: 0 24px 80px rgba(0,0,0,.36) !important; }
+.conversation-preview-head { border-bottom:1px solid var(--border) !important; background: var(--card) !important; }
+.conversation-preview-body { display:grid !important; grid-template-columns: 320px minmax(0,1fr) !important; gap:16px !important; background: var(--card) !important; }
+.conversation-preview-sidebar, .conversation-preview-compact-section, .conversation-preview-verdict, .conversation-preview-result-card, .conversation-preview-dispute-panel { background: var(--raised) !important; border:1px solid var(--border) !important; border-radius:16px !important; box-shadow:none !important; }
+.conversation-message { border:1px solid var(--border) !important; border-radius:16px !important; box-shadow:none !important; }
+.conversation-message.client { background: var(--raised) !important; margin-right:auto !important; }
+.conversation-message.agent { background: var(--brand-soft) !important; margin-left:auto !important; }
+.conversation-timeline-event { color: var(--subtle) !important; }
+.dashboard-loader-glow, .dashboard-loader-gear, .results-loader-glow, .results-loader-gear, .gear-one, .gear-two, .gear-three, .dot-one, .dot-two, .ring-one, .ring-two, .orb-one, .orb-two, .orb-three, .bg-grid { display:none !important; }
+.dashboard-loading-stage, .results-loading-page { background: var(--page) !important; }
+.dashboard-loader-card, .results-loading-card, .auth-shell-card { background: var(--card) !important; border:1px solid var(--border) !important; border-radius:22px !important; box-shadow:none !important; }
+@media(max-width:900px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; } .conversation-preview-body{ grid-template-columns:1fr !important;} }
+@media(max-width:640px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: 1fr !important; } }
+
 `;
