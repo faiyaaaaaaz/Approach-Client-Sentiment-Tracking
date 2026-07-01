@@ -8005,4 +8005,19 @@ tr:hover td { background: var(--hover) !important; }
 @media(max-width:900px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; } .conversation-preview-body{ grid-template-columns:1fr !important;} }
 @media(max-width:640px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: 1fr !important; } }
 
+
+
+/* FINAL NIGHT FIXES: Dashboard loading mark + contrast pass */
+.dashboard-loading-stage,.dashboard-page { background: var(--page) !important; color: var(--text) !important; }
+.dashboard-loader-card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.dashboard-loader-card::before,.dashboard-loader-card::after,.dashboard-loader-glow,.dashboard-loader-ring,.dashboard-loader-gear,.dashboard-loader-dot { display: none !important; }
+.dashboard-loader-logo { position: relative !important; width: 74px !important; height: 74px !important; border-radius: 20px !important; background: linear-gradient(150deg,#635BFF,#4E36F5) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important; display: grid !important; place-items: center !important; }
+.dashboard-loader-logo::before { content: "ϟ" !important; color: #fff !important; font-family: 'Plus Jakarta Sans','Inter',sans-serif !important; font-weight: 800 !important; font-size: 44px !important; line-height: 1 !important; }
+.dashboard-loader-logo::after { content: "" !important; position: absolute !important; inset: -8px !important; border-radius: 28px !important; border: 1px solid rgba(255,255,255,.18) !important; border-top-color: #fff !important; animation: nextSpin 1.2s linear infinite !important; }
+.dashboard-loader-card h1,.dashboard-page h1,.dashboard-page h2,.dashboard-page h3,.dashboard-page strong { color: var(--text) !important; }
+.dashboard-loader-card > span,.dashboard-loader-card p,.dashboard-page p,.dashboard-page small,.dashboard-page label,.dashboard-page .muted { color: var(--muted) !important; }
+.dashboard-page input,.dashboard-page textarea,.dashboard-page select,.dashboard-page button:not(.primary-btn) { color: var(--text) !important; }
+.dashboard-page input,.dashboard-page textarea,.dashboard-page select { background: var(--raised) !important; border: 1px solid var(--border) !important; }
+.dashboard-loader-bar { background: var(--hover) !important; }
+.dashboard-loader-bar i { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; box-shadow: none !important; }
 `;
