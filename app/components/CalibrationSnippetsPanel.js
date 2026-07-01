@@ -1426,7 +1426,16 @@ export default function CalibrationSnippetsPanel({ session }) {
         html[data-theme="light"] .calibration-panel input,
         html[data-theme="light"] .calibration-panel select,
         html[data-theme="light"] .calibration-panel textarea { background: rgba(248,250,252,0.96) !important; border-color: rgba(0,0,0,0.1) !important; color: #1e293b !important; color-scheme: light !important; }
-      `}</style>
+      
+/* Next UI component override */
+.snippet-panel, .snippets-panel, .overview-report-panel, .report-panel, .panel, .card, .report-output, .output-block, .snippet-card, .generator-row { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 18px !important; box-shadow: none !important; }
+button, .primary-btn { border-radius: 12px !important; font-weight: 800 !important; }
+.primary-btn, button[type="submit"] { background: var(--brand) !important; color: #fff !important; border: 1px solid transparent !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.2) !important; }
+.secondary-btn, .ghost-btn { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+input, select, textarea { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; }
+pre, code, .report-output, .output-block { font-family: 'JetBrains Mono', monospace !important; background: var(--raised) !important; color: var(--text) !important; }
+.eyebrow, label, .muted, small { color: var(--muted) !important; }
+`}</style>
     </section>
   );
 }
