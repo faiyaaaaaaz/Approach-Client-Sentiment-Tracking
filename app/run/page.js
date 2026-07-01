@@ -8896,4 +8896,185 @@ html[data-theme="light"] .run-multi-menu,html[data-theme="light"] .run-date-popo
   animation: none !important;
   box-shadow: none !important;
 }
+
+/* FINAL FILTER LAYOUT HOTFIX: date picker must never cover other filter controls */
+.run-page .audit-command-panel,
+.run-page .audit-command-grid,
+.run-page .audit-command-column,
+.run-page .audit-command-column-target,
+.run-page .date-control-wide,
+.run-page .run-date-range-picker,
+.run-page .audit-command-control {
+  overflow: visible !important;
+}
+
+.run-page .run-date-range-picker.open {
+  z-index: 5 !important;
+}
+
+.run-page .run-date-popover {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin-top: 12px !important;
+  padding: 14px !important;
+  border-radius: 16px !important;
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  display: block !important;
+}
+
+.run-page .date-popover-tabs {
+  grid-template-columns: 1fr !important;
+  gap: 8px !important;
+  padding-bottom: 10px !important;
+  margin-bottom: 12px !important;
+}
+
+.run-page .date-popover-tabs div {
+  border-radius: 12px !important;
+  min-width: 0 !important;
+}
+
+.run-page .date-popover-body {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 12px !important;
+}
+
+.run-page .date-preset-column {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.run-page .date-preset-column button {
+  min-width: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.run-page .calendar-months-grid {
+  grid-template-columns: 1fr !important;
+  gap: 14px !important;
+}
+
+.run-page .calendar-nav-row strong {
+  text-align: center !important;
+  font-size: 14px !important;
+}
+
+.run-page .date-popover-actions {
+  position: sticky !important;
+  bottom: 0 !important;
+  background: var(--card) !important;
+  margin: 12px -14px -14px !important;
+  padding: 12px 14px !important;
+  border-top: 1px solid var(--border) !important;
+  border-radius: 0 0 16px 16px !important;
+}
+
+@media (min-width: 1180px) {
+  .run-page .audit-command-column-target {
+    grid-template-rows: auto auto !important;
+  }
+}
+
+
+/* REAL FINAL FILTER OVERLAP FIX: every Run Audit filter menu opens in-flow, not over siblings */
+.run-page .audit-command-panel,
+.run-page .audit-command-grid,
+.run-page .audit-command-column,
+.run-page .audit-command-column-target,
+.run-page .audit-command-column-filters,
+.run-page .audit-filter-matrix,
+.run-page .audit-command-control,
+.run-page .date-control-wide,
+.run-page .run-date-range-picker,
+.run-page .run-multi-filter {
+  overflow: visible !important;
+}
+
+.run-page .audit-filter-matrix {
+  align-items: start !important;
+}
+
+.run-page .run-multi-filter.open {
+  z-index: 6 !important;
+}
+
+.run-page .run-multi-menu {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  margin-top: 10px !important;
+  padding: 10px !important;
+  border-radius: 14px !important;
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.run-page .run-multi-menu input {
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+
+.run-page .run-multi-options {
+  max-height: 220px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.run-page .run-multi-option {
+  grid-template-columns: 58px minmax(0, 1fr) !important;
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+
+.run-page .run-multi-option strong {
+  color: var(--text) !important;
+  overflow-wrap: anywhere !important;
+}
+
+.run-page .run-multi-option span,
+.run-page .run-multi-option em,
+.run-page .run-multi-empty {
+  color: var(--muted) !important;
+}
+
+.run-page .run-multi-option.active,
+.run-page .run-multi-option:hover {
+  background: var(--brand-soft) !important;
+  border-color: rgba(99,91,255,.38) !important;
+}
+
+.run-page .date-control-wide:has(.run-date-range-picker.open),
+.run-page .audit-command-control:has(.run-multi-filter.open) {
+  z-index: 8 !important;
+  min-height: auto !important;
+}
+
+@media (max-width: 1180px) {
+  .run-page .audit-command-grid,
+  .run-page .audit-filter-matrix {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 `;
