@@ -576,7 +576,7 @@ function ConnectedLaunchGears() {
   );
 }
 
-function LaunchScreen({ title = "Initializing Secure Workspace...", subtitle = "Checking Session And Preparing The Platform." }) {
+function LaunchScreen({ title = "Preparing your workspace", subtitle = "Checking session and preparing the platform." }) {
   return (
     <div className="auth-stage">
       <div className="auth-bg-grid" />
@@ -607,17 +607,16 @@ function LoginScreen({ authMessage, onGoogleLogin }) {
           <PlatformLogo size="large" />
           <div>
             <p>NEXT Ventures</p>
-            <h1>AI Auditor & Insights Platform</h1>
+            <h1>Audit Intelligence</h1>
             <span>Secure review intelligence, client sentiment, and resolution tracking.</span>
           </div>
         </div>
 
         <div className="login-copy">
-          <span>Secure Access Required</span>
-          <h2>Sign In to Enter the Command Center</h2>
+          <span>Secure access</span>
+          <h2>Sign in to continue</h2>
           <p>
-            Use your NEXT Ventures Google account to access the dashboard, results, audit workflow,
-            and Admin controls assigned to your role.
+            Use your NEXT Ventures Google account to access your assigned dashboard, results, audit workflow, and admin controls.
           </p>
 
           {authMessage ? <div className="login-warning">{authMessage}</div> : null}
@@ -629,7 +628,7 @@ function LoginScreen({ authMessage, onGoogleLogin }) {
               <path fill="#FBBC05" d="M6.41 13.9c-.2-.6-.31-1.24-.31-1.9s.11-1.3.31-1.9V7.51H3.06A9.98 9.98 0 0 0 2 12c0 1.61.39 3.14 1.06 4.49l3.35-2.59z" />
               <path fill="#EA4335" d="M12 5.98c1.47 0 2.79.51 3.82 1.5l2.87-2.87C16.95 2.99 14.69 2 12 2 8.08 2 4.71 4.25 3.06 7.51l3.35 2.59C7.2 7.74 9.4 5.98 12 5.98z" />
             </svg>
-            Sign In with Google
+            Sign in with Google
           </button>
 
           <small>Only nextventures.io accounts can continue.</small>
@@ -1034,8 +1033,8 @@ function AppShellClientInner({ children }) {
   if (authLoading) {
     return (
       <LaunchScreen
-        title="Initializing Secure Workspace..."
-        subtitle="Checking Session And Preparing Access."
+        title="Preparing your workspace"
+        subtitle="Checking session and preparing access."
       />
     );
   }
@@ -1077,9 +1076,9 @@ function AppShellClientInner({ children }) {
           </div>
 
           <div>
-            <h1 className="brand-title">AI Auditor & Insights Platform</h1>
+            <h1 className="brand-title">Audit Intelligence</h1>
             <p className="brand-subtitle">
-              Review Approach & Client Sentiment Tracking.
+              NEXT Ventures
             </p>
           </div>
         </div>
@@ -1304,7 +1303,7 @@ function AppShellClientInner({ children }) {
 
                   {!session?.user ? (
                     <button type="button" className="signin-btn large" onClick={handleGoogleLogin}>
-                      Sign In with Google
+                      Sign in with Google
                     </button>
                   ) : (
                     <Link href="/" className="locked-link">
@@ -2964,6 +2963,66 @@ const appShellStyles = `
       height: 38px;
     }
   }
+/* Next UI app shell override */
+.app-bg, .auth-stage { background: var(--page) !important; color: var(--text) !important; }
+.bg-grid, .bg-orb, .bg-vignette, .auth-bg-grid, .login-orb, .brand-mark-halo, .brand-orbit, .brand-node, .platform-logo-halo, .platform-logo-orbit, .platform-logo-node, .launch-gear-glow, .launch-gear, .launch-gear-dot { display: none !important; }
+.app-shell { background: var(--page) !important; color: var(--text) !important; }
+.shell-frame { min-height: 100vh; background: var(--page) !important; }
+.sidebar, .mobile-sidebar { width: 264px !important; background: var(--card) !important; border-right: 1px solid var(--border) !important; box-shadow: none !important; backdrop-filter: none !important; }
+.content-shell { background: var(--page) !important; }
+.topbar { position: sticky !important; top: 0; z-index: 50; background: color-mix(in srgb, var(--page) 86%, transparent) !important; backdrop-filter: blur(16px); border-bottom: 1px solid var(--border) !important; box-shadow: none !important; }
+.topbar-kicker, .brand-badge, .nav-section-label, .admin-subnav-label { color: var(--subtle) !important; text-transform: uppercase; letter-spacing: .16em; font-size: 10.5px !important; font-weight: 800; }
+.topbar-title { color: var(--text) !important; font-size: 22px !important; font-weight: 700 !important; }
+.brand-wrap { padding: 22px 18px 18px !important; border-bottom: 1px solid var(--border) !important; }
+.brand-badge { display:none !important; }
+.brand-block { gap: 12px !important; align-items: center !important; }
+.brand-title { font-size: 17px !important; line-height: 1.05 !important; color: var(--text) !important; font-weight: 800 !important; }
+.brand-subtitle { margin-top: 3px !important; color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important; }
+.brand-mark, .platform-logo { width: 44px !important; height: 44px !important; border-radius: 13px !important; background: linear-gradient(150deg,#635BFF,#4E36F5) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important; display: grid !important; place-items: center !important; flex: 0 0 auto !important; }
+.platform-logo.large { width: 74px !important; height: 74px !important; border-radius: 20px !important; position: relative !important; }
+.platform-logo.large::after { content: ""; position: absolute; inset: -8px; border-radius: 26px; border: 1px solid rgba(255,255,255,.18); border-top-color: #fff; animation: nextSpin 1.2s linear infinite; }
+@keyframes nextSpin { to { transform: rotate(360deg); } }
+.brand-mark-core, .platform-logo-core { width: 24px !important; height: 24px !important; background: transparent !important; box-shadow: none !important; border: 0 !important; }
+.brand-mark-core svg path, .platform-logo-core svg path { fill: #fff !important; opacity: 1 !important; }
+.nav { padding: 18px 12px !important; }
+.nav-list { gap: 6px !important; }
+.nav-link { border-radius: 11px !important; min-height: 42px !important; padding: 0 12px !important; color: var(--muted) !important; border: 1px solid transparent !important; background: transparent !important; box-shadow: none !important; transition: background 150ms cubic-bezier(.4,0,.2,1), color 150ms cubic-bezier(.4,0,.2,1), border-color 150ms cubic-bezier(.4,0,.2,1) !important; }
+.nav-link:hover { background: var(--hover) !important; color: var(--text) !important; }
+.nav-link.active { background: var(--brand-soft) !important; color: var(--text) !important; border-color: rgba(99,91,255,.28) !important; }
+.nav-link.active::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--brand); margin-right: 2px; }
+.nav-link-icon { color: currentColor !important; opacity: .9 !important; }
+.admin-subnav { margin: 10px 0 0 18px !important; padding: 8px 0 0 12px !important; border-left: 1px solid var(--border) !important; }
+.admin-subnav-group { margin: 10px 0 !important; }
+.admin-subnav a { border-radius: 10px !important; color: var(--muted) !important; min-height: 34px !important; background: transparent !important; border: 1px solid transparent !important; }
+.admin-subnav a::before { content:""; width:6px; height:6px; border-radius:999px; background: var(--subtle); opacity:.55; }
+.admin-subnav a.active { color: var(--text) !important; background: var(--brand-soft) !important; border-color: rgba(99,91,255,.22) !important; }
+.admin-subnav a.active::before { background: var(--brand); opacity: 1; }
+.theme-toggle-btn, .hamburger-btn, .signout-btn { width: 40px !important; height: 40px !important; border-radius: 12px !important; background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.theme-toggle-btn:hover, .hamburger-btn:hover, .signout-btn:hover { background: var(--hover) !important; }
+.profile-button { border: 1px solid var(--border) !important; background: var(--card) !important; border-radius: 999px !important; box-shadow: none !important; color: var(--text) !important; }
+.profile-avatar { background: linear-gradient(150deg,#635BFF,#4E36F5) !important; color: #fff !important; border: 0 !important; }
+.profile-menu, .locked-card, .launch-card, .login-card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.auth-stage { min-height: 100vh; display:grid; place-items:center; background: radial-gradient(circle at 18% 12%, rgba(99,91,255,.28), transparent 34%), #0A0B12 !important; }
+.launch-card { border-radius: 26px !important; padding: 42px !important; text-align: center !important; }
+.launch-gear-visual { width: 74px !important; height: 74px !important; margin: 0 auto 22px !important; display: grid !important; place-items: center !important; }
+.launch-gear-visual::before { content:""; width:74px; height:74px; border-radius:20px; background: linear-gradient(150deg,#635BFF,#4E36F5); box-shadow: inset 0 1px 0 rgba(255,255,255,.22); }
+.launch-gear-visual::after { content:""; position:absolute; width:90px; height:90px; border-radius:28px; border:1px solid rgba(255,255,255,.18); border-top-color:#fff; animation: nextSpin 1.2s linear infinite; }
+.launch-card h1 { font-family:'Plus Jakarta Sans'; font-weight:800; color:#F6F7F9 !important; }
+.launch-card span { color:#9AA4B2 !important; }
+.launch-progress { height: 7px !important; border-radius: 999px !important; background: rgba(255,255,255,.09) !important; overflow:hidden; }
+.launch-progress i { background: linear-gradient(90deg,#635BFF,#A09BFF,#635BFF) !important; border-radius:999px !important; }
+.login-card { width:min(980px, calc(100vw - 32px)); border-radius:26px !important; display:grid !important; grid-template-columns: 1fr 1fr !important; overflow:hidden; padding:0 !important; }
+.login-brand { padding:44px !important; min-height: 460px; background: linear-gradient(135deg, rgba(99,91,255,.24), transparent 72%) !important; align-content:center; }
+.login-brand p { color:#A09BFF !important; text-transform: uppercase; letter-spacing:.16em; font-size:11px; }
+.login-brand h1 { font-family:'Plus Jakarta Sans'; color:#F6F7F9 !important; font-size:36px !important; }
+.login-brand span, .login-copy p, .login-copy small { color:#9AA4B2 !important; }
+.login-copy { padding:44px !important; background: var(--card) !important; }
+.login-copy > span { color: var(--brand-hover) !important; text-transform: uppercase; letter-spacing:.16em; font-size:11px !important; font-weight:800; }
+.login-copy h2 { font-family:'Plus Jakarta Sans'; color: var(--text) !important; }
+.login-google-btn { background:#fff !important; color:#181B26 !important; border:1px solid #E3E8EF !important; border-radius:12px !important; box-shadow:none !important; width:100% !important; min-height:48px !important; }
+.login-warning { background: color-mix(in srgb, var(--danger) 12%, transparent) !important; color: var(--danger) !important; border:1px solid color-mix(in srgb, var(--danger) 25%, transparent) !important; border-radius:14px !important; }
+@media(max-width:900px){ .desktop-sidebar{ display:none !important;} .mobile-sidebar{ position:fixed !important; inset:0 auto 0 0 !important; transform:translateX(-104%); transition:transform 250ms cubic-bezier(.4,0,.2,1); z-index:80; } .mobile-sidebar-open .mobile-sidebar{ transform:translateX(0); } .mobile-nav-overlay{ background:rgba(0,0,0,.45) !important; backdrop-filter: blur(6px); } .login-card{ grid-template-columns:1fr !important;} .login-brand{ min-height:auto; padding:32px !important;} }
+
 `;
 
 export default function AppShellClient({ children }) {
