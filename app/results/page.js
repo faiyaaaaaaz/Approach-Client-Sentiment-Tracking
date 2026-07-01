@@ -1028,6 +1028,50 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function buildAgentMappingLookup(mappings = []) {
+  const byAgent = new Map();
+
+  for (const mapping of Array.isArray(mappings) ? mappings : []) {
+    if (mapping?.is_active === false) continue;
+    const key = normalizeKey(mapping?.intercom_agent_name || mapping?.agent_name);
+    if (!key) continue;
+    byAgent.set(key, mapping);
+  }
+
+  return byAgent;
+}
+
+function applyAgentMappingsToRows(rows = [], mappings = []) {
+  const lookup = buildAgentMappingLookup(mappings);
+  if (!lookup.size) return Array.isArray(rows) ? rows : [];
+
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const agentKey = normalizeKey(row?.agent_name || row?.agentName || row?.intercom_agent_name);
+    const mapping = lookup.get(agentKey);
+    if (!mapping) return row;
+
+    return {
+      ...row,
+      employee_name: mapping.employee_name || row?.employee_name || null,
+      employee_email: mapping.employee_email || row?.employee_email || null,
+      team_name: mapping.team_name || row?.team_name || null,
+      employee_match_status: mapping.employee_name || mapping.employee_email ? "mapped" : row?.employee_match_status,
+      mapping_refreshed_from_admin: true,
+    };
+  });
+}
+
+async function loadActiveAgentMappings() {
+  const { data, error } = await supabase
+    .from("agent_mappings")
+    .select("id, intercom_agent_name, employee_name, employee_email, team_name, is_active, updated_at")
+    .eq("is_active", true);
+
+  if (error) return [];
+  return Array.isArray(data) ? data : [];
+}
+
+
 function asOptionList(options) {
   return (options || []).map((option) =>
     typeof option === "string"
@@ -1383,16 +1427,18 @@ export default function ResultsPage() {
       const loadedSupervisorTeams = Array.isArray(data?.supervisorTeams)
         ? data.supervisorTeams
         : await loadSupervisorTeams();
+      const activeAgentMappings = await loadActiveAgentMappings();
+      const liveMappedResults = applyAgentMappingsToRows(nextResults, activeAgentMappings);
 
       setRuns(nextRuns);
-      setResults(nextResults);
+      setResults(liveMappedResults);
       setSupervisorTeams(loadedSupervisorTeams);
       setSelectedIds([]);
       setExpandedRows({});
       writeClientCache(cacheKey, {
         savedAt: Date.now(),
         runs: nextRuns,
-        results: nextResults,
+        results: liveMappedResults,
         supervisorTeams: loadedSupervisorTeams,
       });
     } catch (error) {
@@ -4970,6 +5016,70 @@ const resultsStyles = `
 
   html[data-theme="light"] .conversation-timeline-event span,
   html[data-theme="light"] .conversation-timeline-event p {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
+  }
+
+  /* ═══════════════════════════════════════════
+     V5 THEME CONTRACT — Conversation preview readability
+  ═══════════════════════════════════════════ */
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal, .conversation-drawer) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.14) !important;
+    color: #0f172a !important;
+    box-shadow: 0 34px 90px rgba(15,23,42,0.28) !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-head, .conversation-preview-result-strip, .conversation-preview-sidebar, .conversation-preview-main, .conversation-preview-loaded, .conversation-preview-body, .conversation-main, .conversation-detail-panel) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.10) !important;
+    color: #0f172a !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal) :is(h1,h2,h3,h4,strong,b) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-modal, .conversation-modal) :is(p,span,small,em,td,th,label) {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-result-card, .conversation-preview-compact-section, .conversation-preview-sidebar-title, .conversation-preview-verdict, .conversation-preview-meta div, .conversation-preview-attribute-list, .conversation-card, .conversation-summary-card) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.12) !important;
+    box-shadow: 0 10px 24px rgba(15,23,42,0.06) !important;
+  }
+  html[data-theme="light"] :is(.conversation-preview-result-card.review, .conversation-preview-result-card.client, .conversation-preview-result-card.resolution) {
+    background: #ffffff !important;
+  }
+  html[data-theme="light"] :is(.conversation-message, .chat-message, .message-bubble) {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(15,23,42,0.12) !important;
+    box-shadow: 0 10px 24px rgba(15,23,42,0.07) !important;
+  }
+  html[data-theme="light"] :is(.conversation-message.client, .message-bubble.client) {
+    background: #eef6ff !important;
+    border-color: #bfdbfe !important;
+  }
+  html[data-theme="light"] :is(.conversation-message.agent, .message-bubble.agent) {
+    background: #ecfdf5 !important;
+    border-color: #a7f3d0 !important;
+  }
+  html[data-theme="light"] :is(.conversation-message, .chat-message, .message-bubble) :is(p,span,strong,small,b) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    opacity: 1 !important;
+  }
+  html[data-theme="light"] :is(.conversation-timeline-event, .system-message, .conversation-event) {
+    background: #e2e8f0 !important;
+    color: #334155 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+  }
+  html[data-theme="light"] :is(.conversation-timeline-event, .system-message, .conversation-event) :is(p,span,strong,small) {
     color: #334155 !important;
     -webkit-text-fill-color: #334155 !important;
     opacity: 1 !important;
