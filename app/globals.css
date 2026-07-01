@@ -1,129 +1,129 @@
-html {
-  font-size: 16px;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&display=swap');
 
-/* ── Theme tokens ──────────────────────────────────────────── */
-:root {
+html { font-size: 16px; }
+
+:root,
+html[data-theme="dark"] {
   color-scheme: dark;
+  --page: #0E1016;
+  --card: #161925;
+  --raised: #1E2130;
+  --hover: #232739;
+  --border: rgba(255,255,255,.08);
+  --text: #F6F7F9;
+  --muted: #9AA4B2;
+  --subtle: #6B7688;
+  --brand: #635BFF;
+  --brand-hover: #A09BFF;
+  --brand-soft: rgba(99,91,255,.14);
+  --success: #33F575;
+  --success-strong: #0D8838;
+  --warning: #F79009;
+  --danger: #FF5A63;
+  --danger-strong: #C80D18;
+  --info: #58A6FB;
 
-  /* backgrounds */
-  --bg-body:        #040714;
-  --bg-sidebar:     rgba(8, 14, 32, 0.92);
-  --bg-topbar:      rgba(11, 18, 39, 0.94);
-  --bg-card:        rgba(15, 23, 42, 0.72);
-  --bg-card-hover:  rgba(21, 32, 56, 0.82);
-  --bg-input:       rgba(255,255,255,0.06);
-  --bg-skeleton:    rgba(255,255,255,0.07);
-  --bg-skeleton-shine: rgba(255,255,255,0.13);
-
-  /* borders */
-  --border-subtle:  rgba(255,255,255,0.08);
-  --border-medium:  rgba(255,255,255,0.12);
-  --border-accent:  rgba(34,211,238,0.28);
-
-  /* text */
-  --text-primary:   #f5f7ff;
-  --text-secondary: #9caed3;
-  --text-muted:     #7e92bd;
-  --text-accent:    #22d3ee;
-
-  /* brand */
-  --brand-cyan:    #22d3ee;
-  --brand-violet:  #8b5cf6;
-  --brand-pink:    #ec4899;
-  --brand-yellow:  #fde047;
-  --brand-orange:  #f97316;
-
-  /* status colors */
-  --color-positive: #34d399;
-  --color-negative: #f87171;
-  --color-warning:  #fbbf24;
-  --color-neutral:  #94a3b8;
+  /* Backward-compatible aliases used by existing files */
+  --bg-body: var(--page);
+  --bg-sidebar: var(--card);
+  --bg-topbar: rgba(14,16,22,.82);
+  --bg-card: var(--card);
+  --bg-card-hover: var(--hover);
+  --bg-input: var(--raised);
+  --bg-skeleton: rgba(255,255,255,.07);
+  --bg-skeleton-shine: rgba(255,255,255,.13);
+  --border-subtle: var(--border);
+  --border-medium: rgba(255,255,255,.14);
+  --border-accent: rgba(99,91,255,.32);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-muted: var(--subtle);
+  --text-accent: var(--brand-hover);
+  --brand-cyan: var(--brand);
+  --brand-violet: #4E36F5;
+  --brand-pink: var(--brand);
+  --brand-yellow: var(--warning);
+  --brand-orange: var(--warning);
+  --color-positive: var(--success);
+  --color-negative: var(--danger);
+  --color-warning: var(--warning);
+  --color-neutral: var(--muted);
 }
 
 html[data-theme="light"] {
   color-scheme: light;
+  --page: #F1F4F8;
+  --card: #FFFFFF;
+  --raised: #FFFFFF;
+  --hover: #F6F7F9;
+  --border: #E3E8EF;
+  --text: #181B26;
+  --muted: #4B5565;
+  --subtle: #788496;
+  --brand: #635BFF;
+  --brand-hover: #432AD8;
+  --brand-soft: rgba(99,91,255,.14);
+  --success: #0D8838;
+  --success-strong: #0D8838;
+  --warning: #F79009;
+  --danger: #C80D18;
+  --danger-strong: #C80D18;
+  --info: #2563EB;
 
-  --bg-body:        #f0f4f8;
-  --bg-sidebar:     rgba(255,255,255,0.96);
-  --bg-topbar:      rgba(255,255,255,0.92);
-  --bg-card:        rgba(255,255,255,0.9);
-  --bg-card-hover:  rgba(241,245,249,0.98);
-  --bg-input:       rgba(0,0,0,0.05);
-  --bg-skeleton:    rgba(0,0,0,0.07);
-  --bg-skeleton-shine: rgba(255,255,255,0.6);
-
-  --border-subtle:  rgba(0,0,0,0.09);
-  --border-medium:  rgba(0,0,0,0.14);
-  --border-accent:  rgba(8,145,178,0.36);
-
-  --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #64748b;
-  --text-accent:    #0891b2;
-
-  --brand-cyan:    #0891b2;
-  --brand-violet:  #7c3aed;
-  --brand-pink:    #db2777;
-  --brand-yellow:  #d97706;
-  --brand-orange:  #ea580c;
-
-  --color-positive: #059669;
-  --color-negative: #dc2626;
-  --color-warning:  #d97706;
-  --color-neutral:  #64748b;
+  --bg-body: var(--page);
+  --bg-sidebar: var(--card);
+  --bg-topbar: rgba(241,244,248,.82);
+  --bg-card: var(--card);
+  --bg-card-hover: var(--hover);
+  --bg-input: #FFFFFF;
+  --bg-skeleton: rgba(15,23,42,.08);
+  --bg-skeleton-shine: rgba(255,255,255,.75);
+  --border-subtle: var(--border);
+  --border-medium: #D7DEE8;
+  --border-accent: rgba(99,91,255,.28);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-muted: var(--subtle);
+  --text-accent: var(--brand-hover);
+  --brand-cyan: var(--brand);
+  --brand-violet: #4E36F5;
+  --brand-pink: var(--brand);
+  --brand-yellow: var(--warning);
+  --brand-orange: var(--warning);
+  --color-positive: var(--success);
+  --color-negative: var(--danger);
+  --color-warning: var(--warning);
+  --color-neutral: var(--subtle);
 }
 
-/* ── Base ──────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg-body);
-  color: var(--text-primary);
+  background: var(--page);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: background 250ms cubic-bezier(.4,0,.2,1), color 250ms cubic-bezier(.4,0,.2,1);
 }
 
-* {
-  box-sizing: border-box;
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .62; }
+img { max-width: 100%; height: auto; }
+
+h1, h2, h3, h4, .stat-card strong, .kpi-card strong, .brand-title, .topbar-title {
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  letter-spacing: -.03em;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+code, pre, .notranslate, .conversation-id-result-wrap, .run-id-box, .file-box, .api-key-list, .conversation-message-top time {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-img {
-  max-width: 100%;
-  height: auto;
-}
-
-/* ── Skeleton loader utility ───────────────────────────────── */
-@keyframes skeletonShimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background: var(--bg-skeleton);
-  border-radius: 10px;
-}
-
-.skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--bg-skeleton-shine) 50%,
-    transparent 100%
-  );
-  animation: skeletonShimmer 1.6s ease-in-out infinite;
-}
+@keyframes skeletonShimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.skeleton { position: relative; overflow: hidden; background: var(--bg-skeleton); border-radius: 10px; }
+.skeleton::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, var(--bg-skeleton-shine) 50%, transparent 100%); animation: skeletonShimmer 1.6s ease-in-out infinite; }
