@@ -8340,6 +8340,160 @@ const adminStyles = `
   html[data-theme="light"] .admin-page .session-card dt { color: #64748b !important; }
   html[data-theme="light"] .admin-page .session-card dd { color: #1e293b !important; }
 
+  /* ═══════════════════════════════════════════
+     V5 THEME CONTRACT — Admin readability across all sections
+  ═══════════════════════════════════════════ */
+  html[data-theme="light"] .admin-page :is(p, small, span, b, strong, td, th, label, div, a) {
+    text-shadow: none !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(.panel, .admin-section-panel, .role-form-card, .role-table-card, .permission-matrix-card, .owner-lock-card, .profile-card, .history-card, .supervisor-suggestion, .mini-card, .activity-detail-card, .session-card) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.10) !important;
+    color: #0f172a !important;
+    box-shadow: 0 16px 42px rgba(15,23,42,0.07) !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(h1, h2, h3, h4, strong, b, td, th, .panel strong, .profile-card strong, .history-card strong) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(.muted, .soft-copy, .canonical-note, .missing-text, .profile-card-meta, .history-details, .history-card small, .tiny-metrics span, .section-head p, .mini-head span) {
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(.eyebrow, .mini-label, .section-head span:first-child, .mini-head span, .permission-grid span) {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(input, textarea, select, .textarea, .admin-date-button) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.14) !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    color-scheme: light !important;
+  }
+
+  html[data-theme="light"] .admin-page select,
+  html[data-theme="light"] .admin-page textarea,
+  html[data-theme="light"] .admin-page input {
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+  }
+
+  html[data-theme="light"] .admin-page select option,
+  html[data-theme="light"] .admin-page .decision-card select option {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 14px !important;
+    line-height: 1.55 !important;
+    padding: 10px 12px !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(.status, .chip, .team-pill, .selected-member-chip, .member-more-chip, .tone, .role-hover-guide, .lock-note) {
+    font-weight: 900 !important;
+    text-shadow: none !important;
+    color: #1d4ed8 !important;
+    -webkit-text-fill-color: #1d4ed8 !important;
+    background: #dbeafe !important;
+    border-color: #93c5fd !important;
+  }
+  html[data-theme="light"] .admin-page :is(.status.active, .chip.success, .tone.success) {
+    color: #047857 !important;
+    -webkit-text-fill-color: #047857 !important;
+    background: #d1fae5 !important;
+    border-color: #6ee7b7 !important;
+  }
+  html[data-theme="light"] .admin-page :is(.chip.warning, .warning-card, .eyebrow.amber) {
+    color: #92400e !important;
+    -webkit-text-fill-color: #92400e !important;
+    background: #fef3c7 !important;
+    border-color: #fbbf24 !important;
+  }
+  html[data-theme="light"] .admin-page :is(.status.neutral, .tone.notice) {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+    background: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  html[data-theme="light"] .admin-page :is(.member-option-list, .scroll-stack, .supervisor-card-list, .profile-list, .history-list, .table-shell) {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.10) !important;
+  }
+  html[data-theme="light"] .admin-page :is(.member-option, .member-check, .supervisor-card, .profile-card, .history-card, .role-candidate-option) {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.10) !important;
+  }
+  html[data-theme="light"] .admin-page :is(.member-option, .member-check, .supervisor-card, .profile-card, .history-card, .role-candidate-option) :is(strong, b, h3) {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+  html[data-theme="light"] .admin-page :is(.member-option, .member-check, .supervisor-card, .profile-card, .history-card, .role-candidate-option) :is(small, span, em, p) {
+    color: #475569 !important;
+    -webkit-text-fill-color: #475569 !important;
+  }
+
+  html[data-theme="light"] .admin-page .permission-matrix-table th,
+  html[data-theme="light"] .admin-page .permission-matrix-table td,
+  html[data-theme="light"] .admin-page .activity-table th,
+  html[data-theme="light"] .admin-page .activity-table td,
+  html[data-theme="light"] .admin-page table th,
+  html[data-theme="light"] .admin-page table td {
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+    border-color: rgba(15,23,42,0.08) !important;
+  }
+  html[data-theme="light"] .admin-page table th {
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+  html[data-theme="light"] .admin-page table tr:nth-child(even) td { background: #f8fafc !important; }
+  html[data-theme="light"] .admin-page table td :is(small, span, p) { color: #475569 !important; -webkit-text-fill-color: #475569 !important; }
+
+  html[data-theme="light"] .admin-page .activity-detail-toggle,
+  html[data-theme="light"] .admin-page .secondary-btn,
+  html[data-theme="light"] .admin-page .clear-btn {
+    background: #f8fafc !important;
+    border-color: rgba(15,23,42,0.14) !important;
+    color: #0f172a !important;
+    -webkit-text-fill-color: #0f172a !important;
+  }
+
+  html[data-theme="light"] .admin-page .primary-btn {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+  }
+
+  html[data-theme="light"] .admin-page .decision-card,
+  html[data-theme="light"] .admin-page .dispute-card {
+    background: #ffffff !important;
+    border-color: rgba(15,23,42,0.12) !important;
+    color: #0f172a !important;
+  }
+  html[data-theme="light"] .admin-page .decision-card textarea {
+    min-height: 118px !important;
+    resize: vertical !important;
+  }
+
+  html[data-theme="dark"] .admin-page :is(.panel, .admin-section-panel, .role-form-card, .role-table-card, .permission-matrix-card, .owner-lock-card, .profile-card, .history-card, .supervisor-suggestion, .mini-card, .activity-detail-card, .session-card) {
+    background: rgba(15,23,42,0.82) !important;
+    border-color: rgba(148,163,184,0.18) !important;
+    color: #f8fafc !important;
+  }
+  html[data-theme="dark"] .admin-page :is(h1,h2,h3,h4,strong,b,td,th) {
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+  }
+  html[data-theme="dark"] .admin-page :is(p, small, span, label, .muted, .soft-copy) {
+    color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
+  }
+
 `;
 
 export default function AdminPage() {
