@@ -5148,4 +5148,126 @@ tr:hover td { background: var(--hover) !important; }
 .results-page input,.results-page textarea,.results-page select { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
 .results-loading-bar { background: var(--hover) !important; }
 .results-loading-bar b { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; box-shadow: none !important; }
+
+
+/* ABSOLUTE FINAL: Results date picker contrast, both modes */
+.results-page .results-date-popover {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 18px 42px rgba(0,0,0,.32) !important;
+}
+.results-page .results-date-popover *,
+.results-page .results-date-popover :is(span,strong,b,small,h4,label,p) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+.results-page .results-date-popover :is(.results-date-popover-tabs span,.results-calendar-weekdays span,small) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+.results-page .results-date-popover-tabs div,
+.results-page .results-date-preset-column button,
+.results-page .results-calendar-nav-row button,
+.results-page .results-date-popover-actions button {
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+.results-page .results-date-preset-column button:disabled,
+.results-page .results-date-popover button:disabled {
+  background: var(--hover) !important;
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: .75 !important;
+}
+.results-page .results-date-preset-column button.active,
+.results-page .results-date-preset-column button:hover,
+.results-page .results-calendar-nav-row button:hover {
+  background: var(--brand-soft) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: rgba(99,91,255,.38) !important;
+}
+.results-page .results-calendar-day {
+  background: transparent !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+.results-page .results-calendar-day.muted {
+  color: var(--subtle) !important;
+  -webkit-text-fill-color: var(--subtle) !important;
+  opacity: .8 !important;
+}
+.results-page .results-calendar-day.in-range {
+  background: var(--brand-soft) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+.results-page .results-calendar-day.range-start,
+.results-page .results-calendar-day.range-end {
+  background: var(--brand) !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  border-color: var(--brand) !important;
+}
+.results-page .results-date-popover-actions .primary-btn {
+  background: var(--brand) !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  border-color: var(--brand) !important;
+}
+html[data-theme="light"] .results-page .results-date-popover {
+  background: #ffffff !important;
+  color: #181B26 !important;
+  border-color: #E3E8EF !important;
+  box-shadow: 0 18px 42px rgba(15,23,42,.14) !important;
+}
+html[data-theme="light"] .results-page .results-date-popover *,
+html[data-theme="light"] .results-page .results-date-popover :is(span,strong,b,h4,label,p) {
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+}
+html[data-theme="light"] .results-page .results-date-popover :is(.results-date-popover-tabs span,.results-calendar-weekdays span,small) {
+  color: #4B5565 !important;
+  -webkit-text-fill-color: #4B5565 !important;
+}
+html[data-theme="light"] .results-page .results-date-popover-tabs div,
+html[data-theme="light"] .results-page .results-date-preset-column button,
+html[data-theme="light"] .results-page .results-calendar-nav-row button,
+html[data-theme="light"] .results-page .results-date-popover-actions button {
+  background: #F6F7F9 !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #E3E8EF !important;
+}
+html[data-theme="light"] .results-page .results-date-preset-column button:disabled,
+html[data-theme="light"] .results-page .results-date-popover button:disabled {
+  background: #EEF2F6 !important;
+  color: #788496 !important;
+  -webkit-text-fill-color: #788496 !important;
+}
+html[data-theme="light"] .results-page .results-calendar-day.in-range {
+  background: rgba(99,91,255,.14) !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+}
+html[data-theme="light"] .results-page .results-calendar-day.range-start,
+html[data-theme="light"] .results-page .results-calendar-day.range-end {
+  background: #635BFF !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  border-color: #635BFF !important;
+}
+html[data-theme="light"] .results-page .results-date-popover-actions .primary-btn {
+  background: #432AD8 !important;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
 `;
