@@ -8668,24 +8668,22 @@ const runStyles = `
   }
   html[data-theme="light"] .run-page .progress-stage-panel::before,
   .run-page .progress-stage-panel::before {
-    content: "" !important;
-    position: absolute !important;
-    inset: -55% !important;
-    pointer-events: none !important;
-    background: conic-gradient(from 0deg, transparent 0 18%, rgba(34,211,238,0.14) 24%, rgba(168,85,247,0.18) 32%, transparent 42% 100%) !important;
-    animation: auditRadarSweep 3.2s linear infinite !important;
-    opacity: .9 !important;
+    content: none !important;
+    display: none !important;
+    background: none !important;
+    animation: none !important;
+    opacity: 0 !important;
   }
   .run-page .progress-stage-copy,
   .run-page .progress-stage-percent { position: relative !important; z-index: 1 !important; }
-  @keyframes auditRadarSweep { to { transform: rotate(360deg); } }
+  @keyframes auditRadarSweep { to { transform: none; } }
   .run-page .progress-meter-shell { height: 12px !important; border-radius: 999px !important; overflow: hidden !important; }
   .run-page .progress-meter-fill {
     background: linear-gradient(90deg, #2563eb 0%, #8b5cf6 45%, #db2777 100%) !important;
-    background-size: 180% 100% !important;
-    animation: auditBarFlow 1.4s linear infinite !important;
+    background-size: 100% 100% !important;
+    animation: none !important;
   }
-  @keyframes auditBarFlow { 0% { background-position: 0% 50%; } 100% { background-position: 180% 50%; } }
+  @keyframes auditBarFlow { 0% { background-position: 0% 50%; } 100% { background-position: 0% 50%; } }
 
   html[data-theme="light"] .run-page .progress-stage-copy strong { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
   html[data-theme="light"] .run-page .progress-stage-copy small { color: #475569 !important; -webkit-text-fill-color: #475569 !important; }
@@ -8840,4 +8838,62 @@ html[data-theme="light"] .run-multi-menu,html[data-theme="light"] .run-date-popo
 .secondary-btn,.run-main-btn,.ghost-btn { background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
 .danger-btn { color: var(--danger) !important; background: transparent !important; border: 1px solid rgba(255,90,99,.35) !important; box-shadow: none !important; }
 @media (max-width: 1200px) { .audit-command-grid { grid-template-columns: 1fr !important; } .audit-filter-matrix { grid-template-columns: 1fr !important; } }
+
+
+/* ABSOLUTE FINAL: kill Run Audit page-wide glow/lag sources */
+.run-page .progress-stage-panel,
+.run-page .progress-panel,
+.run-page .monitor-card,
+.run-page .workflow-card,
+.run-page .surface-card,
+.run-page .audit-command-panel,
+.run-page .readiness-card,
+.run-page .run-summary-card {
+  background: var(--card) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  overflow: hidden !important;
+}
+.run-page .progress-stage-panel::before,
+.run-page .progress-stage-panel::after,
+.run-page .progress-panel::before,
+.run-page .progress-panel::after,
+.run-page .monitor-card::before,
+.run-page .monitor-card::after,
+.run-page .workflow-card::before,
+.run-page .workflow-card::after,
+.run-page .surface-card::before,
+.run-page .surface-card::after,
+.run-page .audit-command-panel::before,
+.run-page .audit-command-panel::after,
+.run-page .readiness-card::before,
+.run-page .readiness-card::after,
+.run-page .run-summary-card::before,
+.run-page .run-summary-card::after {
+  content: none !important;
+  display: none !important;
+  animation: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.run-page *,
+.run-page *::before,
+.run-page *::after {
+  animation-duration: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 150ms !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.run-page .progress-meter-fill,
+.run-page .progress-bar i,
+.run-page .progress-fill,
+.run-page .progress-line-fill {
+  background: linear-gradient(90deg,#635BFF,#A09BFF) !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
 `;
