@@ -8543,6 +8543,16 @@ tr:hover td { background: var(--hover) !important; }
 @media(max-width:900px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; } .conversation-preview-body{ grid-template-columns:1fr !important;} }
 @media(max-width:640px){ .kpi-grid, .stats-grid, .run-readiness-grid, .summary-grid, .status-grid{ grid-template-columns: 1fr !important; } }
 
+
+
+/* FINAL NIGHT FIXES: Admin contrast/no neon */
+.admin-page,.admin-loading-page,.admin-page .loading-state { background: var(--page) !important; color: var(--text) !important; }
+.admin-page::before,.admin-page::after,.admin-page .loading-state::before,.admin-page .loading-state::after { display: none !important; }
+.admin-page .surface-card,.admin-page .section-card,.admin-page .admin-panel,.admin-page .report-card,.admin-page .loading-state { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.admin-page h1,.admin-page h2,.admin-page h3,.admin-page strong { color: var(--text) !important; }
+.admin-page p,.admin-page small,.admin-page label,.admin-page span.muted { color: var(--muted) !important; }
+.admin-page input,.admin-page textarea,.admin-page select,.admin-page button:not(.primary-btn) { color: var(--text) !important; }
+.admin-page input,.admin-page textarea,.admin-page select { background: var(--raised) !important; border: 1px solid var(--border) !important; }
 `;
 
 export default function AdminPage() {
