@@ -8545,14 +8545,291 @@ tr:hover td { background: var(--hover) !important; }
 
 
 
-/* FINAL NIGHT FIXES: Admin contrast/no neon */
-.admin-page,.admin-loading-page,.admin-page .loading-state { background: var(--page) !important; color: var(--text) !important; }
-.admin-page::before,.admin-page::after,.admin-page .loading-state::before,.admin-page .loading-state::after { display: none !important; }
-.admin-page .surface-card,.admin-page .section-card,.admin-page .admin-panel,.admin-page .report-card,.admin-page .loading-state { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
-.admin-page h1,.admin-page h2,.admin-page h3,.admin-page strong { color: var(--text) !important; }
-.admin-page p,.admin-page small,.admin-page label,.admin-page span.muted { color: var(--muted) !important; }
-.admin-page input,.admin-page textarea,.admin-page select,.admin-page button:not(.primary-btn) { color: var(--text) !important; }
-.admin-page input,.admin-page textarea,.admin-page select { background: var(--raised) !important; border: 1px solid var(--border) !important; }
+/* FINAL CONTRAST: Admin cards/forms/status grids */
+.admin-page .status-card,
+.admin-page .metric-card,
+.admin-page .impact-card,
+.admin-page .snippet-stat-card,
+.admin-page .snippet-metric-card,
+.admin-page .overview-stat-card,
+.admin-page .admin-stat-card,
+.admin-page .calibration-stat-card,
+.admin-page .impact-stat-card {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+.admin-page .status-card *,
+.admin-page .metric-card *,
+.admin-page .impact-card *,
+.admin-page .snippet-stat-card *,
+.admin-page .snippet-metric-card *,
+.admin-page .overview-stat-card *,
+.admin-page .admin-stat-card *,
+.admin-page .calibration-stat-card *,
+.admin-page .impact-stat-card * {
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+.admin-page .status-card strong,
+.admin-page .metric-card strong,
+.admin-page .impact-card strong,
+.admin-page .snippet-stat-card strong,
+.admin-page .snippet-metric-card strong,
+.admin-page .overview-stat-card strong,
+.admin-page .admin-stat-card strong,
+.admin-page .calibration-stat-card strong,
+.admin-page .impact-stat-card strong {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+.admin-page .status-card span,
+.admin-page .metric-card span,
+.admin-page .impact-card span,
+.admin-page .snippet-stat-card span,
+.admin-page .snippet-metric-card span,
+.admin-page .overview-stat-card span,
+.admin-page .admin-stat-card span,
+.admin-page .calibration-stat-card span,
+.admin-page .impact-stat-card span,
+.admin-page .impact-card p,
+.admin-page .impact-card small {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+.admin-page .impact-line,
+.admin-page .correction-line,
+.admin-page .success-line {
+  color: var(--success-strong) !important;
+  -webkit-text-fill-color: var(--success-strong) !important;
+  background: rgba(13,136,56,.10) !important;
+  border: 1px solid rgba(13,136,56,.25) !important;
+  border-radius: 10px !important;
+  padding: 8px 10px !important;
+  opacity: 1 !important;
+}
+html[data-theme="dark"] .admin-page .impact-line,
+html[data-theme="dark"] .admin-page .correction-line,
+html[data-theme="dark"] .admin-page .success-line {
+  color: #33F575 !important;
+  -webkit-text-fill-color: #33F575 !important;
+}
+.admin-page .form-card,
+.admin-page .rule-setup,
+.admin-page .application-boundaries,
+.admin-page .manual-snippet-form,
+.admin-page .snippet-form-card {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+.admin-page .form-card h3,
+.admin-page .rule-setup h3,
+.admin-page .application-boundaries h3,
+.admin-page .manual-snippet-form h3,
+.admin-page .snippet-form-card h3,
+.admin-page .form-card label,
+.admin-page .rule-setup label,
+.admin-page .application-boundaries label,
+.admin-page .manual-snippet-form label,
+.admin-page .snippet-form-card label {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.admin-page input,.admin-page textarea,.admin-page select {
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] .admin-page .status-card,
+html[data-theme="light"] .admin-page .metric-card,
+html[data-theme="light"] .admin-page .impact-card,
+html[data-theme="light"] .admin-page .snippet-stat-card,
+html[data-theme="light"] .admin-page .snippet-metric-card,
+html[data-theme="light"] .admin-page .overview-stat-card,
+html[data-theme="light"] .admin-page .admin-stat-card,
+html[data-theme="light"] .admin-page .calibration-stat-card,
+html[data-theme="light"] .admin-page .impact-stat-card {
+  background: #FFFFFF !important;
+  color: #111827 !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="light"] .admin-page .jump-top { background: #111827 !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; border-color: #111827 !important; }
+
+
+/* GLOBAL CONTRAST HARDENING PASS — readable on dark and light */
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(h1,h2,h3,h4,strong,b,.title,.section-title,.card-title,.metric-value,.stat-value) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(p,small,label,.muted,.helper,.subtle,.description,.eyebrow,.mini-label,.section-eyebrow) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button,a,input,select,textarea) {
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.surface-card,.panel,.card,.stat-card,.kpi-card,.readiness-card,.workflow-step,.snippet-card,.impact-card,.activity-card,.table-panel,.import-panel,.loading-panel,.results-loading-card,.dashboard-loader-card) {
+  color: #111827 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.soft-success,.soft-info,.soft-warning,.soft-danger,.success-card,.notice-card,.warning-card,.danger-card) {
+  color: #111827 !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon,[class*="help"],[class*="info"] > .info-tip) {
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon) {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.mini-dispute-btn,.dispute-btn,.danger-btn,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  opacity: 1 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  background: #FFFFFF !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border-color: #FDA4AF !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: rgba(255,90,99,.10) !important;
+  color: #FF8A91 !important;
+  -webkit-text-fill-color: #FF8A91 !important;
+  border-color: rgba(255,90,99,.35) !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  opacity: .78 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
+
+
+/* EXACT CALIBRATION FIX: summary cards, impact rows, form section labels */
+.admin-page .snippet-stat-card,
+.admin-page .impact-summary-card,
+.admin-page .impact-log-row,
+.admin-page .impact-log-meta > div,
+.admin-page .snippet-form-section,
+.admin-page .source-trace-card,
+.admin-page .snippet-editor-card,
+.admin-page .snippet-source-card,
+.admin-page .snippet-list-card,
+.admin-page .saved-snippet-card {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+.admin-page .snippet-stat-card span,
+.admin-page .impact-summary-card span,
+.admin-page .impact-log-head span,
+.admin-page .form-section-title span,
+.admin-page .snippet-form-grid label span,
+.admin-page .calibration-detail-label {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.admin-page .snippet-stat-card strong,
+.admin-page .impact-summary-card strong,
+.admin-page .impact-log-title strong,
+.admin-page .impact-log-head h4,
+.admin-page .source-trace-head h4,
+.admin-page .snippet-card-head h3,
+.admin-page .calibration-detail-value {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important;
+}
+.admin-page .snippet-stat-card small,
+.admin-page .impact-summary-card small,
+.admin-page .form-section-title small,
+.admin-page .impact-log-main p {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.admin-page .impact-log-main em:not(.impact-error-text),
+.admin-page .snippet-refresh-note {
+  color: var(--success-strong) !important;
+  -webkit-text-fill-color: var(--success-strong) !important;
+  background: rgba(13,136,56,.08) !important;
+  border: 1px solid rgba(13,136,56,.20) !important;
+  border-radius: 10px !important;
+  padding: 7px 9px !important;
+  display: block !important;
+  opacity: 1 !important;
+}
+html[data-theme="dark"] .admin-page .impact-log-main em:not(.impact-error-text),
+html[data-theme="dark"] .admin-page .snippet-refresh-note {
+  color: #33F575 !important;
+  -webkit-text-fill-color: #33F575 !important;
+}
+html[data-theme="light"] .admin-page .snippet-stat-card,
+html[data-theme="light"] .admin-page .impact-summary-card,
+html[data-theme="light"] .admin-page .impact-log-row,
+html[data-theme="light"] .admin-page .impact-log-meta > div,
+html[data-theme="light"] .admin-page .snippet-form-section,
+html[data-theme="light"] .admin-page .source-trace-card,
+html[data-theme="light"] .admin-page .snippet-editor-card,
+html[data-theme="light"] .admin-page .snippet-source-card,
+html[data-theme="light"] .admin-page .snippet-list-card,
+html[data-theme="light"] .admin-page .saved-snippet-card {
+  background: #FFFFFF !important;
+  color: #111827 !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="light"] .admin-page .snippet-stat-card span,
+html[data-theme="light"] .admin-page .impact-summary-card span,
+html[data-theme="light"] .admin-page .impact-log-head span,
+html[data-theme="light"] .admin-page .form-section-title span,
+html[data-theme="light"] .admin-page .snippet-form-grid label span,
+html[data-theme="light"] .admin-page .calibration-detail-label {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
+html[data-theme="light"] .admin-page .snippet-stat-card strong,
+html[data-theme="light"] .admin-page .impact-summary-card strong,
+html[data-theme="light"] .admin-page .impact-log-title strong,
+html[data-theme="light"] .admin-page .impact-log-head h4,
+html[data-theme="light"] .admin-page .source-trace-head h4,
+html[data-theme="light"] .admin-page .snippet-card-head h3,
+html[data-theme="light"] .admin-page .calibration-detail-value {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+html[data-theme="light"] .admin-page .snippet-stat-card small,
+html[data-theme="light"] .admin-page .impact-summary-card small,
+html[data-theme="light"] .admin-page .form-section-title small,
+html[data-theme="light"] .admin-page .impact-log-main p {
+  color: #334155 !important;
+  -webkit-text-fill-color: #334155 !important;
+}
 `;
 
 export default function AdminPage() {
