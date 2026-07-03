@@ -2948,7 +2948,7 @@ const appShellStyles = `
 .shell-frame { min-height: 100vh; background: var(--page) !important; }
 .sidebar, .mobile-sidebar { width: 264px !important; background: var(--card) !important; border-right: 1px solid var(--border) !important; box-shadow: none !important; backdrop-filter: none !important; }
 .content-shell { background: var(--page) !important; }
-.topbar { position: sticky !important; top: 0; z-index: 50; background: color-mix(in srgb, var(--page) 86%, transparent) !important; backdrop-filter: blur(16px); border-bottom: 1px solid var(--border) !important; box-shadow: none !important; }
+.topbar { position: sticky !important; top: 0; z-index: 900 !important; background: color-mix(in srgb, var(--page) 86%, transparent) !important; backdrop-filter: blur(16px); border-bottom: 1px solid var(--border) !important; box-shadow: none !important; }
 .topbar-kicker, .brand-badge, .nav-section-label, .admin-subnav-label { color: var(--subtle) !important; text-transform: uppercase; letter-spacing: .16em; font-size: 10.5px !important; font-weight: 800; }
 .topbar-title { color: var(--text) !important; font-size: 22px !important; font-weight: 700 !important; }
 .brand-wrap { padding: 22px 18px 18px !important; border-bottom: 1px solid var(--border) !important; }
@@ -3085,6 +3085,100 @@ html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-pa
 html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
   color: #475569 !important;
   -webkit-text-fill-color: #475569 !important;
+}
+
+/* ============================================================
+   THEME-AWARE AUTH SCREENS (login + loading/launch)
+   Fixes white-on-white text in light mode and locks the
+   backdrop to the active theme instead of always-dark.
+   Purely visual: no markup or logic touched.
+   ============================================================ */
+
+/* Backdrop follows the theme (was permanently #0A0B12) */
+html[data-theme="dark"] .auth-stage {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(99,91,255,.28), transparent 34%),
+    #0A0B12 !important;
+  color: var(--text) !important;
+}
+html[data-theme="light"] .auth-stage {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(99,91,255,.12), transparent 42%),
+    var(--page) !important;
+  color: var(--text) !important;
+}
+
+/* Loading / launch card text */
+.launch-card h1 {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+.launch-card span {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+
+/* Login eyebrow labels (were light-blue #93b4ff, invisible on white) */
+.login-brand p,
+.login-copy span {
+  color: var(--text-accent) !important;
+  -webkit-text-fill-color: var(--text-accent) !important;
+}
+
+/* Login headings (were hard-coded #ffffff) */
+.login-brand h1,
+.login-copy h2 {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+/* Login body copy (were #aebbe1) */
+.login-brand span,
+.login-copy p {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+.login-copy small {
+  color: var(--subtle) !important;
+  -webkit-text-fill-color: var(--subtle) !important;
+}
+
+/* Login inner glass panels — theme-aware surfaces */
+.login-brand,
+.login-copy {
+  background: var(--raised) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Keep the Google CTA legible (white text on its gradient) in both modes */
+.login-google-btn {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Auth warning banner readable in both modes */
+html[data-theme="light"] .login-warning {
+  color: #b42318 !important;
+  -webkit-text-fill-color: #b42318 !important;
+  background: #fff1f2 !important;
+  border-color: #fda4af !important;
+}
+html[data-theme="dark"] .login-warning {
+  color: #ffb4b4 !important;
+  -webkit-text-fill-color: #ffb4b4 !important;
+  background: rgba(239,68,68,.14) !important;
+  border-color: rgba(239,68,68,.32) !important;
+}
+
+/* Suspense boot fallback picks up theme colors instead of raw defaults */
+.app-shell-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--page);
+  color: var(--muted);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 700;
 }
 `;
 
