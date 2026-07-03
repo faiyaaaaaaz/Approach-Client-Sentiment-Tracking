@@ -534,44 +534,22 @@ function getLockReason(pathname, session, profile) {
 function PlatformLogo({ size = "normal" }) {
   return (
     <div className={`platform-logo ${size}`} aria-hidden="true">
-      <span className="platform-logo-halo" />
-      <span className="platform-logo-orbit orbit-a" />
-      <span className="platform-logo-orbit orbit-b" />
-      <span className="platform-logo-node node-a" />
-      <span className="platform-logo-node node-b" />
-      <span className="platform-logo-node node-c" />
-      <div className="platform-logo-core">
-        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M16 12L34 12L26 29L40 29L18 52L25 36L13 36L16 12Z" fill="url(#platformLogoMain)" />
-          <path d="M34 14L50 14L40 28L51 28L35 47L39 34L30 34L34 14Z" fill="url(#platformLogoAccent)" opacity="0.94" />
-          <defs>
-            <linearGradient id="platformLogoMain" x1="13" y1="12" x2="44" y2="50" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#22D3EE" />
-              <stop offset="0.48" stopColor="#8B5CF6" />
-              <stop offset="1" stopColor="#EC4899" />
-            </linearGradient>
-            <linearGradient id="platformLogoAccent" x1="30" y1="14" x2="52" y2="44" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#FDE047" />
-              <stop offset="1" stopColor="#F97316" />
-            </linearGradient>
-          </defs>
-        </svg>
-      </div>
+      <svg className="next-logo-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M35 6L15 35H29L23 58L49 25H34L35 6Z" fill="currentColor" />
+      </svg>
     </div>
   );
 }
 
 function ConnectedLaunchGears() {
   return (
-    <div className="launch-gear-visual" aria-hidden="true">
-      <span className="launch-gear-glow" />
-      <span className="launch-gear-ring ring-one" />
-      <span className="launch-gear-ring ring-two" />
-      <span className="launch-gear gear-one">⚙</span>
-      <span className="launch-gear gear-two">⚙</span>
-      <span className="launch-gear gear-three">⚙</span>
-      <span className="launch-gear-dot dot-one" />
-      <span className="launch-gear-dot dot-two" />
+    <div className="launch-brand-visual" aria-hidden="true">
+      <div className="platform-logo launch-logo">
+        <svg className="next-logo-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M35 6L15 35H29L23 58L49 25H34L35 6Z" fill="currentColor" />
+        </svg>
+      </div>
+      <span className="launch-logo-ring" />
     </div>
   );
 }
@@ -1141,7 +1119,7 @@ function AppShellClientInner({ children }) {
   );
 
   return (
-    <div className="app-shell">
+    <div className="app-shell app-shell-root">
       <div className="app-bg">
         <div className="bg-orb orb-one" />
         <div className="bg-orb orb-two" />
