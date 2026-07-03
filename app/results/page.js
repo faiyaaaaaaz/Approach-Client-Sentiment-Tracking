@@ -5270,4 +5270,103 @@ html[data-theme="light"] .results-page .results-date-popover-actions .primary-bt
   color: #fff !important;
   -webkit-text-fill-color: #fff !important;
 }
+
+
+/* FINAL CONTRAST: Results buttons/loading */
+.results-page .mini-dispute-btn,
+.results-page .dispute-action,
+.results-page .danger-btn {
+  opacity: 1 !important;
+  font-weight: 900 !important;
+}
+html[data-theme="light"] .results-page .mini-dispute-btn,
+html[data-theme="light"] .results-page .dispute-action,
+html[data-theme="light"] .results-page .danger-btn {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border: 1px solid #FDA4AF !important;
+}
+.results-loading-steps i {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  background: var(--raised) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] .results-loading-steps i {
+  color: #334155 !important;
+  -webkit-text-fill-color: #334155 !important;
+  background: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="light"] .results-loader-visual { box-shadow: none !important; }
+.results-page .jump-top { opacity: 1 !important; }
+html[data-theme="light"] .results-page .jump-top { background: #FFFFFF !important; color: #181B26 !important; -webkit-text-fill-color: #181B26 !important; border-color: #CBD5E1 !important; }
+
+
+/* GLOBAL CONTRAST HARDENING PASS — readable on dark and light */
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(h1,h2,h3,h4,strong,b,.title,.section-title,.card-title,.metric-value,.stat-value) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(p,small,label,.muted,.helper,.subtle,.description,.eyebrow,.mini-label,.section-eyebrow) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button,a,input,select,textarea) {
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.surface-card,.panel,.card,.stat-card,.kpi-card,.readiness-card,.workflow-step,.snippet-card,.impact-card,.activity-card,.table-panel,.import-panel,.loading-panel,.results-loading-card,.dashboard-loader-card) {
+  color: #111827 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.soft-success,.soft-info,.soft-warning,.soft-danger,.success-card,.notice-card,.warning-card,.danger-card) {
+  color: #111827 !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon,[class*="help"],[class*="info"] > .info-tip) {
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon) {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.mini-dispute-btn,.dispute-btn,.danger-btn,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  opacity: 1 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  background: #FFFFFF !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border-color: #FDA4AF !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: rgba(255,90,99,.10) !important;
+  color: #FF8A91 !important;
+  -webkit-text-fill-color: #FF8A91 !important;
+  border-color: rgba(255,90,99,.35) !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  opacity: .78 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
 `;
