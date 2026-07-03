@@ -2728,7 +2728,7 @@ function DashboardLoadingScreen({ welcomeIdentity = null, showWelcome = false })
             <div className="dashboard-welcome-strip">
               <div className="dashboard-welcome-avatar">
                 {welcomeIdentity.avatarUrl ? (
-                  <img src={welcomeIdentity.avatarUrl} alt={welcomeIdentity.displayName} />
+                  <img src={welcomeIdentity.avatarUrl} alt={welcomeIdentity.displayName} referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                 ) : (
                   <strong>{welcomeIdentity.initials}</strong>
                 )}
