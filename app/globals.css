@@ -199,3 +199,328 @@ html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-p
   color: #475569 !important;
   -webkit-text-fill-color: #475569 !important;
 }
+
+
+/* ============================================================================
+   LIGHT-MODE SURFACE & TEXT RESCUE  (added in full-audit pass)
+   Purpose: many components were authored dark-only. The global text rule
+   already recolors headings/paragraphs/strong per theme, so any container
+   that never flips to a light surface ends up dark-text-on-dark in light mode.
+   This block flips those leftover dark surfaces to theme surfaces and fixes
+   the specific text elements the global rule does not cover (span, pre, td,
+   dd, summary, inputs, and a few custom classes). Light mode ONLY — dark mode
+   is untouched. Uses theme tokens so it stays consistent.
+   ============================================================================ */
+
+/* ---- Shared: form controls on every page ---- */
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) :is(input,select,textarea) {
+  background: var(--bg-input) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border-medium) !important;
+}
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) :is(input,select,textarea)::placeholder {
+  color: var(--subtle) !important;
+  -webkit-text-fill-color: var(--subtle) !important;
+  opacity: 1 !important;
+}
+
+/* ---- Shared: table headers / cells ---- */
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) :is(th,thead th,.modal-table-wrap thead th) {
+  background: var(--hover) !important;
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) :is(td,td a,td strong,td span) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) td a {
+  color: var(--brand-hover) !important;
+  -webkit-text-fill-color: var(--brand-hover) !important;
+}
+
+/* ---- Shared: dispute modal (dashboard + results) ---- */
+html[data-theme="light"] .dispute-modal {
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+}
+html[data-theme="light"] .dispute-summary-grid div {
+  background: var(--raised) !important;
+  border-color: var(--border) !important;
+}
+html[data-theme="light"] :is(.dispute-summary-grid strong,.dispute-modal-head h2,.dispute-modal strong,.dispute-modal p,.dispute-modal label,.dispute-modal span) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.dispute-modal .field-block,.dispute-modal .field-block label,.field-block) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] :is(.field-block textarea,.field-block select,.field-block input) {
+  background: var(--bg-input) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border-medium) !important;
+}
+html[data-theme="light"] .close-btn {
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* ---- Shared: conversation preview (dashboard + run + results) ---- */
+html[data-theme="light"] :is(.conversation-preview-loading,.conversation-preview-empty,.conversation-preview-error,.drill-dispute-panel) {
+  background: var(--raised) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] :is(.conversation-preview-meta strong,.conversation-preview-attributes strong,.conversation-preview-result-card strong,.conversation-preview-section-head span,.conversation-preview-attr-row strong,.conversation-message-top strong,.conversation-preview-error span) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.conversation-preview-tags i,.conversation-message.compact-event p,.conversation-preview-verdict-head small) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] .conversation-preview-verdict-head span {
+  color: #6d28d9 !important;
+  -webkit-text-fill-color: #6d28d9 !important;
+}
+html[data-theme="light"] .conversation-preview-error strong {
+  color: #b42318 !important;
+  -webkit-text-fill-color: #b42318 !important;
+}
+html[data-theme="light"] .conversation-message.client {
+  background: rgba(37,99,235,.08) !important;
+  border-color: rgba(37,99,235,.18) !important;
+}
+html[data-theme="light"] :is(.conversation-message.client p,.conversation-message.client strong,.conversation-message.compact-event p) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+/* ---- Shared: verdict / findings text blocks ---- */
+html[data-theme="light"] :is(.verdict-box pre,.verdict-box p,.findings-box,.diagnostics-grid strong) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+/* ---- Dashboard: welcome strip on the loading screen ---- */
+html[data-theme="light"] .dashboard-welcome-strip {
+  background: var(--raised) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 12px 30px rgba(15,23,42,.08) !important;
+}
+html[data-theme="light"] .dashboard-welcome-copy span {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .dashboard-welcome-copy strong {
+  color: #4338ca !important;
+  -webkit-text-fill-color: #4338ca !important;
+}
+html[data-theme="light"] .dashboard-welcome-avatar {
+  background: linear-gradient(135deg,#635BFF,#4E36F5) !important;
+  border-color: rgba(99,91,255,.3) !important;
+}
+html[data-theme="light"] .dashboard-welcome-avatar strong {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* ---- Dashboard: chart action button + drill panel ---- */
+html[data-theme="light"] :is(.chart-card .card-action,.chart-card:hover .card-action) {
+  background: var(--hover) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* ---- Run: nodes, modals, working states, queue ---- */
+html[data-theme="light"] :is(.fetch-node,.ai-working-inline,.queue-empty-state,.progress-stage-panel,.progress-stage-percent) {
+  background: var(--raised) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.ai-working-inline,.ai-working-inline span,.progress-stage-percent span,.insight-line,.modal-hint,.duplicate-list strong) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] .duplicate-modal {
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+}
+html[data-theme="light"] .queue-search-field input {
+  background: var(--bg-input) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border-medium) !important;
+}
+html[data-theme="light"] .completion-report-card {
+  background: rgba(13,136,56,.08) !important;
+  border-color: rgba(13,136,56,.22) !important;
+}
+html[data-theme="light"] :is(.completion-report-card > div:first-child strong,.completion-report-grid b) {
+  color: #0d8838 !important;
+  -webkit-text-fill-color: #0d8838 !important;
+}
+html[data-theme="light"] .run-help-tip i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* ---- Results: menus, loading ---- */
+html[data-theme="light"] :is(.preset-menu,.multi-menu) {
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.multi-option,.cex-check,.cex-check span,.progress-step span) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .results-loading-copy h1 {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.error-detail-box strong) {
+  color: #b42318 !important;
+  -webkit-text-fill-color: #b42318 !important;
+}
+html[data-theme="light"] :is(.error-detail-box small) {
+  color: #c2410c !important;
+  -webkit-text-fill-color: #c2410c !important;
+}
+html[data-theme="light"] :is(pre) {
+  color: inherit;
+}
+
+/* ---- Admin: quick nav, drawers, key vault, member previews ---- */
+html[data-theme="light"] :is(.admin-quick-nav a,.trusted-prompt-drawer summary,.api-meta-grid span,.key-record span,.check-row span,.mini-grid span,.supervisor-member-preview span,.help-tip) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] :is(.key-record strong,.member-copy strong,.history-meta-grid dd) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .permission-group-row td {
+  background: var(--hover) !important;
+}
+html[data-theme="light"] .matrix-check.locked {
+  background: rgba(200,13,24,.10) !important;
+}
+
+/* ---- Calibration snippets panel ---- */
+html[data-theme="light"] .calibration-panel .source-trace-card.manual-source {
+  background: rgba(99,91,255,.07) !important;
+  border-color: rgba(99,91,255,.18) !important;
+}
+html[data-theme="light"] .calibration-panel .verdict-path span {
+  background: var(--hover) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .calibration-panel .source-dispute-top strong {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] :is(.calibration-panel .impact-empty-state strong,.calibration-panel .source-status.warning,.calibration-panel .snippet-refresh-note) {
+  color: #b45309 !important;
+  -webkit-text-fill-color: #b45309 !important;
+}
+html[data-theme="light"] .calibration-panel .impact-empty-state span {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+html[data-theme="light"] .calibration-panel .impact-log-main .impact-error-text {
+  color: #b42318 !important;
+  -webkit-text-fill-color: #b42318 !important;
+}
+html[data-theme="light"] .calibration-panel .calibration-detail-value.highlight {
+  color: #3f6212 !important;
+  -webkit-text-fill-color: #3f6212 !important;
+}
+
+/* ---- Overview report panel ---- */
+html[data-theme="light"] .summary-tile.danger {
+  background: rgba(200,13,24,.08) !important;
+  border-color: rgba(200,13,24,.2) !important;
+}
+html[data-theme="light"] .summary-tile.warning {
+  background: rgba(180,83,9,.08) !important;
+  border-color: rgba(180,83,9,.2) !important;
+}
+html[data-theme="light"] .report-textarea {
+  background: var(--bg-input) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border-color: var(--border-medium) !important;
+}
+html[data-theme="light"] .overview-report-shell .calendar-month-card h4 {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .owner-lock {
+  color: #0d8838 !important;
+  -webkit-text-fill-color: #0d8838 !important;
+}
+
+/* ---- Dispute verdict button panel (component, no prior light styles) ---- */
+html[data-theme="light"] .dispute-panel {
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+}
+html[data-theme="light"] .dispute-panel-head h2 {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+html[data-theme="light"] .dispute-panel-head p {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+
+/* ---- Status-colored text that sits on faint tints (invisible on white) ---- */
+html[data-theme="light"] .success-text,
+html[data-theme="light"] .success-box,
+html[data-theme="light"] .progress-step.done,
+html[data-theme="light"] .progress-step.done span {
+  color: #0d8838 !important;
+  -webkit-text-fill-color: #0d8838 !important;
+}
+html[data-theme="light"] .danger-soft,
+html[data-theme="light"] .danger-text {
+  color: #b42318 !important;
+  -webkit-text-fill-color: #b42318 !important;
+}
+html[data-theme="light"] .import-percent {
+  color: #0e7490 !important;
+  -webkit-text-fill-color: #0e7490 !important;
+}
+html[data-theme="light"] .modal-count { color: #b45309 !important; -webkit-text-fill-color: #b45309 !important; }
+html[data-theme="light"] .modal-count.danger { color: #b42318 !important; -webkit-text-fill-color: #b42318 !important; }
+html[data-theme="light"] .modal-count.notice { color: #1d4ed8 !important; -webkit-text-fill-color: #1d4ed8 !important; }
+
+/* ---- <pre> / <summary> / details text on light surfaces ---- */
+html[data-theme="light"] :is(.dashboard-page,.run-page,.results-page,.admin-page) :is(pre,details summary) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+
+/* ---- Icon wrap: solid brand fill in light mode so the white glyph reads ---- */
+html[data-theme="light"] .resting-icon-wrap {
+  background: linear-gradient(135deg,#635BFF,#4E36F5) !important;
+}
+
+/* ---- Donut chart: light center hole in light mode ---- */
+html[data-theme="light"] .donut {
+  background:
+    radial-gradient(circle at 50% 50%, var(--card) 0 46%, transparent 47%),
+    radial-gradient(circle at 50% 50%, rgba(99,91,255,.06), transparent 64%) !important;
+  box-shadow: 0 16px 36px rgba(15,23,42,.12) !important;
+}
