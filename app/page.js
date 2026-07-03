@@ -8007,17 +8007,99 @@ tr:hover td { background: var(--hover) !important; }
 
 
 
-/* FINAL NIGHT FIXES: Dashboard loading mark + contrast pass */
-.dashboard-loading-stage,.dashboard-page { background: var(--page) !important; color: var(--text) !important; }
-.dashboard-loader-card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
-.dashboard-loader-card::before,.dashboard-loader-card::after,.dashboard-loader-glow,.dashboard-loader-ring,.dashboard-loader-gear,.dashboard-loader-dot { display: none !important; }
-.dashboard-loader-logo { position: relative !important; width: 74px !important; height: 74px !important; border-radius: 20px !important; background: linear-gradient(150deg,#635BFF,#4E36F5) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important; display: grid !important; place-items: center !important; }
-.dashboard-loader-logo::before { content: "ϟ" !important; color: #fff !important; font-family: 'Plus Jakarta Sans','Inter',sans-serif !important; font-weight: 800 !important; font-size: 44px !important; line-height: 1 !important; }
-.dashboard-loader-logo::after { content: "" !important; position: absolute !important; inset: -8px !important; border-radius: 28px !important; border: 1px solid rgba(255,255,255,.18) !important; border-top-color: #fff !important; animation: nextSpin 1.2s linear infinite !important; }
-.dashboard-loader-card h1,.dashboard-page h1,.dashboard-page h2,.dashboard-page h3,.dashboard-page strong { color: var(--text) !important; }
-.dashboard-loader-card > span,.dashboard-loader-card p,.dashboard-page p,.dashboard-page small,.dashboard-page label,.dashboard-page .muted { color: var(--muted) !important; }
-.dashboard-page input,.dashboard-page textarea,.dashboard-page select,.dashboard-page button:not(.primary-btn) { color: var(--text) !important; }
-.dashboard-page input,.dashboard-page textarea,.dashboard-page select { background: var(--raised) !important; border: 1px solid var(--border) !important; }
-.dashboard-loader-bar { background: var(--hover) !important; }
-.dashboard-loader-bar i { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; box-shadow: none !important; }
+/* FINAL CONTRAST: Dashboard info icons/buttons/loading */
+.dashboard-page .info-tip,
+.dashboard-page .info-tip-mark {
+  opacity: 1 !important;
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+}
+html[data-theme="light"] .dashboard-page .info-tip,
+html[data-theme="light"] .dashboard-page .info-tip-mark {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+.dashboard-page .mini-dispute-btn,
+.dashboard-page .danger-btn {
+  opacity: 1 !important;
+  font-weight: 900 !important;
+}
+html[data-theme="light"] .dashboard-page .mini-dispute-btn,
+html[data-theme="light"] .dashboard-page .danger-btn {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border: 1px solid #FDA4AF !important;
+}
+.dashboard-loader-card span,.dashboard-loader-card p,.dashboard-loader-card small { opacity: 1 !important; }
+html[data-theme="light"] .dashboard-loader-card :is(span,p,small) { color: #334155 !important; -webkit-text-fill-color: #334155 !important; }
+html[data-theme="light"] .dashboard-loader-card h1 { color: #111827 !important; -webkit-text-fill-color: #111827 !important; }
+
+
+/* GLOBAL CONTRAST HARDENING PASS — readable on dark and light */
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(h1,h2,h3,h4,strong,b,.title,.section-title,.card-title,.metric-value,.stat-value) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(p,small,label,.muted,.helper,.subtle,.description,.eyebrow,.mini-label,.section-eyebrow) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button,a,input,select,textarea) {
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.surface-card,.panel,.card,.stat-card,.kpi-card,.readiness-card,.workflow-step,.snippet-card,.impact-card,.activity-card,.table-panel,.import-panel,.loading-panel,.results-loading-card,.dashboard-loader-card) {
+  color: #111827 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.soft-success,.soft-info,.soft-warning,.soft-danger,.success-card,.notice-card,.warning-card,.danger-card) {
+  color: #111827 !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon,[class*="help"],[class*="info"] > .info-tip) {
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon) {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.mini-dispute-btn,.dispute-btn,.danger-btn,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  opacity: 1 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  background: #FFFFFF !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border-color: #FDA4AF !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: rgba(255,90,99,.10) !important;
+  color: #FF8A91 !important;
+  -webkit-text-fill-color: #FF8A91 !important;
+  border-color: rgba(255,90,99,.35) !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  opacity: .78 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
 `;
