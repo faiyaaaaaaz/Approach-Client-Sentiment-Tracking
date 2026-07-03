@@ -1195,7 +1195,7 @@ function AppShellClientInner({ children }) {
                     >
                       <span className="profile-avatar">
                         {displayAvatarUrl ? (
-                          <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                          <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                         ) : (
                           getInitials(displayName)
                         )}
@@ -1214,7 +1214,7 @@ function AppShellClientInner({ children }) {
                         <div className="profile-menu-head">
                           <span className="profile-avatar large">
                             {displayAvatarUrl ? (
-                              <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" />
+                              <img src={displayAvatarUrl} alt={displayName} className="profile-avatar-image" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                             ) : (
                               getInitials(displayName)
                             )}
@@ -1826,7 +1826,7 @@ const appShellStyles = `
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 272px minmax(0, 1fr);
     min-height: 100vh;
     align-items: start;
   }
@@ -2112,7 +2112,7 @@ const appShellStyles = `
     position: relative;
     display: grid;
     gap: 7px;
-    padding-left: 14px;
+    padding-left: 8px;
   }
 
   .admin-subnav-group + .admin-subnav-group {
@@ -2150,11 +2150,11 @@ const appShellStyles = `
   .admin-subnav-link {
     position: relative;
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 30px minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
+    gap: 9px;
     min-height: 43px;
-    padding: 7px 18px 7px 7px;
+    padding: 7px 12px 7px 7px;
     border-radius: 15px;
     text-decoration: none;
     color: #c7d5f6;
@@ -2187,7 +2187,9 @@ const appShellStyles = `
     overflow: visible;
     text-overflow: unset;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: keep-all;
+    hyphens: none;
     padding-right: 0;
     font-size: 13px;
     line-height: 1.25;
@@ -2946,7 +2948,7 @@ const appShellStyles = `
 .bg-grid, .bg-orb, .bg-vignette, .auth-bg-grid, .login-orb, .brand-mark-halo, .brand-orbit, .brand-node, .platform-logo-halo, .platform-logo-orbit, .platform-logo-node, .launch-gear-glow, .launch-gear, .launch-gear-dot { display: none !important; }
 .app-shell { background: var(--page) !important; color: var(--text) !important; }
 .shell-frame { min-height: 100vh; background: var(--page) !important; }
-.sidebar, .mobile-sidebar { width: 264px !important; background: var(--card) !important; border-right: 1px solid var(--border) !important; box-shadow: none !important; backdrop-filter: none !important; }
+.sidebar, .mobile-sidebar { width: 272px !important; background: var(--card) !important; border-right: 1px solid var(--border) !important; box-shadow: none !important; backdrop-filter: none !important; }
 .content-shell { background: var(--page) !important; }
 .topbar { position: sticky !important; top: 0; z-index: 900 !important; background: color-mix(in srgb, var(--page) 86%, transparent) !important; backdrop-filter: blur(16px); border-bottom: 1px solid var(--border) !important; box-shadow: none !important; }
 .topbar-kicker, .brand-badge, .nav-section-label, .admin-subnav-label { color: var(--subtle) !important; text-transform: uppercase; letter-spacing: .16em; font-size: 10.5px !important; font-weight: 800; }
@@ -2969,7 +2971,7 @@ const appShellStyles = `
 .nav-link.active { background: var(--brand-soft) !important; color: var(--text) !important; border-color: rgba(99,91,255,.28) !important; }
 .nav-link.active::before { content: ""; width: 7px; height: 7px; border-radius: 999px; background: var(--brand); margin-right: 2px; }
 .nav-link-icon { color: currentColor !important; opacity: .9 !important; }
-.admin-subnav { margin: 10px 0 0 18px !important; padding: 8px 0 0 12px !important; border-left: 1px solid var(--border) !important; }
+.admin-subnav { margin: 10px 0 0 6px !important; padding: 8px 0 0 8px !important; border-left: 1px solid var(--border) !important; }
 .admin-subnav-group { margin: 10px 0 !important; }
 .admin-subnav a { border-radius: 10px !important; color: var(--muted) !important; min-height: 34px !important; background: transparent !important; border: 1px solid transparent !important; }
 .admin-subnav a::before { content:""; width:6px; height:6px; border-radius:999px; background: var(--subtle); opacity:.55; }
