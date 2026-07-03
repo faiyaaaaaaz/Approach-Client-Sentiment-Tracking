@@ -2716,14 +2716,9 @@ function DashboardLoadingScreen({ welcomeIdentity = null, showWelcome = false })
       <div className="dashboard-loading-stage">
         <div className="dashboard-loader-card">
           <div className="dashboard-loader-logo" aria-hidden="true">
-            <span className="dashboard-loader-glow" />
-            <span className="dashboard-loader-ring ring-one" />
-            <span className="dashboard-loader-ring ring-two" />
-            <span className="dashboard-loader-gear gear-a">⚙</span>
-            <span className="dashboard-loader-gear gear-b">⚙</span>
-            <span className="dashboard-loader-gear gear-c">⚙</span>
-            <span className="dashboard-loader-dot dot-one" />
-            <span className="dashboard-loader-dot dot-two" />
+            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M35 6L15 35H29L23 58L49 25H34L35 6Z" fill="currentColor" />
+            </svg>
           </div>
 
           <p>Dashboard Intelligence</p>
