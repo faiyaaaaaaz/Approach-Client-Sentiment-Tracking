@@ -1435,6 +1435,158 @@ button, .primary-btn { border-radius: 12px !important; font-weight: 800 !importa
 input, select, textarea { background: var(--raised) !important; color: var(--text) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; }
 pre, code, .report-output, .output-block { font-family: 'JetBrains Mono', monospace !important; background: var(--raised) !important; color: var(--text) !important; }
 .eyebrow, label, .muted, small { color: var(--muted) !important; }
+
+
+/* FINAL CONTRAST: Calibration Snippets panel */
+.calibration-panel :is(.status-card,.metric-card,.impact-card,.snippet-stat-card,.snippet-metric-card,.impact-stat-card) {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+.calibration-panel :is(.status-card,.metric-card,.impact-card,.snippet-stat-card,.snippet-metric-card,.impact-stat-card) * {
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+.calibration-panel :is(.status-card,.metric-card,.impact-card,.snippet-stat-card,.snippet-metric-card,.impact-stat-card) strong {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+}
+.calibration-panel :is(.status-card,.metric-card,.impact-card,.snippet-stat-card,.snippet-metric-card,.impact-stat-card) :is(span,p,small) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+}
+.calibration-panel :is(.impact-line,.correction-line,.success-line) {
+  color: var(--success-strong) !important;
+  -webkit-text-fill-color: var(--success-strong) !important;
+  background: rgba(13,136,56,.10) !important;
+  border: 1px solid rgba(13,136,56,.25) !important;
+  border-radius: 10px !important;
+  padding: 8px 10px !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] .calibration-panel :is(.status-card,.metric-card,.impact-card,.snippet-stat-card,.snippet-metric-card,.impact-stat-card) {
+  background: #FFFFFF !important;
+  color: #111827 !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="dark"] .calibration-panel :is(.impact-line,.correction-line,.success-line) { color: #33F575 !important; -webkit-text-fill-color: #33F575 !important; }
+.calibration-panel :is(.form-card,.rule-setup,.application-boundaries,.manual-snippet-form,.snippet-form-card) {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+.calibration-panel :is(input,textarea,select) {
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+
+
+/* EXACT CALIBRATION FIX: summary cards, impact rows, form section labels */
+.calibration-panel .snippet-stat-card,
+.calibration-panel .impact-summary-card,
+.calibration-panel .impact-log-row,
+.calibration-panel .impact-log-meta > div,
+.calibration-panel .snippet-form-section,
+.calibration-panel .source-trace-card,
+.calibration-panel .snippet-editor-card,
+.calibration-panel .snippet-source-card,
+.calibration-panel .snippet-list-card,
+.calibration-panel .saved-snippet-card {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+.calibration-panel .snippet-stat-card span,
+.calibration-panel .impact-summary-card span,
+.calibration-panel .impact-log-head span,
+.calibration-panel .form-section-title span,
+.calibration-panel .snippet-form-grid label span,
+.calibration-panel .calibration-detail-label {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.calibration-panel .snippet-stat-card strong,
+.calibration-panel .impact-summary-card strong,
+.calibration-panel .impact-log-title strong,
+.calibration-panel .impact-log-head h4,
+.calibration-panel .source-trace-head h4,
+.calibration-panel .snippet-card-head h3,
+.calibration-panel .calibration-detail-value {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important;
+}
+.calibration-panel .snippet-stat-card small,
+.calibration-panel .impact-summary-card small,
+.calibration-panel .form-section-title small,
+.calibration-panel .impact-log-main p {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.calibration-panel .impact-log-main em:not(.impact-error-text),
+.calibration-panel .snippet-refresh-note {
+  color: var(--success-strong) !important;
+  -webkit-text-fill-color: var(--success-strong) !important;
+  background: rgba(13,136,56,.08) !important;
+  border: 1px solid rgba(13,136,56,.20) !important;
+  border-radius: 10px !important;
+  padding: 7px 9px !important;
+  display: block !important;
+  opacity: 1 !important;
+}
+html[data-theme="dark"] .calibration-panel .impact-log-main em:not(.impact-error-text),
+html[data-theme="dark"] .calibration-panel .snippet-refresh-note {
+  color: #33F575 !important;
+  -webkit-text-fill-color: #33F575 !important;
+}
+html[data-theme="light"] .calibration-panel .snippet-stat-card,
+html[data-theme="light"] .calibration-panel .impact-summary-card,
+html[data-theme="light"] .calibration-panel .impact-log-row,
+html[data-theme="light"] .calibration-panel .impact-log-meta > div,
+html[data-theme="light"] .calibration-panel .snippet-form-section,
+html[data-theme="light"] .calibration-panel .source-trace-card,
+html[data-theme="light"] .calibration-panel .snippet-editor-card,
+html[data-theme="light"] .calibration-panel .snippet-source-card,
+html[data-theme="light"] .calibration-panel .snippet-list-card,
+html[data-theme="light"] .calibration-panel .saved-snippet-card {
+  background: #FFFFFF !important;
+  color: #111827 !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="light"] .calibration-panel .snippet-stat-card span,
+html[data-theme="light"] .calibration-panel .impact-summary-card span,
+html[data-theme="light"] .calibration-panel .impact-log-head span,
+html[data-theme="light"] .calibration-panel .form-section-title span,
+html[data-theme="light"] .calibration-panel .snippet-form-grid label span,
+html[data-theme="light"] .calibration-panel .calibration-detail-label {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
+html[data-theme="light"] .calibration-panel .snippet-stat-card strong,
+html[data-theme="light"] .calibration-panel .impact-summary-card strong,
+html[data-theme="light"] .calibration-panel .impact-log-title strong,
+html[data-theme="light"] .calibration-panel .impact-log-head h4,
+html[data-theme="light"] .calibration-panel .source-trace-head h4,
+html[data-theme="light"] .calibration-panel .snippet-card-head h3,
+html[data-theme="light"] .calibration-panel .calibration-detail-value {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+html[data-theme="light"] .calibration-panel .snippet-stat-card small,
+html[data-theme="light"] .calibration-panel .impact-summary-card small,
+html[data-theme="light"] .calibration-panel .form-section-title small,
+html[data-theme="light"] .calibration-panel .impact-log-main p {
+  color: #334155 !important;
+  -webkit-text-fill-color: #334155 !important;
+}
 `}</style>
     </section>
   );
