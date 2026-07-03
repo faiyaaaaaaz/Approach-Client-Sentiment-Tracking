@@ -524,3 +524,95 @@ html[data-theme="light"] .donut {
     radial-gradient(circle at 50% 50%, rgba(99,91,255,.06), transparent 64%) !important;
   box-shadow: 0 16px 36px rgba(15,23,42,.12) !important;
 }
+
+/* ============================================================================
+   ADMIN SIDEBAR COLLAPSE + LOADER LOGOS  (full-audit pass 2)
+   These live in globals.css on purpose so they take effect from a single file.
+   Specificity is raised (html ... + !important) so they override the styles
+   injected by the AppShellClient / page components.
+   ============================================================================ */
+
+/* ROOT CAUSE of the per-character sidebar wrap: a decorative dot was injected
+   as ::before on each admin link. Because the link is a CSS grid, that dot
+   became the first grid cell, pushing the icon into the text's column and
+   forcing the label into a ~30px column (one letter per line). Kill the dot,
+   then pin a clean [icon][text] grid with whole-word wrapping. */
+html .admin-subnav-link::before,
+html .admin-subnav a::before {
+  content: none !important;
+  display: none !important;
+}
+html .admin-subnav-link,
+html .admin-subnav a {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 9px !important;
+  padding: 7px 12px 7px 8px !important;
+}
+html .admin-subnav-link span:not(.nav-link-icon),
+html .admin-subnav a span:not(.nav-link-icon) {
+  min-width: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: normal !important;
+  word-break: keep-all !important;
+  hyphens: none !important;
+  text-overflow: clip !important;
+  overflow: visible !important;
+}
+/* keep the icon tile from being squeezed */
+html .admin-subnav-link .nav-link-icon,
+html .admin-subnav a .nav-link-icon {
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 auto !important;
+}
+
+/* Loader logo (dashboard): was a dark navy square that stayed dark on the
+   white light-mode card, so the lightning glyph vanished. Make it the brand
+   tile with a white glyph, matching the header logo. */
+html[data-theme="light"] .dashboard-loader-logo {
+  background: linear-gradient(145deg, #635BFF, #4E36F5) !important;
+  border-color: rgba(99, 91, 255, 0.30) !important;
+  color: #ffffff !important;
+  box-shadow: 0 18px 44px rgba(99, 91, 255, 0.28) !important;
+}
+html[data-theme="light"] .dashboard-loader-logo svg { color: #ffffff !important; fill: #ffffff !important; }
+
+/* Loader visual (results): same treatment so it reads as an intentional brand
+   tile instead of an empty faint square. Draw the glyph via a mask so no markup
+   change is needed. */
+html[data-theme="light"] .results-loading-card .results-loader-visual {
+  position: relative !important;
+  background: linear-gradient(145deg, #635BFF, #4E36F5) !important;
+  border-color: rgba(99, 91, 255, 0.30) !important;
+  box-shadow: 0 18px 44px rgba(99, 91, 255, 0.28) !important;
+}
+html[data-theme="light"] .results-loading-card .results-loader-visual::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  margin: auto !important;
+  width: 82px !important;
+  height: 82px !important;
+  display: block !important;
+  background: #ffffff !important;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M35 6L15 35H29L23 58L49 25H34L35 6Z'/%3E%3C/svg%3E") center / contain no-repeat !important;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M35 6L15 35H29L23 58L49 25H34L35 6Z'/%3E%3C/svg%3E") center / contain no-repeat !important;
+}
+
+/* Avatar images: if the source fails to load, hide the browser's broken-image
+   alt/glyph so the tile shows its gradient instead of an ugly box. (Full
+   removal also comes from the onError handler in the components.) */
+html .dashboard-welcome-avatar img,
+html .profile-avatar img {
+  color: transparent !important;
+  font-size: 0 !important;
+  text-indent: -9999px !important;
+  overflow: hidden !important;
+}
+
+/* Reduce the deep nested indentation of the admin sub-nav so labels get more
+   width (kept here so it applies without editing the component file). */
+html .admin-subnav { margin-left: 6px !important; padding-left: 8px !important; }
+html .admin-subnav-group { padding-left: 8px !important; }
