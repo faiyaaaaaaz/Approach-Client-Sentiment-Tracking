@@ -8977,4 +8977,132 @@ html[data-theme="light"] .run-multi-menu,html[data-theme="light"] .run-date-popo
     max-width: calc(100vw - 48px) !important;
   }
 }
+
+
+/* FINAL CONTRAST: Run Audit workflow/readiness cards */
+.run-page .workflow-step,
+.run-page .compact-readiness-stack .workflow-step {
+  background: var(--raised) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+.run-page .workflow-step.active,
+.run-page .compact-readiness-stack .workflow-step.active {
+  background: var(--brand-soft) !important;
+  border-color: rgba(99,91,255,.35) !important;
+}
+.run-page .workflow-step.done,
+.run-page .compact-readiness-stack .workflow-step.done {
+  background: rgba(13,136,56,.10) !important;
+  border-color: rgba(13,136,56,.28) !important;
+}
+.run-page .workflow-step strong,
+.run-page .compact-readiness-stack .workflow-step strong {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  opacity: 1 !important;
+}
+.run-page .workflow-step p,
+.run-page .compact-readiness-stack .workflow-step p {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+}
+.run-page .workflow-dot,
+.run-page .compact-readiness-stack .workflow-dot {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] .run-page .workflow-step,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-step {
+  background: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+}
+html[data-theme="light"] .run-page .workflow-step.active,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-step.active {
+  background: #EEF2FF !important;
+  border-color: #BFC6FF !important;
+}
+html[data-theme="light"] .run-page .workflow-step.done,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-step.done {
+  background: #ECFDF3 !important;
+  border-color: #A7F3D0 !important;
+}
+html[data-theme="light"] .run-page .workflow-step strong,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-step strong { color: #111827 !important; -webkit-text-fill-color: #111827 !important; }
+html[data-theme="light"] .run-page .workflow-step p,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-step p { color: #334155 !important; -webkit-text-fill-color: #334155 !important; }
+html[data-theme="light"] .run-page .workflow-dot,
+html[data-theme="light"] .run-page .compact-readiness-stack .workflow-dot { background: #F8FAFC !important; color: #1F2937 !important; -webkit-text-fill-color: #1F2937 !important; }
+
+
+/* GLOBAL CONTRAST HARDENING PASS — readable on dark and light */
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(h1,h2,h3,h4,strong,b,.title,.section-title,.card-title,.metric-value,.stat-value) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(p,small,label,.muted,.helper,.subtle,.description,.eyebrow,.mini-label,.section-eyebrow) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button,a,input,select,textarea) {
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.surface-card,.panel,.card,.stat-card,.kpi-card,.readiness-card,.workflow-step,.snippet-card,.impact-card,.activity-card,.table-panel,.import-panel,.loading-panel,.results-loading-card,.dashboard-loader-card) {
+  color: #111827 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.soft-success,.soft-info,.soft-warning,.soft-danger,.success-card,.notice-card,.warning-card,.danger-card) {
+  color: #111827 !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon,[class*="help"],[class*="info"] > .info-tip) {
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon) {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.mini-dispute-btn,.dispute-btn,.danger-btn,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  opacity: 1 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  background: #FFFFFF !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border-color: #FDA4AF !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: rgba(255,90,99,.10) !important;
+  color: #FF8A91 !important;
+  -webkit-text-fill-color: #FF8A91 !important;
+  border-color: rgba(255,90,99,.35) !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  opacity: .78 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
 `;
