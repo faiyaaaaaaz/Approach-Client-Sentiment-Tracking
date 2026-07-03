@@ -9,6 +9,14 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" translate="yes">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('theme');var d=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var useDark=t?t==='dark':d;document.documentElement.setAttribute('data-theme',useDark?'dark':'light');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();",
+          }}
+        />
+      </head>
       <body translate="yes">
         <AppShellClient>{children}</AppShellClient>
       </body>
