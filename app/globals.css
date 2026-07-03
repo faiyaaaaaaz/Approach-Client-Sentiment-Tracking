@@ -127,3 +127,75 @@ code, pre, .notranslate, .conversation-id-result-wrap, .run-id-box, .file-box, .
 @keyframes skeletonShimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 .skeleton { position: relative; overflow: hidden; background: var(--bg-skeleton); border-radius: 10px; }
 .skeleton::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 0%, var(--bg-skeleton-shine) 50%, transparent 100%); animation: skeletonShimmer 1.6s ease-in-out infinite; }
+
+
+/* FINAL GLOBAL CONTRAST SAFETY NET */
+html[data-theme="light"] { --subtle: #64748B; --muted: #334155; }
+html[data-theme="dark"] { --subtle: #93A1B8; --muted: #CBD5E1; }
+button:disabled { opacity: .78; }
+
+
+/* GLOBAL CONTRAST HARDENING PASS — readable on dark and light */
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(h1,h2,h3,h4,strong,b,.title,.section-title,.card-title,.metric-value,.stat-value) {
+  color: var(--text) !important;
+  -webkit-text-fill-color: var(--text) !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(p,small,label,.muted,.helper,.subtle,.description,.eyebrow,.mini-label,.section-eyebrow) {
+  color: var(--muted) !important;
+  -webkit-text-fill-color: var(--muted) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button,a,input,select,textarea) {
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.surface-card,.panel,.card,.stat-card,.kpi-card,.readiness-card,.workflow-step,.snippet-card,.impact-card,.activity-card,.table-panel,.import-panel,.loading-panel,.results-loading-card,.dashboard-loader-card) {
+  color: #111827 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.soft-success,.soft-info,.soft-warning,.soft-danger,.success-card,.notice-card,.warning-card,.danger-card) {
+  color: #111827 !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon,[class*="help"],[class*="info"] > .info-tip) {
+  color: var(--info) !important;
+  -webkit-text-fill-color: var(--info) !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.info-tip,.info-tip-mark,.help-icon,.hint-icon) {
+  background: #EAF2FF !important;
+  border-color: #BFD7FF !important;
+  color: #185ABC !important;
+  -webkit-text-fill-color: #185ABC !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.mini-dispute-btn,.dispute-btn,.danger-btn,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  opacity: 1 !important;
+  font-weight: 800 !important;
+  text-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.jump-top,.secondary-btn,.ghost-btn,.small-btn,.drill-btn) {
+  background: #FFFFFF !important;
+  color: #181B26 !important;
+  -webkit-text-fill-color: #181B26 !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: none !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: #FFF1F2 !important;
+  color: #B42318 !important;
+  -webkit-text-fill-color: #B42318 !important;
+  border-color: #FDA4AF !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(.mini-dispute-btn,.dispute-btn,.danger-btn) {
+  background: rgba(255,90,99,.10) !important;
+  color: #FF8A91 !important;
+  -webkit-text-fill-color: #FF8A91 !important;
+  border-color: rgba(255,90,99,.35) !important;
+}
+:where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  opacity: .78 !important;
+}
+html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-page,.app-shell-root) :is(button:disabled,.disabled,[aria-disabled="true"]) {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
