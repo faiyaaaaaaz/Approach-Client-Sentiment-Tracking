@@ -2974,9 +2974,8 @@ const appShellStyles = `
 .admin-subnav { margin: 10px 0 0 6px !important; padding: 8px 0 0 8px !important; border-left: 1px solid var(--border) !important; }
 .admin-subnav-group { margin: 10px 0 !important; }
 .admin-subnav a { border-radius: 10px !important; color: var(--muted) !important; min-height: 34px !important; background: transparent !important; border: 1px solid transparent !important; }
-.admin-subnav a::before { content:""; width:6px; height:6px; border-radius:999px; background: var(--subtle); opacity:.55; }
+.admin-subnav a::before { content:none !important; display:none !important; }
 .admin-subnav a.active { color: var(--text) !important; background: var(--brand-soft) !important; border-color: rgba(99,91,255,.22) !important; }
-.admin-subnav a.active::before { background: var(--brand); opacity: 1; }
 .theme-toggle-btn, .hamburger-btn, .signout-btn { width: 40px !important; height: 40px !important; border-radius: 12px !important; background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
 .theme-toggle-btn:hover, .hamburger-btn:hover, .signout-btn:hover { background: var(--hover) !important; }
 .profile-button { border: 1px solid var(--border) !important; background: var(--card) !important; border-radius: 999px !important; box-shadow: none !important; color: var(--text) !important; }
