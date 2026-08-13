@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const REVIEW_STATUS_OPTIONS = new Set([
   "Likely Negative Review",
   "Likely Positive Review",
