@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const SESSION_TIMEOUT_MS = 8000;
 const PROFILE_TIMEOUT_MS = 10000;
 
@@ -107,7 +107,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
 
 function isPlatformOwner(profile, session) {
   const email = normalizeEmail(profile?.email || session?.user?.email);
-  return email === MASTER_ADMIN_EMAIL;
+  return Boolean(MASTER_ADMIN_EMAIL && email === MASTER_ADMIN_EMAIL);
 }
 
 function getRoleKey(profile) {
@@ -179,7 +179,7 @@ function normalizeText(value) {
 function buildFallbackProfile(user) {
   const email = normalizeEmail(user?.email);
 
-  if (email === MASTER_ADMIN_EMAIL) {
+  if (MASTER_ADMIN_EMAIL && email === MASTER_ADMIN_EMAIL) {
     return {
       id: user.id,
       email,
@@ -208,7 +208,7 @@ function buildFallbackProfile(user) {
 }
 
 function roleLabel(role, email = "") {
-  if (normalizeEmail(email) === MASTER_ADMIN_EMAIL) return "Platform Owner";
+  if (MASTER_ADMIN_EMAIL && normalizeEmail(email) === MASTER_ADMIN_EMAIL) return "Platform Owner";
 
   const value = String(role || "viewer").replaceAll("_", " ");
 
