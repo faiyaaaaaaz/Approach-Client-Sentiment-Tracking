@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-const PLATFORM_OWNER_EMAIL = "faiyaz@nextventures.io";
+const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 function normalizeText(value, fallback = "") {
   const text = String(value ?? "").trim();
@@ -60,7 +60,7 @@ function isActiveProfile(profile) {
 }
 
 function isPlatformOwner(profile) {
-  return normalizeEmail(profile?.email) === PLATFORM_OWNER_EMAIL || profile?.access_tier === "platform_owner";
+  return Boolean(PLATFORM_OWNER_EMAIL && normalizeEmail(profile?.email) === PLATFORM_OWNER_EMAIL) || profile?.access_tier === "platform_owner";
 }
 
 function resultMatchesOwnProfile(profile, result) {
