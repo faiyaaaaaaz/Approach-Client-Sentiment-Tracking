@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const PLATFORM_OWNER_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const INTERCOM_PER_PAGE = 150;
 const MAX_FETCH_PAGES_PER_DAY = 50;
@@ -44,7 +47,7 @@ async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) 
     throw new Error(error.message || `Could not load active ${displayName} API key.`);
   }
 
-  const savedSecret = String(data?.[0]?.secret_value || "").trim();
+  const savedSecret = decryptSecret(data?.[0]?.secret_value);
 
   if (savedSecret) {
     return {
@@ -165,7 +168,7 @@ async function readActiveRoleGrant(adminClient, email) {
 function buildFallbackProfile(user) {
   const email = normalizeEmail(user?.email);
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
@@ -183,7 +186,7 @@ function resolveEffectiveProfile({ user, email, profileData, grant }) {
   const fallbackProfile = buildFallbackProfile(user);
   const baseProfile = profileData || fallbackProfile;
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       ...(baseProfile || {}),
       id: user.id,
