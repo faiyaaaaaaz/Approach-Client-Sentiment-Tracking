@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PAGE_SIZE = 1000;
 const MAX_REPORT_ROWS = 50000;
@@ -157,7 +158,7 @@ async function loadActiveOpenAiKey(adminClient) {
     throw new Error(error.message || "Could not load active OpenAI API key.");
   }
 
-  const savedKey = normalizeText(data?.[0]?.secret_value);
+  const savedKey = decryptSecret(data?.[0]?.secret_value);
   if (savedKey) return savedKey;
 
   const fallbackKey = getEnv("OPENAI_API_KEY");
