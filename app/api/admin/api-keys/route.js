@@ -1,10 +1,11 @@
 import { createHash } from "crypto";
+import { encryptSecret } from "../../../../lib/secretVault";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const ALLOWED_KEY_TYPES = ["intercom", "openai"];
 
 function json(data, init = {}) {
@@ -353,7 +354,7 @@ export async function POST(request) {
         {
           key_type: keyType,
           key_label: keyLabel,
-          secret_value: secretValue,
+          secret_value: encryptSecret(secretValue),
           masked_value: maskedValue,
           fingerprint,
           is_active: makeActive,
