@@ -7,7 +7,7 @@ import { supabase } from "../../lib/supabase";
 import CalibrationSnippetsPanel from "../components/CalibrationSnippetsPanel";
 import OverviewReportPanel from "../components/OverviewReportPanel";
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const TIMEOUT_MS = 10000;
 
 const ROLE_OPTIONS = [
@@ -842,7 +842,7 @@ function AdminActivityDateRangePicker({ startDate, endDate, presetKey, onApplyPr
 function buildFallbackProfile(user) {
   const email = normalizeEmail(user?.email);
 
-  if (email === MASTER_ADMIN_EMAIL) {
+  if (MASTER_ADMIN_EMAIL && email === MASTER_ADMIN_EMAIL) {
     return {
       id: user.id,
       email,
@@ -934,7 +934,7 @@ function apiTypeLabel(keyType) {
 }
 
 function roleLabel(role, email = "") {
-  if (normalizeEmail(email) === MASTER_ADMIN_EMAIL || role === "platform_owner") return "Platform Owner";
+  if ((MASTER_ADMIN_EMAIL && normalizeEmail(email) === MASTER_ADMIN_EMAIL) || role === "platform_owner") return "Platform Owner";
 
   const found = ROLE_OPTIONS.find((item) => item.value === role);
   if (found) return found.label;
@@ -953,7 +953,7 @@ function roleDescription(role) {
 }
 
 function isPlatformOwner(profile, session = null) {
-  return normalizeEmail(profile?.email || session?.user?.email) === MASTER_ADMIN_EMAIL;
+  return Boolean(MASTER_ADMIN_EMAIL && normalizeEmail(profile?.email || session?.user?.email) === MASTER_ADMIN_EMAIL);
 }
 
 function getRoleKey(profile) {
@@ -4937,8 +4937,8 @@ function AdminPageContent() {
             <div className="owner-lock-card">
               <div>
                 <p className="eyebrow">Platform Owner Lock</p>
-                <h3>faiyaz@nextventures.io is the permanent owner.</h3>
-                <p className="muted">This owner access is not editable from the app. API Vault and Roles & Permissions remain owner-locked even above Master Admin.</p>
+                <h3>The configured platform owner is protected.</h3>
+                <p className="muted">Owner access is configured during deployment. API Vault and Roles & Permissions remain owner-restricted.</p>
               </div>
               <span className="status active">Owner Protected</span>
             </div>
