@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 import DisputeVerdictButton, { canUserDisputeResult } from "../components/DisputeVerdictButton";
 import MasterVerdictEditButton from "../components/MasterVerdictEditButton";
 
+const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
+
 const INTERCOM_CONVERSATION_URL_PREFIX =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
 const RESULTS_CACHE_PREFIX = "cx-insights-results-cache";
@@ -843,7 +845,7 @@ function ResultsDateRangePicker({ startDate, endDate, selectedDatePreset, onAppl
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
