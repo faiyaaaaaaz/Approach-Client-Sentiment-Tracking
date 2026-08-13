@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const MAX_LIMIT = 1000;
 
 const ALLOWED_CLIENT_ACTIONS = new Set([
