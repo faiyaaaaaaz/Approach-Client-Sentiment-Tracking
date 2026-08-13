@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ const INTERCOM_PER_PAGE = 150;
 const MAX_PAGES_PER_CALL = 2;
 const MAX_PAGES_PER_DATE = 80;
 const DEFAULT_CONVERSATION_RATINGS = [3, 4, 5];
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -200,7 +201,7 @@ async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) 
     throw new Error(error.message || `Could not load active ${displayName} API key.`);
   }
 
-  const savedSecret = String(data?.[0]?.secret_value || "").trim();
+  const savedSecret = decryptSecret(data?.[0]?.secret_value);
 
   if (savedSecret) {
     return {
