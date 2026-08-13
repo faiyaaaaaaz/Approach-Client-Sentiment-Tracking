@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
 
+const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
+
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
 const AUDIT_BATCH_SIZE = 8;
 const LARGE_FETCH_LIMIT_THRESHOLD = 250;
@@ -414,7 +416,7 @@ function RunDateRangePicker({ startDate, endDate, selectedDatePreset, selectedPr
 function buildFallbackProfile(user) {
   const email = user?.email?.toLowerCase() || "";
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
