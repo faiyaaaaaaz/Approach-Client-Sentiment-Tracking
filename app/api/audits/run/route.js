@@ -1,9 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const PLATFORM_OWNER_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PROMPT_KEY = "audit_review_prompt";
@@ -259,7 +262,7 @@ async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) 
     throw new Error(error.message || `Could not load active ${displayName} API key.`);
   }
 
-  const savedSecret = String(data?.[0]?.secret_value || "").trim();
+  const savedSecret = decryptSecret(data?.[0]?.secret_value);
 
   if (savedSecret) {
     return {
@@ -517,7 +520,7 @@ function resolveEffectiveProfile({ user, email, profileData, grant }) {
   const fallbackProfile = buildFallbackProfile(user);
   const baseProfile = profileData || fallbackProfile;
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       ...(baseProfile || {}),
       id: user.id,
@@ -583,7 +586,7 @@ async function writeActivityLog(adminClient, request, payload) {
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
