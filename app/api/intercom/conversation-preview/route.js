@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -527,7 +528,7 @@ async function loadActiveApiKey(adminClient) {
     throw new Error(error.message || "Could not load Intercom API key.");
   }
 
-  const savedSecret = normalizeText(data?.[0]?.secret_value);
+  const savedSecret = decryptSecret(data?.[0]?.secret_value);
   const envSecret = getEnv("INTERCOM_API_KEY") || getEnv("INTERCOM_TOKEN");
   const secret = savedSecret || envSecret;
 
