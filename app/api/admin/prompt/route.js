@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const PROMPT_KEY = "audit_review_prompt";
+const PLATFORM_OWNER_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const ORIGINAL_TRUSTED_PROMPT = `You are auditing FundedNext support conversations.
 
@@ -411,14 +412,14 @@ function buildActorPayload(auth) {
       normalizeText(auth?.user?.user_metadata?.name) ||
       auth?.email ||
       "",
-    actor_role: auth?.email === "faiyaz@nextventures.io" ? "master_admin" : auth?.profile?.role || "viewer",
+    actor_role: PLATFORM_OWNER_EMAIL && auth?.email === PLATFORM_OWNER_EMAIL ? "master_admin" : auth?.profile?.role || "viewer",
   };
 }
 
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
