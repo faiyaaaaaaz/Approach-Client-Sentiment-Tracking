@@ -7,6 +7,7 @@ export const maxDuration = 60;
 
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 const DEFAULT_DUPLICATE_MODE = "skip_existing";
+const PLATFORM_OWNER_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const IGNORED_SHEET_NAMES = new Set([
   "sources",
@@ -35,7 +36,7 @@ function getEnv(name) {
 function buildFallbackProfile(user) {
   const email = String(user?.email || "").toLowerCase();
 
-  if (email === "faiyaz@nextventures.io") {
+  if (PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL) {
     return {
       id: user.id,
       email,
@@ -88,7 +89,7 @@ async function writeActivityLog(adminClient, request, auth, payload) {
         normalizeText(user?.user_metadata?.name) ||
         email ||
         null,
-      actor_role: email === "faiyaz@nextventures.io" ? "master_admin" : normalizeText(profile?.role) || "viewer",
+      actor_role: PLATFORM_OWNER_EMAIL && email === PLATFORM_OWNER_EMAIL ? "master_admin" : normalizeText(profile?.role) || "viewer",
       action_type: normalizeText(payload.action_type) || "results_import_action",
       action_label: normalizeText(payload.action_label) || "Results Import Action",
       area: normalizeText(payload.area) || "Results",
