@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { decryptSecret } from "../../../../lib/secretVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MASTER_ADMIN_EMAIL = "faiyaz@nextventures.io";
+const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const OPENAI_MODEL = "gpt-4.1-mini";
 
 function json(data, init = {}) {
@@ -93,7 +94,7 @@ async function loadActiveApiKey({ adminClient, keyType, envName, displayName }) 
     .limit(1);
 
   if (error && error.code !== "42P01") throw new Error(error.message || `Could not load active ${displayName} API key.`);
-  const savedSecret = String(data?.[0]?.secret_value || "").trim();
+  const savedSecret = decryptSecret(data?.[0]?.secret_value);
   if (savedSecret) return savedSecret;
   const fallbackSecret = getEnv(envName);
   if (fallbackSecret) return fallbackSecret;
