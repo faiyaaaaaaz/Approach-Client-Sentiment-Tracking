@@ -9,10 +9,8 @@ const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim()
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PAGE_SIZE = 1000;
 const MAX_REPORT_ROWS = 50000;
-const MAX_ACTIVITY_ROWS = 50000;
 const POSITIVE_MISSED_SENTIMENTS = ["Very Positive", "Positive", "Slightly Positive"];
 const CEX_TEAM_NAME = "CEx";
-const PERFORMANCE_PAGE_PATHS = new Set(["/", "/results"]);
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -302,100 +300,69 @@ async function fetchAuditRows(adminClient) {
   return allRows;
 }
 
-function chunkArray(items, size = 100) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
-}
-
-async function fetchRowsForEmails({ adminClient, table, select, emails, emailColumn = "email", orderColumn, configureQuery }) {
-  const normalizedEmails = Array.from(new Set((emails || []).map(normalizeEmail).filter(Boolean)));
-  const allRows = [];
-
-  for (const emailChunk of chunkArray(normalizedEmails, 100)) {
-    let from = 0;
-
-    while (from < MAX_ACTIVITY_ROWS) {
-      let query = adminClient
-        .from(table)
-        .select(select)
-        .in(emailColumn, emailChunk)
-        .order(orderColumn, { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (configureQuery) query = configureQuery(query);
-
-      const { data, error } = await query;
-      if (error) throw new Error(error.message || `Could not load ${table} for the report.`);
-
-      const rows = Array.isArray(data) ? data : [];
-      allRows.push(...rows);
-      if (rows.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-  }
-
-  return allRows;
-}
-
 async function loadAgentActivity(adminClient, emails) {
-  const [sessions, pageViews] = await Promise.all([
-    fetchRowsForEmails({
-      adminClient,
-      table: "user_activity_sessions",
-      select: "email, started_at, last_seen_at",
-      emails,
-      orderColumn: "last_seen_at",
-    }),
-    fetchRowsForEmails({
-      adminClient,
-      table: "system_activity_logs",
-      select: "actor_email, action_type, target_id, created_at",
-      emails,
-      emailColumn: "actor_email",
-      orderColumn: "created_at",
-      configureQuery: (query) => query.eq("action_type", "page_viewed"),
-    }),
-  ]);
-
+  const normalizedEmails = Array.from(new Set((emails || []).map(normalizeEmail).filter(Boolean)));
   const activityByEmail = new Map();
-  const ensure = (email) => {
-    const key = normalizeEmail(email);
-    if (!key) return null;
-    if (!activityByEmail.has(key)) {
-      activityByEmail.set(key, {
-        email: key,
-        lastSignedInAt: null,
-        lastSeenAt: null,
-        lastDashboardVisitAt: null,
-        lastResultsVisitAt: null,
-        lastPerformanceCheckAt: null,
+
+  let cursor = 0;
+  const workerCount = Math.min(6, normalizedEmails.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < normalizedEmails.length) {
+      const email = normalizedEmails[cursor];
+      cursor += 1;
+
+      const [sessionResult, dashboardResult, resultsResult] = await Promise.all([
+        adminClient
+          .from("user_activity_sessions")
+          .select("started_at, last_seen_at")
+          .eq("email", email)
+          .order("last_seen_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        adminClient
+          .from("system_activity_logs")
+          .select("created_at")
+          .eq("actor_email", email)
+          .eq("action_type", "page_viewed")
+          .eq("target_id", "/")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        adminClient
+          .from("system_activity_logs")
+          .select("created_at")
+          .eq("actor_email", email)
+          .eq("action_type", "page_viewed")
+          .eq("target_id", "/results")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const queryError = sessionResult.error || dashboardResult.error || resultsResult.error;
+      if (queryError) throw new Error(queryError.message || `Could not load activity for ${email}.`);
+
+      const lastDashboardVisitAt = toDate(dashboardResult.data?.created_at)?.toISOString() || null;
+      const lastResultsVisitAt = toDate(resultsResult.data?.created_at)?.toISOString() || null;
+      const dashboardDate = toDate(lastDashboardVisitAt);
+      const resultsDate = toDate(lastResultsVisitAt);
+      const lastPerformanceCheckAt =
+        dashboardDate && resultsDate
+          ? (dashboardDate > resultsDate ? dashboardDate : resultsDate).toISOString()
+          : (dashboardDate || resultsDate)?.toISOString() || null;
+
+      activityByEmail.set(email, {
+        email,
+        lastSignedInAt: toDate(sessionResult.data?.started_at)?.toISOString() || null,
+        lastSeenAt: toDate(sessionResult.data?.last_seen_at || sessionResult.data?.started_at)?.toISOString() || null,
+        lastDashboardVisitAt,
+        lastResultsVisitAt,
+        lastPerformanceCheckAt,
       });
     }
-    return activityByEmail.get(key);
-  };
+  });
 
-  const useLatest = (current, candidate) => {
-    const candidateDate = toDate(candidate);
-    const currentDate = toDate(current);
-    return candidateDate && (!currentDate || candidateDate > currentDate) ? candidateDate.toISOString() : current;
-  };
-
-  for (const session of sessions) {
-    const activity = ensure(session?.email);
-    if (!activity) continue;
-    activity.lastSignedInAt = useLatest(activity.lastSignedInAt, session?.started_at);
-    activity.lastSeenAt = useLatest(activity.lastSeenAt, session?.last_seen_at || session?.started_at);
-  }
-
-  for (const view of pageViews) {
-    const activity = ensure(view?.actor_email || view?.email);
-    const path = normalizeText(view?.target_id).split("?")[0] || "/";
-    if (!activity || !PERFORMANCE_PAGE_PATHS.has(path)) continue;
-    if (path === "/") activity.lastDashboardVisitAt = useLatest(activity.lastDashboardVisitAt, view?.created_at);
-    if (path === "/results") activity.lastResultsVisitAt = useLatest(activity.lastResultsVisitAt, view?.created_at);
-    activity.lastPerformanceCheckAt = useLatest(activity.lastPerformanceCheckAt, view?.created_at);
-  }
+  await Promise.all(workers);
 
   return activityByEmail;
 }
@@ -1115,7 +1082,23 @@ export async function POST(request) {
       loadActiveOpenAiKey(auth.adminClient),
     ]);
 
-    const agentEmails = rows.map((row) => normalizeEmail(row?.employee_email)).filter(Boolean);
+    const reportStart = dateAtDhakaBoundary(startDate, false);
+    const reportEnd = dateAtDhakaBoundary(endDate, true);
+    const agentEmails = rows
+      .filter((row) => {
+        const analyticsDate = toDate(getAnalyticsDate(row));
+        return (
+          analyticsDate &&
+          analyticsDate >= reportStart &&
+          analyticsDate <= reportEnd &&
+          !normalizeText(row?.error) &&
+          isCexTeam(getResolvedTeamName(row, supervisorLookup)) &&
+          sameText(row?.review_sentiment, "Missed Opportunity") &&
+          POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment))
+        );
+      })
+      .map((row) => normalizeEmail(row?.employee_email))
+      .filter(Boolean);
     const activityByEmail = await loadAgentActivity(auth.adminClient, agentEmails);
 
     const summary = buildReportSummary(rows, {
