@@ -2815,6 +2815,13 @@ export default function DashboardPage() {
     let active = true;
     let requestId = 0;
     let hasLoadedFreshRows = false;
+    let authenticatedUserId = "";
+    let initializationInProgress = true;
+    const loaderWatchdogId = window.setTimeout(() => {
+      if (!active || hasLoadedFreshRows) return;
+      setLoading(false);
+      setError("Dashboard data is taking too long to load. Please refresh the page; it will not remain stuck on the loading screen.");
+    }, 45000);
 
     async function loadRowsForSession(activeSession, options = {}) {
       const showLoader = options.showLoader !== false;
@@ -2931,15 +2938,20 @@ export default function DashboardPage() {
       try {
         const sessionResult = await supabase.auth.getSession();
         const currentSession = sessionResult?.data?.session || null;
+        authenticatedUserId = currentSession?.user?.id || "";
         if (active) setDashboardSession(currentSession);
         await loadRowsForSession(currentSession, { showLoader: true, fast: true });
-        if (active) loadRowsForSession(currentSession, { showLoader: false, preserveUi: true });
+        if (active && hasLoadedFreshRows) {
+          loadRowsForSession(currentSession, { showLoader: false, preserveUi: true });
+        }
       } catch (_error) {
         if (!active) return;
         setRawRows([]);
         setSupervisorTeams([]);
         setError("Could not complete Dashboard session check.");
         setLoading(false);
+      } finally {
+        initializationInProgress = false;
       }
     }
 
@@ -2949,6 +2961,12 @@ export default function DashboardPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
+      const nextUserId = newSession?.user?.id || "";
+      const isDuplicateSignedIn =
+        event === "SIGNED_IN" &&
+        Boolean(nextUserId) &&
+        (nextUserId === authenticatedUserId || initializationInProgress);
+      authenticatedUserId = nextUserId;
       setDashboardSession(newSession || null);
 
       if (!newSession?.access_token) {
@@ -2963,13 +2981,15 @@ export default function DashboardPage() {
         return;
       }
 
-      const isQuietRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
+      const isQuietRefresh =
+        event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || isDuplicateSignedIn;
       if (isQuietRefresh) return;
       loadRowsForSession(newSession, { showLoader: !isQuietRefresh && !hasLoadedFreshRows });
     });
 
     return () => {
       active = false;
+      window.clearTimeout(loaderWatchdogId);
       subscription?.unsubscribe?.();
     };
   }, []);
