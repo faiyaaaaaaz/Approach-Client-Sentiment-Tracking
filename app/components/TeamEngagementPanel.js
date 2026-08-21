@@ -70,6 +70,8 @@ export default function TeamEngagementPanel({ session }) {
   const [employees, setEmployees] = useState([]);
   const [cexOnly, setCexOnly] = useState(true);
   const [page, setPage] = useState(1);
+  const [teamDataVersion, setTeamDataVersion] = useState(0);
+  const hasLoadedRef = useRef(false);
   const PAGE_SIZE = 12;
 
   useEffect(() => {
@@ -79,7 +81,7 @@ export default function TeamEngagementPanel({ session }) {
         if (active) setLoading(false);
         return;
       }
-      setLoading(true);
+      if (!hasLoadedRef.current) setLoading(true);
       setError("");
       try {
         const response = await fetch("/api/engagement/dashboard", {
@@ -88,7 +90,7 @@ export default function TeamEngagementPanel({ session }) {
         });
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not load Team Engagement.");
-        if (active) setData(payload);
+        if (active) { setData(payload); hasLoadedRef.current = true; }
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : "Could not load Team Engagement.");
       } finally {
@@ -97,7 +99,18 @@ export default function TeamEngagementPanel({ session }) {
     }
     load();
     return () => { active = false; };
-  }, [session?.access_token]);
+  }, [session?.user?.id, teamDataVersion]);
+
+  useEffect(() => {
+    const refreshTeams = () => setTeamDataVersion((value) => value + 1);
+    const onStorage = (event) => { if (event.key === "supervisor-teams-data-version") refreshTeams(); };
+    window.addEventListener("supervisor-teams-updated", refreshTeams);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("supervisor-teams-updated", refreshTeams);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   const allRows = Array.isArray(data?.rows) ? data.rows : [];
   const supervisorTeamOptions = useMemo(() => Array.from(new Set(allRows.flatMap((row) => row.supervisor_team_names || []))).sort().map((item) => ({ value: item, label: item })), [allRows]);
@@ -113,6 +126,11 @@ export default function TeamEngagementPanel({ session }) {
   }, [allRows, search, supervisorTeams, employees, cexOnly]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const rows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    const validNames = new Set(supervisorTeamOptions.map((option) => option.value));
+    setSupervisorTeams((current) => current.filter((name) => validNames.has(name)));
+  }, [supervisorTeamOptions]);
 
   useEffect(() => { setPage(1); }, [search, supervisorTeams, employees, cexOnly]);
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
