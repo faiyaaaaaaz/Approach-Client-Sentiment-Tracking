@@ -18,6 +18,14 @@ function latest(current, candidate) {
   return b && (!a || b > a) ? b.toISOString() : current || null;
 }
 
+function companyIdentityKey(value) {
+  const email = normalizeServerEmail(value);
+  const [localPart, domain] = email.split("@");
+  return localPart && (domain === "nextventures.io" || domain === "wearenext.io")
+    ? localPart
+    : email;
+}
+
 function dhakaWeekStart() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" })
     .formatToParts(new Date()).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
@@ -41,30 +49,36 @@ export async function GET(request) {
     const mappingError = mappingResult.error || teamResult.error || memberResult.error;
     if (mappingError) throw new Error(mappingError.message || "Could not load the engagement roster.");
     const mappings = mappingResult.data;
-    const teamNamesById = new Map((teamResult.data || []).map((team) => [String(team.id), team.supervisor_name || "Unnamed supervisor team"]));
+    const activeSupervisorTeams = (teamResult.data || []).map((team) => ({
+      id: team.id,
+      name: team.supervisor_name || "Unnamed supervisor team",
+    }));
+    const teamNamesById = new Map(activeSupervisorTeams.map((team) => [String(team.id), team.name]));
     const supervisorTeamsByEmail = new Map();
     for (const member of memberResult.data || []) {
       const email = normalizeServerEmail(member.employee_email);
+      const identityKey = companyIdentityKey(email);
       const teamName = teamNamesById.get(String(member.supervisor_team_id));
       if (!email || !teamName) continue;
-      const names = supervisorTeamsByEmail.get(email) || [];
+      const names = supervisorTeamsByEmail.get(email) || supervisorTeamsByEmail.get(identityKey) || [];
       if (!names.includes(teamName)) names.push(teamName);
       supervisorTeamsByEmail.set(email, names);
+      supervisorTeamsByEmail.set(identityKey, names);
     }
 
     let roster = (Array.isArray(mappings) ? mappings : [])
       .map((row) => {
         const employeeEmail = normalizeServerEmail(row.employee_email);
-        return { ...row, employee_email: employeeEmail, supervisor_team_names: supervisorTeamsByEmail.get(employeeEmail) || [] };
+        return { ...row, employee_email: employeeEmail, supervisor_team_names: supervisorTeamsByEmail.get(employeeEmail) || supervisorTeamsByEmail.get(companyIdentityKey(employeeEmail)) || [] };
       })
       .filter((row) => row.employee_email);
     if (!auth.canViewAllEngagement) roster = roster.filter((row) => row.employee_email === auth.email);
     if (!roster.some((row) => row.employee_email === auth.email) && !auth.canViewAllEngagement) {
-      roster.push({ employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "", supervisor_team_names: supervisorTeamsByEmail.get(auth.email) || [] });
+      roster.push({ employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "", supervisor_team_names: supervisorTeamsByEmail.get(auth.email) || supervisorTeamsByEmail.get(companyIdentityKey(auth.email)) || [] });
     }
 
     const emails = Array.from(new Set(roster.map((row) => row.employee_email)));
-    if (!emails.length) return json({ ok: true, scope: auth.canViewAllEngagement ? "all_agents" : "own", rows: [], summary: {} });
+    if (!emails.length) return json({ ok: true, scope: auth.canViewAllEngagement ? "all_agents" : "own", rows: [], supervisorTeams: activeSupervisorTeams, summary: {} });
 
     const [sessionsResult, viewsResult, resultsResult, statesResult] = await Promise.all([
       auth.adminClient.from("user_activity_sessions").select("email,started_at,last_seen_at").in("email", emails).order("last_seen_at", { ascending: false }).limit(20000),
@@ -135,6 +149,7 @@ export async function GET(request) {
       scope: auth.canViewAllEngagement ? "all_agents" : "own",
       generated_at: now.toISOString(),
       week_started_at: weekStart.toISOString(),
+      supervisorTeams: activeSupervisorTeams,
       rows,
       summary: {
         agents: rows.length,
