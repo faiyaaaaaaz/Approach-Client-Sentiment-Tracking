@@ -2779,6 +2779,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [welcomeIdentity, setWelcomeIdentity] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [dashboardSession, setDashboardSession] = useState(null);
   const [welcomeAlreadyShown, setWelcomeAlreadyShown] = useState(true);
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
@@ -2893,7 +2894,9 @@ export default function DashboardPage() {
     async function initializeDashboard() {
       try {
         const sessionResult = await supabase.auth.getSession();
-        await loadRowsForSession(sessionResult?.data?.session || null, { showLoader: true });
+        const currentSession = sessionResult?.data?.session || null;
+        if (active) setDashboardSession(currentSession);
+        await loadRowsForSession(currentSession, { showLoader: true });
       } catch (_error) {
         if (!active) return;
         setRawRows([]);
@@ -2909,6 +2912,8 @@ export default function DashboardPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
+
+      setDashboardSession(newSession || null);
 
       if (!newSession?.access_token) {
         if (event === "SIGNED_OUT") {
@@ -3296,7 +3301,7 @@ export default function DashboardPage() {
 
         </section>
 
-        <TeamEngagementPanel session={session} />
+        <TeamEngagementPanel session={dashboardSession} />
 
         {loading ? (
           <section className="panel loading-panel">
