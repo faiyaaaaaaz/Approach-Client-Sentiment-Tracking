@@ -791,15 +791,12 @@ export async function POST(request) {
       },
     });
 
-    const payload = await loadFullPayload(adminClient, stages);
-
     return jsonResponse({
       ok: true,
       message: existing?.id
         ? "Supervisor Team updated successfully."
         : "Supervisor Team created successfully.",
       team: savedTeam,
-      ...payload,
       changedBy: profile?.email || null,
       stages,
     });
