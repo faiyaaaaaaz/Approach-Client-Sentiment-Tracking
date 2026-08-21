@@ -1396,25 +1396,27 @@ export default function ResultsPage() {
 
   async function loadStoredResults(activeSession = session, options = {}) {
     const forceRefresh = Boolean(options?.forceRefresh);
+    const fast = Boolean(options?.fast);
+    const merge = Boolean(options?.merge);
+    const preserveUi = Boolean(options?.preserveUi);
     const cacheKey = getResultsCacheKey(activeSession?.user?.email);
     const cached = readClientCache(cacheKey);
     const cacheAge = cached?.savedAt ? Date.now() - cached.savedAt : Number.POSITIVE_INFINITY;
     const hasCachedData = Array.isArray(cached?.results) || Array.isArray(cached?.runs);
     const shouldSkipNetwork = !forceRefresh && hasCachedData && cacheAge <= RESULTS_CACHE_TTL_MS;
 
-    if (hasCachedData) {
+    if (hasCachedData && !preserveUi) {
       setRuns(Array.isArray(cached?.runs) ? cached.runs : []);
       setResults(Array.isArray(cached?.results) ? cached.results : []);
       setSupervisorTeams(Array.isArray(cached?.supervisorTeams) ? cached.supervisorTeams : []);
       setSelectedIds([]);
       setExpandedRows({});
-      setLoading(forceRefresh);
+      setLoading(preserveUi ? false : forceRefresh);
     } else {
-      setLoading(true);
+      if (!preserveUi) setLoading(true);
     }
 
-    setPageError("");
-    setPageSuccess("");
+    if (!preserveUi) { setPageError(""); setPageSuccess(""); }
 
     try {
       if (!activeSession?.access_token) {
@@ -1430,7 +1432,8 @@ export default function ResultsPage() {
         return;
       }
 
-      const response = await fetch("/api/results", {
+      const since = options?.since || new Date(Date.now() - 10 * 86400000).toISOString();
+      const response = await fetch(`/api/results${fast ? `?fast=1&since=${encodeURIComponent(since)}` : ""}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -1453,28 +1456,35 @@ export default function ResultsPage() {
       const activeAgentMappings = await loadActiveAgentMappings();
       const liveMappedResults = applyAgentMappingsToRows(nextResults, activeAgentMappings);
 
-      setRuns(nextRuns);
-      setResults(liveMappedResults);
+      if (merge) {
+        setRuns((current) => {
+          const byId = new Map((current || []).map((run) => [String(run.id), run]));
+          nextRuns.forEach((run) => byId.set(String(run.id), run));
+          return Array.from(byId.values());
+        });
+        setResults((current) => {
+          const byId = new Map((current || []).map((row) => [String(row.id), row]));
+          liveMappedResults.forEach((row) => byId.set(String(row.id), row));
+          return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        });
+      } else {
+        setRuns(nextRuns);
+        setResults(liveMappedResults);
+      }
       setSupervisorTeams(loadedSupervisorTeams);
-      setSelectedIds([]);
-      setExpandedRows({});
-      writeClientCache(cacheKey, {
-        savedAt: Date.now(),
-        runs: nextRuns,
-        results: liveMappedResults,
-        supervisorTeams: loadedSupervisorTeams,
-      });
+      if (!preserveUi) { setSelectedIds([]); setExpandedRows({}); }
+      if (!merge) writeClientCache(cacheKey, { savedAt: Date.now(), runs: nextRuns, results: liveMappedResults, supervisorTeams: loadedSupervisorTeams });
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Could not load stored results.");
+      if (!preserveUi) setPageError(error instanceof Error ? error.message : "Could not load stored results.");
 
-      if (!hasCachedData) {
+      if (!preserveUi && !hasCachedData) {
         setRuns([]);
         setResults([]);
         setSupervisorTeams([]);
         setSelectedIds([]);
       }
     } finally {
-      setLoading(false);
+      if (!preserveUi) setLoading(false);
     }
   }
 
@@ -1506,7 +1516,8 @@ export default function ResultsPage() {
         setAuthMessage(profileResult.message);
         setAuthLoading(false);
 
-        await loadStoredResults(currentSession);
+        await loadStoredResults(currentSession, { fast: true });
+        if (active) loadStoredResults(currentSession, { preserveUi: true });
       } catch (_error) {
         if (!active) return;
         setAuthMessage("Could not complete session check.");
@@ -1556,6 +1567,21 @@ export default function ResultsPage() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) return undefined;
+    let refreshing = false;
+    const refreshRecent = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        await loadStoredResults(session, { fast: true, merge: true, preserveUi: true, since: new Date(Date.now() - 3 * 86400000).toISOString() });
+      } finally { refreshing = false; }
+    };
+    const intervalId = window.setInterval(refreshRecent, 60 * 1000);
+    window.addEventListener("focus", refreshRecent);
+    return () => { window.clearInterval(intervalId); window.removeEventListener("focus", refreshRecent); };
+  }, [session?.access_token]);
 
   useEffect(() => {
     function handleClickOutside(event) {
