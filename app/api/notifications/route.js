@@ -51,7 +51,22 @@ export async function GET(request) {
       .order("created_at", { ascending: false })
       .limit(80);
     if (error) throw new Error(error.message || "Could not load notifications.");
-    const notifications = Array.isArray(data) ? data : [];
+    const notifications = (Array.isArray(data) ? data : []).map((item) => {
+      const conversationId = String(item.conversation_id || "").trim();
+      const resultId = String(item.result_id || "").trim();
+      const isAgentMiss = ["new_missed_approach", "unopened_miss_reminder"].includes(item.notification_type);
+      const isTeamMiss = item.notification_type === "team_new_missed_approach";
+      if ((!isAgentMiss && !isTeamMiss) || !conversationId) return item;
+      const employee = String(item.metadata?.employee_name || item.metadata?.employee_email || "A team member").trim();
+      return {
+        ...item,
+        title: isTeamMiss ? "Team missed approach waiting for review" : "Missed review approach waiting for review",
+        message: isTeamMiss
+          ? `${employee} has a missed review approach waiting for review on conversation ${conversationId}.`
+          : `Missed review approach waiting for review on conversation ${conversationId}.`,
+        href: `/?previewConversation=${encodeURIComponent(conversationId)}${resultId ? `&resultId=${encodeURIComponent(resultId)}` : ""}`,
+      };
+    });
     return json({ ok: true, notifications, unread_count: notifications.filter((item) => !item.read_at).length });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : "Could not load notifications." }, { status: 500 });
