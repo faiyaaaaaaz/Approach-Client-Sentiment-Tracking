@@ -731,3 +731,12 @@ html[data-theme="dark"] .dashboard-page .panel { border-color: rgba(255,255,255,
   html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-body { grid-template-columns: 1fr !important; overflow:auto!important; }
   html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-loaded { overflow:auto!important; }
 }
+
+/* Results first-load feedback: the previous global reset accidentally hid the
+   loader's moving parts and made the screen appear frozen. */
+html body .results-loading-card .results-loader-visual { display:block !important; }
+html body .results-loading-card :is(.results-loader-glow,.results-loader-ring,.results-loader-dot) { display:block !important; }
+html body .results-loading-card .results-loader-gear { display:none !important; }
+html body .results-loading-card .results-loader-ring.ring-one { border-width:3px !important; border-top-color:var(--brand) !important; animation:resultsGearSpin 1.2s linear infinite !important; }
+html body .results-loading-card .results-loader-ring.ring-two { animation:resultsGearSpinReverse 1.8s linear infinite !important; }
+html body .results-loading-card .results-loading-bar b { animation:resultsLoadingBar 1.8s ease-in-out infinite !important; }
