@@ -717,10 +717,12 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
   const [data, setData] = useState(null);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeSubmitted, setDisputeSubmitted] = useState(false);
+  const [storedResult, setStoredResult] = useState(null);
 
   useEffect(() => {
     setDisputeOpen(false);
     setDisputeSubmitted(false);
+    setStoredResult(null);
   }, [conversationId]);
 
   useEffect(() => {
@@ -746,6 +748,17 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
         if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
+
+        const resultId = previewContext?.id || previewContext?.result_id || null;
+        if (resultId && !previewContext?.review_sentiment && !previewContext?.ai_verdict) {
+          const contextResponse = await fetch(`/api/engagement/result-context?resultId=${encodeURIComponent(resultId)}`, {
+            headers: { Authorization: "Bearer " + token },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const contextPayload = await contextResponse.json().catch(() => null);
+          if (contextResponse.ok && contextPayload?.ok && !cancelled) setStoredResult(contextPayload.result || null);
+        }
 
         const response = await fetch("/api/intercom/conversation-preview", {
           method: "POST",
@@ -790,9 +803,10 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
 
   if (!conversationId) return null;
   const messages = normalizePreviewMessages(data);
-  const mergedMetadata = useMemo(() => buildPreviewMetadata(data?.metadata || {}, previewContext), [data, previewContext]);
+  const effectivePreviewContext = useMemo(() => ({ ...(storedResult || {}), ...(previewContext || {}) }), [storedResult, previewContext]);
+  const mergedMetadata = useMemo(() => buildPreviewMetadata(data?.metadata || {}, effectivePreviewContext), [data, effectivePreviewContext]);
   const disputeResultContext = useMemo(() => ({
-    ...(previewContext || {}),
+    ...effectivePreviewContext,
     conversation_id: conversationId,
     agent_name: previewText(previewContext?.agent_name, mergedMetadata.assignedAgent),
     employee_name: previewText(previewContext?.employee_name, mergedMetadata.assignedAgent),
@@ -802,7 +816,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
     client_sentiment: previewText(previewContext?.client_sentiment, mergedMetadata.clientSentiment),
     resolution_status: previewText(previewContext?.resolution_status, mergedMetadata.resolutionStatus),
     replied_at: previewContext?.replied_at || previewContext?.created_at || mergedMetadata.updatedAt || mergedMetadata.createdAt || null,
-  }), [previewContext, conversationId, mergedMetadata]);
+  }), [effectivePreviewContext, conversationId, mergedMetadata]);
   const auditResultCards = [
     { label: "Review Approach", value: mergedMetadata.reviewApproach || "", tone: "review" },
     { label: "Client Sentiment", value: mergedMetadata.clientSentiment || "", tone: "client" },
