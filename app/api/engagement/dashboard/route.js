@@ -47,7 +47,7 @@ export async function GET(request) {
 
     const [mappingResult, teamResult, memberResult] = await Promise.all([
       auth.adminClient.from("agent_mappings").select("employee_name,employee_email,intercom_agent_name,team_name,is_active").eq("is_active", true).order("employee_name", { ascending: true }).limit(5000),
-      auth.adminClient.from("supervisor_teams").select("id,supervisor_name,is_active").eq("is_active", true).limit(1000),
+      auth.adminClient.from("supervisor_teams").select("id,supervisor_name,is_active,updated_at").eq("is_active", true).order("supervisor_name", { ascending: true }).limit(1000),
       auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_name,employee_email,intercom_agent_name,is_active").eq("is_active", true).limit(10000),
     ]);
     const mappingError = mappingResult.error || teamResult.error || memberResult.error;
@@ -56,6 +56,7 @@ export async function GET(request) {
     const activeSupervisorTeams = (teamResult.data || []).map((team) => ({
       id: team.id,
       name: team.supervisor_name || "Unnamed supervisor team",
+      updated_at: team.updated_at || null,
     }));
     const teamNamesById = new Map(activeSupervisorTeams.map((team) => [String(team.id), team.name]));
     const supervisorTeamsByIdentity = new Map();
@@ -175,6 +176,10 @@ export async function GET(request) {
       generated_at: now.toISOString(),
       week_started_at: weekStart.toISOString(),
       supervisorTeams: activeSupervisorTeams,
+      supervisorTeamsVersion: activeSupervisorTeams.reduce((latestValue, team) => {
+        const value = String(team.updated_at || "");
+        return value > latestValue ? value : latestValue;
+      }, ""),
       rows,
       summary: {
         agents: rows.length,
