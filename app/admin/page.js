@@ -1034,6 +1034,12 @@ function createEmptySupervisorForm() {
   };
 }
 
+function announceSupervisorTeamsUpdated() {
+  const version = String(Date.now());
+  try { window.localStorage.setItem("supervisor-teams-data-version", version); } catch (_error) {}
+  window.dispatchEvent(new CustomEvent("supervisor-teams-updated", { detail: { version } }));
+}
+
 function buildEmployeeOptionsFromMappings(rows) {
   const byEmployee = new Map();
 
@@ -2973,6 +2979,7 @@ function AdminPageContent() {
       const response = await withTimeout(
         fetch("/api/admin/supervisor-teams", {
           method: "POST",
+          cache: "no-store",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${freshSession.access_token}`,
@@ -2998,7 +3005,21 @@ function AdminPageContent() {
       }
 
       const savedTeam = data.team || {};
-      const savedTeams = Array.isArray(data.teams) ? data.teams : [];
+      const verifyResponse = await withTimeout(
+        fetch(`/api/admin/supervisor-teams?verify=${Date.now()}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${freshSession.access_token}` },
+          cache: "no-store",
+        }),
+        "Verifying Supervisor Team update"
+      );
+      const verifiedData = await readApiJson(verifyResponse);
+      if (!verifyResponse.ok || !verifiedData?.ok) {
+        throw new Error(verifiedData?.error || "The team was saved, but verification failed. Reload Supervisor Teams before editing again.");
+      }
+      const savedTeams = Array.isArray(verifiedData.teams) ? verifiedData.teams : [];
+      const verifiedTeam = savedTeams.find((team) => team.id === savedTeam.id);
+      if (!verifiedTeam) throw new Error("The updated Supervisor Team could not be verified after saving.");
       const savedMembers = savedTeams.find((team) => team.id === savedTeam.id)?.members || supervisorForm.members || [];
 
       setSupervisorForm(createEmptySupervisorForm());
@@ -3009,12 +3030,13 @@ function AdminPageContent() {
       );
 
       setSupervisorTeams(sortSupervisorTeams(savedTeams));
+      announceSupervisorTeamsUpdated();
 
-      if (Array.isArray(data.employeeOptions) && data.employeeOptions.length > 0) {
-        setSupervisorEmployeeOptions(data.employeeOptions);
+      if (Array.isArray(verifiedData.employeeOptions) && verifiedData.employeeOptions.length > 0) {
+        setSupervisorEmployeeOptions(verifiedData.employeeOptions);
       }
 
-      await loadActivityLogsData(freshSession, canViewActivityLogsNow);
+      loadActivityLogsData(freshSession, canViewActivityLogsNow).catch(() => null);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Could not save Supervisor Team.");
     } finally {
@@ -3060,6 +3082,7 @@ function AdminPageContent() {
 
       setPageSuccess(data.message || (nextActive ? "Supervisor Team activated." : "Supervisor Team deactivated."));
       setSupervisorTeams(sortSupervisorTeams(Array.isArray(data.teams) ? data.teams : []));
+      announceSupervisorTeamsUpdated();
 
       if (Array.isArray(data.employeeOptions) && data.employeeOptions.length > 0) {
         setSupervisorEmployeeOptions(data.employeeOptions);
