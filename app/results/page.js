@@ -298,7 +298,18 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
 
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
-        if (!cancelled) setData(payload);
+        if (!cancelled) {
+          setData(payload);
+          const resultId = previewContext?.id || previewContext?.result_id;
+          if (resultId) {
+            fetch("/api/engagement/event", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+              body: JSON.stringify({ event_type: "conversation_preview_loaded", result_id: resultId, conversation_id: conversationId, source_page: "/results" }),
+              keepalive: true,
+            }).catch(() => null);
+          }
+        }
       } catch (previewError) {
         if (!cancelled) {
           setError(previewError?.name === "AbortError" ? "The full Intercom preview is taking too long to load. You can still review the stored AI verdict and open the conversation on Intercom." : (previewError instanceof Error ? previewError.message : "Preview is not available for this conversation."));
@@ -647,6 +658,7 @@ function formatDateTime(value) {
   if (!date) return value ? String(value) : "-";
 
   return date.toLocaleString(undefined, {
+    timeZone: "Asia/Dhaka",
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -660,10 +672,17 @@ function formatShortDate(value) {
   if (!date) return value ? String(value) : "-";
 
   return date.toLocaleDateString(undefined, {
+    timeZone: "Asia/Dhaka",
     year: "numeric",
     month: "short",
     day: "2-digit",
   });
+}
+
+function formatDhakaTime(value) {
+  const date = toValidDate(value);
+  if (!date) return "-";
+  return `${date.toLocaleTimeString("en-US", { timeZone: "Asia/Dhaka", hour: "numeric", minute: "2-digit" })} GMT+6`;
 }
 
 function formatNumber(value) {
@@ -722,6 +741,7 @@ function isDateInDraftRange(date, draftStart, draftEnd) {
 
 function ResultsCalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
   const days = buildCalendarDays(monthDate);
+  const dhakaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   return (
     <div className="results-calendar-month-card">
       <h4>{formatMonthTitle(monthDate)}</h4>
@@ -731,8 +751,9 @@ function ResultsCalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate })
           const isStart = draftStart && sameCalendarDay(date, draftStart);
           const isEnd = draftEnd && sameCalendarDay(date, draftEnd);
           const inRange = isDateInDraftRange(date, draftStart, draftEnd);
+          const isToday = formatDateInput(date) === dhakaToday;
           return (
-            <button key={formatDateInput(date)} type="button" className={["results-calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
+            <button key={formatDateInput(date)} type="button" aria-current={isToday ? "date" : undefined} className={["results-calendar-day", muted ? "muted" : "", isToday ? "today" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
               {date.getDate()}
             </button>
           );
@@ -2128,7 +2149,7 @@ export default function ResultsPage() {
     { label: "Negative Risk", value: formatNumber(totalNegativeRisk), tone: "rose" },
   ];
 
-  if (authLoading) {
+  if (authLoading || (loading && !results.length)) {
     return (
       <main className="results-page results-loading-page">
         <style>{resultsStyles}</style>
@@ -2415,7 +2436,7 @@ export default function ResultsPage() {
         ) : (
           <>
             <div className="table-shell">
-              <table>
+              <table className="audit-results-table">
                 <thead>
                   <tr>
                     <th>
@@ -2480,9 +2501,9 @@ export default function ResultsPage() {
                           <td><span className={`pill ${getReviewTone(item.review_sentiment)}`}>{safeText(item.review_sentiment)}</span></td>
                           <td><span className={`pill ${getClientTone(item.client_sentiment)}`}>{safeText(item.client_sentiment)}</span></td>
                           <td><span className={`pill ${getResolutionTone(item.resolution_status)}`}>{safeText(item.resolution_status)}</span></td>
-                          <td>
-                            <strong>{formatDateTime(item.replied_at || item.created_at)}</strong>
-                            <small>{formatShortDate(item.replied_at || item.created_at)}</small>
+                          <td className="audit-date-cell">
+                            <strong>{formatShortDate(item.replied_at || item.created_at)}</strong>
+                            <small>{formatDhakaTime(item.replied_at || item.created_at)}</small>
                           </td>
                           <td>
                             <strong>{safeText(item.runMeta?.requested_by_email)}</strong>
