@@ -242,6 +242,19 @@ export async function POST(request) {
 
     if (insertError) throw new Error(insertError.message || "Could not submit dispute.");
 
+    await auth.adminClient.from("user_notifications").insert({
+      recipient_email: auth.email,
+      notification_type: "dispute_submitted",
+      title: "Dispute submitted",
+      message: "Your dispute was submitted and is waiting for review.",
+      severity: "info",
+      result_id: dispute.result_id || null,
+      conversation_id: dispute.conversation_id || null,
+      dispute_id: dispute.id,
+      href: "/results",
+      dedupe_key: `dispute-submitted:${dispute.id}`,
+    });
+
     await writeActivityLog(auth.adminClient, request, auth, {
       action_type: "verdict_dispute_submitted",
       action_label: "Verdict dispute submitted",
