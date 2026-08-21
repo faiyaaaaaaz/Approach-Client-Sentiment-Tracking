@@ -616,3 +616,98 @@ html .profile-avatar img {
    width (kept here so it applies without editing the component file). */
 html .admin-subnav { margin-left: 6px !important; padding-left: 8px !important; }
 html .admin-subnav-group { padding-left: 8px !important; }
+
+/* Shared calendar contract: today is always visible in Dhaka time, including
+   when it is also selected or inside a range. */
+html :is(.calendar-day,.results-calendar-day,.admin-calendar-day) { position: relative !important; }
+html :is(.calendar-day,.results-calendar-day,.admin-calendar-day).today {
+  color: var(--text) !important;
+  font-weight: 900 !important;
+  box-shadow: inset 0 0 0 2px var(--brand) !important;
+}
+html :is(.calendar-day,.results-calendar-day,.admin-calendar-day).today::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--brand);
+  transform: translateX(-50%);
+}
+html :is(.calendar-day,.results-calendar-day,.admin-calendar-day).today:is(.range-start,.range-end)::after { background: #fff; }
+
+/* Activity Logs date picker uses the same theme tokens as every other picker. */
+html .admin-date-popover { background: var(--card) !important; color: var(--text) !important; border-color: var(--border) !important; }
+html .admin-date-popover-tabs { border-color: var(--border) !important; }
+html .admin-date-popover-tabs div,
+html .admin-date-preset-column button,
+html .admin-calendar-nav-row button,
+html .admin-date-popover-actions .secondary-btn { background: var(--raised) !important; color: var(--text) !important; border-color: var(--border) !important; }
+html .admin-date-popover-tabs span,
+html .admin-calendar-weekdays span { color: var(--muted) !important; }
+html .admin-date-popover-tabs strong,
+html .admin-calendar-nav-row strong,
+html .admin-calendar-month-card h4,
+html .admin-calendar-day { color: var(--text) !important; }
+html .admin-calendar-day.muted { color: var(--subtle) !important; }
+html .admin-calendar-day:hover,
+html .admin-date-preset-column button:hover { background: var(--hover) !important; color: var(--text) !important; }
+html .admin-calendar-day.in-range { background: var(--brand-soft) !important; }
+html .admin-calendar-day.range-start,
+html .admin-calendar-day.range-end { background: var(--brand) !important; color: #fff !important; }
+html .admin-date-popover-actions { border-color: var(--border) !important; }
+
+/* Results archive columns must scroll instead of collapsing into vertical text. */
+html .audit-results-table { min-width: 1900px !important; table-layout: auto !important; }
+html .audit-results-table th:nth-child(1),html .audit-results-table td:nth-child(1){width:46px;min-width:46px!important}
+html .audit-results-table th:nth-child(2),html .audit-results-table td:nth-child(2){min-width:190px!important}
+html .audit-results-table th:nth-child(3),html .audit-results-table td:nth-child(3){min-width:170px!important}
+html .audit-results-table th:nth-child(4),html .audit-results-table td:nth-child(4){min-width:230px!important}
+html .audit-results-table th:nth-child(5),html .audit-results-table td:nth-child(5){min-width:130px!important}
+html .audit-results-table th:nth-child(6),html .audit-results-table td:nth-child(6){min-width:220px!important}
+html .audit-results-table th:nth-child(7),html .audit-results-table td:nth-child(7){min-width:170px!important}
+html .audit-results-table th:nth-child(8),html .audit-results-table td:nth-child(8){min-width:145px!important}
+html .audit-results-table th:nth-child(9),html .audit-results-table td:nth-child(9){width:150px;min-width:150px!important}
+html .audit-results-table th:nth-child(10),html .audit-results-table td:nth-child(10){min-width:220px!important}
+html .audit-results-table th:nth-child(11),html .audit-results-table td:nth-child(11){min-width:185px!important}
+html .audit-results-table td :is(strong,small,span){word-break:normal!important;overflow-wrap:normal!important}
+html .audit-results-table td:nth-child(3) strong,
+html .audit-results-table td:nth-child(4) strong { white-space:normal!important;word-break:keep-all!important; }
+html .audit-results-table td:nth-child(4) small,
+html .audit-results-table td:nth-child(10) strong { max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important; }
+html .audit-results-table .audit-date-cell { white-space:nowrap!important; }
+html .audit-results-table .audit-date-cell strong { margin:0 0 3px!important;white-space:nowrap!important; }
+html .audit-results-table .audit-date-cell small { white-space:nowrap!important; }
+
+/* The preview is a primary review workspace, not a compact dialog. */
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-modal {
+  width: min(1500px, 96vw) !important;
+  max-width: min(1500px, 96vw) !important;
+  height: min(900px, 94vh) !important;
+  max-height: 94vh !important;
+}
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-loaded { height: calc(100% - 92px) !important; overflow: hidden !important; }
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-body { grid-template-columns: 360px minmax(0,1fr) !important; height: 100% !important; gap: 20px !important; padding: 20px !important; }
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-sidebar,
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-main,
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-dispute-panel { min-height:0!important;overflow:auto!important; }
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-head { padding:18px 22px!important; }
+html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-result-strip { margin:0 20px!important; }
+
+/* Dashboard polish; metric definitions and values remain untouched. */
+html .dashboard-shell { gap: 20px !important; }
+html .dashboard-page .hero-panel { border-color: var(--border) !important; box-shadow: 0 14px 36px rgba(0,0,0,.10) !important; }
+html .dashboard-page .kpi-grid { gap: 14px !important; }
+html .dashboard-page .kpi-card { min-height: 148px !important; padding: 20px !important; border-color: var(--border) !important; box-shadow: 0 10px 28px rgba(0,0,0,.08) !important; transition: transform .18s ease,border-color .18s ease,box-shadow .18s ease !important; }
+html .dashboard-page .kpi-card:hover { transform: translateY(-2px) !important; border-color: rgba(99,91,255,.30) !important; box-shadow: 0 16px 36px rgba(0,0,0,.12) !important; }
+html[data-theme="light"] .dashboard-page .kpi-card,
+html[data-theme="light"] .dashboard-page .panel { box-shadow: 0 8px 24px rgba(15,23,42,.055) !important; }
+html[data-theme="dark"] .dashboard-page .panel { border-color: rgba(255,255,255,.10) !important; }
+
+@media (max-width: 900px) {
+  html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-modal { width: 98vw !important; max-width:98vw!important; }
+  html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-body { grid-template-columns: 1fr !important; overflow:auto!important; }
+  html :is(.dashboard-page,.results-page,.run-page) .conversation-preview-loaded { overflow:auto!important; }
+}
