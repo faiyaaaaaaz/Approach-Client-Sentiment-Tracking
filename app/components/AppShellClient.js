@@ -11,6 +11,7 @@ const PROFILE_TIMEOUT_MS = 10000;
 
 const navItems = [
   { label: "Dashboard", href: "/", permission: "dashboard", icon: "dashboard" },
+  { label: "Team Engagement", href: "/engagement", permission: "dashboard", icon: "team" },
   { label: "Run Audit", href: "/run", permission: "run_audit", icon: "spark" },
   { label: "Results", href: "/results", permission: "results", icon: "results" },
   { label: "Admin", href: "/admin", permission: "admin", icon: "shield" },
@@ -482,6 +483,10 @@ function canViewNavItem(item, profile, session) {
 }
 
 function getLockReason(pathname, session, profile) {
+  if (pathname === "/engagement" && !session?.user) {
+    return { title: "Sign In Required", message: "Please sign in to view Team Engagement." };
+  }
+
   if (pathname === "/run" && !session?.user) {
     return {
       title: "Sign In Required",
@@ -996,6 +1001,9 @@ function AppShellClientInner({ children }) {
   function openNotification(item) {
     if (!item.read_at) markNotificationsRead([item.id]);
     setNotificationOpen(false);
+    if (item.conversation_id) {
+      window.dispatchEvent(new CustomEvent("open-conversation-preview", { detail: { conversationId: item.conversation_id, resultId: item.result_id || null } }));
+    }
     if (item.href) router.push(item.href);
   }
 
