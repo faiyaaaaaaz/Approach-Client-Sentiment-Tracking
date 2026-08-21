@@ -385,18 +385,20 @@ function applySupervisorScope(rows, teams) {
   return (rows || []).filter((row) => rowMatchesSupervisorScope(row, scope));
 }
 
-async function fetchAllAuditResults(adminClient) {
+async function fetchAllAuditResults(adminClient, { since = "" } = {}) {
   const allRows = [];
   let from = 0;
 
   while (from < MAX_RESULT_ROWS) {
     const to = from + PAGE_SIZE - 1;
 
-    const { data, error } = await adminClient
+    let query = adminClient
       .from("audit_results")
       .select("*")
       .order("created_at", { ascending: false })
       .range(from, to);
+    if (since) query = query.or(`replied_at.gte.${since},and(replied_at.is.null,created_at.gte.${since})`);
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message || "Could not load audit results.");
@@ -455,6 +457,10 @@ export async function GET(request) {
     if (!auth.ok) return auth.response;
 
     const { adminClient, email, profile, permissions } = auth;
+    const requestUrl = new URL(request.url);
+    const fastMode = requestUrl.searchParams.get("fast") === "1";
+    const sinceParam = String(requestUrl.searchParams.get("since") || "").trim();
+    const sinceDate = sinceParam && !Number.isNaN(new Date(sinceParam).getTime()) ? new Date(sinceParam).toISOString() : "";
 
     if (!hasPermission(auth, "page_results")) {
       return json({ ok: false, error: "This account does not have permission to view Results." }, { status: 403 });
@@ -463,8 +469,8 @@ export async function GET(request) {
     const [allSupervisorTeams, supervisorTeamsForActor, totalResultsCount, rawResults] = await Promise.all([
       loadSupervisorTeams(adminClient),
       loadSupervisorTeamsForActor(adminClient, auth),
-      countTableRows(adminClient, "audit_results"),
-      fetchAllAuditResults(adminClient),
+      fastMode ? Promise.resolve(null) : countTableRows(adminClient, "audit_results"),
+      fetchAllAuditResults(adminClient, { since: sinceDate }),
     ]);
 
     const scoped = filterResultsForActor(rawResults, auth, supervisorTeamsForActor);
@@ -502,6 +508,8 @@ export async function GET(request) {
             : rawResults.length >= MAX_RESULT_ROWS,
         visibility: scoped.visibility,
         source: "server_api_results_route_permission_scoped_paginated",
+        fastMode,
+        since: sinceDate || null,
       },
     });
   } catch (error) {
