@@ -2964,6 +2964,7 @@ export default function DashboardPage() {
       }
 
       const isQuietRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
+      if (isQuietRefresh) return;
       loadRowsForSession(newSession, { showLoader: !isQuietRefresh && !hasLoadedFreshRows });
     });
 
@@ -2996,7 +2997,16 @@ export default function DashboardPage() {
     };
     const intervalId = window.setInterval(refreshRecent, 60 * 1000);
     window.addEventListener("focus", refreshRecent);
-    return () => { window.clearInterval(intervalId); window.removeEventListener("focus", refreshRecent); };
+    const onTeamUpdate = () => refreshRecent();
+    const onStorage = (event) => { if (event.key === "supervisor-teams-data-version") refreshRecent(); };
+    window.addEventListener("supervisor-teams-updated", onTeamUpdate);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshRecent);
+      window.removeEventListener("supervisor-teams-updated", onTeamUpdate);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [dashboardSession?.access_token]);
 
   useEffect(() => {
@@ -3038,6 +3048,17 @@ export default function DashboardPage() {
     () => buildSupervisorLookup(supervisorTeams),
     [supervisorTeams]
   );
+
+  useEffect(() => {
+    const validIds = new Set((supervisorTeams || []).map((team) => team.id));
+    const keepValidTeams = (current) => {
+      const nextIds = (current.supervisorTeamIds || []).filter((id) => validIds.has(id));
+      return nextIds.length === (current.supervisorTeamIds || []).length ? current : { ...current, supervisorTeamIds: nextIds };
+    };
+    setGlobalFilters(keepValidTeams);
+    setLeaderboardFilters(keepValidTeams);
+    setWeeklyFilters(keepValidTeams);
+  }, [supervisorTeams]);
 
   const employees = useMemo(() => uniqueValues(dashboardRows, "employee_name"), [dashboardRows]);
 
