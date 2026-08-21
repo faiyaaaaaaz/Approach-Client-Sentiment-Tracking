@@ -84,7 +84,7 @@ export default function TeamEngagementPanel({ session }) {
       if (!hasLoadedRef.current) setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/engagement/dashboard", {
+        const response = await fetch(`/api/engagement/dashboard?teamRefresh=${Date.now()}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
           cache: "no-store",
         });
@@ -117,11 +117,10 @@ export default function TeamEngagementPanel({ session }) {
     const directoryNames = Array.isArray(data?.supervisorTeams)
       ? data.supervisorTeams.map((team) => String(team?.name || "").trim()).filter(Boolean)
       : [];
-    const assignedNames = allRows.flatMap((row) => row.supervisor_team_names || []);
-    return Array.from(new Set([...directoryNames, ...assignedNames]))
+    return Array.from(new Set(directoryNames))
       .sort((a, b) => a.localeCompare(b))
       .map((item) => ({ value: item, label: item }));
-  }, [allRows, data?.supervisorTeams]);
+  }, [data?.supervisorTeams, data?.supervisorTeamsVersion]);
   const employeeOptions = useMemo(() => allRows.map((row) => ({ value: row.employee_email, label: row.employee_name })).sort((a, b) => a.label.localeCompare(b.label)), [allRows]);
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
