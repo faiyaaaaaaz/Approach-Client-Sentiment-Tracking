@@ -420,6 +420,7 @@ function isActivityDateInDraftRange(date, draftStart, draftEnd) {
 
 function AdminActivityCalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
   const days = buildActivityCalendarDays(monthDate);
+  const dhakaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
   return (
     <div className="admin-calendar-month-card">
@@ -432,12 +433,14 @@ function AdminActivityCalendarMonth({ monthDate, draftStart, draftEnd, onSelectD
           const isStart = draftStart && sameActivityDay(date, draftStart);
           const isEnd = draftEnd && sameActivityDay(date, draftEnd);
           const inRange = isActivityDateInDraftRange(date, draftStart, draftEnd);
+          const isToday = formatDateInput(date) === dhakaToday;
 
           return (
             <button
               key={formatDateInput(date)}
               type="button"
-              className={["admin-calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")}
+              aria-current={isToday ? "date" : undefined}
+              className={["admin-calendar-day", muted ? "muted" : "", isToday ? "today" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")}
               onClick={() => onSelectDate(date)}
             >
               {date.getDate()}
