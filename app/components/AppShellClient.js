@@ -623,6 +623,7 @@ function AppShellClientInner({ children }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const profileMenuRef = useRef(null);
+  const notificationRef = useRef(null);
   const sidebarRef = useRef(null);
   const authRunIdRef = useRef(0);
   const lastAuthUserIdRef = useRef("");
@@ -634,6 +635,9 @@ function AppShellClientInner({ children }) {
   const [authMessage, setAuthMessage] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isDarkTheme, setIsDarkTheme] = useState(true);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationLoading, setNotificationLoading] = useState(false);
 
   // ── Theme init & persistence ──
   useEffect(() => {
@@ -685,6 +689,7 @@ function AppShellClientInner({ children }) {
 
   const displayAvatarUrl = useMemo(() => getAvatarUrl(profile, session), [profile, session]);
   const displayEmail = session?.user?.email || profile?.email || "";
+  const unreadNotificationCount = notifications.filter((item) => !item.read_at).length;
   const lockReason = getLockReason(pathname, session, profile);
   const pageLocked = Boolean(!authLoading && lockReason);
   const activeAdminSection = searchParams.get("section") || "overview";
@@ -954,13 +959,60 @@ function AppShellClientInner({ children }) {
 
   useEffect(() => {
     function handleOutsideClick(event) {
-      if (!profileMenuRef.current) return;
-      if (!profileMenuRef.current.contains(event.target)) setProfileOpen(false);
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) setProfileOpen(false);
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) setNotificationOpen(false);
     }
 
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
+
+  async function loadNotifications(activeSession = session) {
+    if (!activeSession?.access_token) return;
+    setNotificationLoading(true);
+    try {
+      const response = await fetch("/api/notifications", {
+        headers: { Authorization: `Bearer ${activeSession.access_token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok && payload?.ok) setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+    } finally {
+      setNotificationLoading(false);
+    }
+  }
+
+  async function markNotificationsRead(ids = [], markAll = false) {
+    if (!session?.access_token) return;
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ ids, mark_all: markAll }),
+    }).catch(() => null);
+    const now = new Date().toISOString();
+    setNotifications((current) => current.map((item) => markAll || ids.includes(item.id) ? { ...item, read_at: item.read_at || now } : item));
+  }
+
+  function openNotification(item) {
+    if (!item.read_at) markNotificationsRead([item.id]);
+    setNotificationOpen(false);
+    if (item.href) router.push(item.href);
+  }
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setNotifications([]);
+      return undefined;
+    }
+    loadNotifications(session);
+    const intervalId = window.setInterval(() => loadNotifications(session), 60 * 1000);
+    const onFocus = () => loadNotifications(session);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [session?.access_token]);
 
   useEffect(() => {
     if (!session?.access_token) return undefined;
@@ -1171,6 +1223,39 @@ function AppShellClientInner({ children }) {
             </div>
 
             <div className="topbar-actions">
+              {session?.user ? (
+                <div ref={notificationRef} className="notification-wrap">
+                  <button
+                    type="button"
+                    className="notification-button"
+                    onClick={() => { setNotificationOpen((value) => !value); if (!notificationOpen) loadNotifications(session); }}
+                    aria-label={`Notifications${unreadNotificationCount ? `, ${unreadNotificationCount} unread` : ""}`}
+                    aria-expanded={notificationOpen}
+                    title="Notifications"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+                    {unreadNotificationCount ? <span>{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</span> : null}
+                  </button>
+                  {notificationOpen ? (
+                    <div className="notification-panel">
+                      <div className="notification-panel-head">
+                        <div><strong>Notifications</strong><small>{unreadNotificationCount ? `${unreadNotificationCount} unread` : "You are all caught up"}</small></div>
+                        {unreadNotificationCount ? <button type="button" onClick={() => markNotificationsRead([], true)}>Mark all read</button> : null}
+                      </div>
+                      <div className="notification-list">
+                        {notificationLoading && !notifications.length ? <div className="notification-empty">Loading notifications…</div> : null}
+                        {notifications.map((item) => (
+                          <button key={item.id} type="button" className={`notification-item ${item.read_at ? "read" : "unread"} ${item.severity || "info"}`} onClick={() => openNotification(item)}>
+                            <i />
+                            <span><strong>{item.title}</strong><small>{item.message}</small><em>{new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Dhaka", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(item.created_at))} GMT+6</em></span>
+                          </button>
+                        ))}
+                        {!notificationLoading && !notifications.length ? <div className="notification-empty">No notifications yet.</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {/* Theme toggle */}
               <button
                 type="button"
@@ -2422,6 +2507,29 @@ const appShellStyles = `
     color: #22d3ee;
     border-color: rgba(34,211,238,0.3);
   }
+
+  .notification-wrap { position: relative; }
+  .notification-button { position: relative; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+  .notification-button:hover { background: var(--hover); }
+  .notification-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .notification-button > span { position: absolute; top: -5px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--danger); color: white; border: 2px solid var(--card); font-size: 10px; font-weight: 900; }
+  .notification-panel { position: absolute; top: calc(100% + 10px); right: 0; z-index: 1000; width: min(390px, calc(100vw - 24px)); overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: var(--card); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+  .notification-panel-head { min-height: 66px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
+  .notification-panel-head strong,.notification-panel-head small { display: block; }
+  .notification-panel-head strong { color: var(--text); font-size: 16px; }
+  .notification-panel-head small { margin-top: 3px; color: var(--muted); font-size: 12px; }
+  .notification-panel-head button { border: 0; background: transparent; color: var(--brand-hover); font-size: 12px; font-weight: 800; cursor: pointer; }
+  .notification-list { max-height: min(520px, 68vh); overflow: auto; }
+  .notification-item { width: 100%; display: grid; grid-template-columns: 9px minmax(0,1fr); gap: 10px; padding: 14px 16px; text-align: left; border: 0; border-bottom: 1px solid var(--border); background: transparent; cursor: pointer; }
+  .notification-item:hover { background: var(--hover); }
+  .notification-item.unread { background: var(--brand-soft); }
+  .notification-item > i { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--info); }
+  .notification-item.success > i { background: var(--success); }.notification-item.warning > i { background: var(--warning); }.notification-item.read > i { background: var(--subtle); opacity: .5; }
+  .notification-item span,.notification-item strong,.notification-item small,.notification-item em { display: block; min-width: 0; }
+  .notification-item strong { color: var(--text); font-size: 13px; }
+  .notification-item small { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .notification-item em { margin-top: 7px; color: var(--subtle); font-size: 11px; font-style: normal; }
+  .notification-empty { padding: 34px 18px; text-align: center; color: var(--muted); font-size: 13px; }
 
   html[data-theme="light"] .theme-toggle-btn {
     border-color: rgba(0,0,0,0.1);
