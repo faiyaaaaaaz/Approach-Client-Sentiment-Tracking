@@ -1342,6 +1342,7 @@ function AdminPageContent() {
   const supervisorCandidateRef = useRef(null);
   const roleCandidateRef = useRef(null);
   const loadedSectionKeysRef = useRef(new Set());
+  const authenticatedUserIdRef = useRef("");
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -2286,6 +2287,7 @@ function AdminPageContent() {
       const currentSession = result?.data?.session || null;
 
       setSession(currentSession);
+      authenticatedUserIdRef.current = currentSession?.user?.id || "";
 
       if (!currentSession?.user) {
         setProfile(null);
@@ -2327,14 +2329,29 @@ function AdminPageContent() {
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
 
-      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
+      const nextUserId = nextSession?.user?.id || "";
+      const isDuplicateSignedIn =
+        event === "SIGNED_IN" &&
+        Boolean(nextUserId) &&
+        nextUserId === authenticatedUserIdRef.current;
+      const isBackgroundRefresh =
+        event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || isDuplicateSignedIn;
 
       setSession(nextSession || null);
+      authenticatedUserIdRef.current = nextUserId;
 
       if (!nextSession?.user) {
         setProfile(null);
         setAuthChecked(true);
         setAuthMessage("");
+        return;
+      }
+
+      // Supabase can emit SIGNED_IN again when an existing tab regains focus or
+      // getSession() runs during a save. It is not a new login, and reloading here
+      // would destroy the Supervisor Team draft currently being edited.
+      if (isBackgroundRefresh) {
+        setAuthChecked(true);
         return;
       }
 
@@ -3006,7 +3023,7 @@ function AdminPageContent() {
 
       const savedTeam = data.team || {};
       const verifyResponse = await withTimeout(
-        fetch(`/api/admin/supervisor-teams?verify=${Date.now()}`, {
+        fetch(`/api/admin/supervisor-teams?teamId=${encodeURIComponent(savedTeam.id)}&verify=${Date.now()}`, {
           method: "GET",
           headers: { Authorization: `Bearer ${freshSession.access_token}` },
           cache: "no-store",
@@ -3018,9 +3035,9 @@ function AdminPageContent() {
         throw new Error(verifiedData?.error || "The team was saved, but verification failed. Reload Supervisor Teams before editing again.");
       }
       const savedTeams = Array.isArray(verifiedData.teams) ? verifiedData.teams : [];
-      const verifiedTeam = savedTeams.find((team) => team.id === savedTeam.id);
+      const verifiedTeam = savedTeams.find((team) => String(team.id) === String(savedTeam.id));
       if (!verifiedTeam) throw new Error("The updated Supervisor Team could not be verified after saving.");
-      const savedMembers = savedTeams.find((team) => team.id === savedTeam.id)?.members || supervisorForm.members || [];
+      const savedMembers = verifiedTeam.members || supervisorForm.members || [];
 
       setSupervisorForm(createEmptySupervisorForm());
       setSupervisorMemberSearch("");
@@ -3029,7 +3046,12 @@ function AdminPageContent() {
           `${savedTeam.supervisor_name || supervisorName} saved successfully with ${formatNumber(savedMembers.length)} member(s).`
       );
 
-      setSupervisorTeams(sortSupervisorTeams(savedTeams));
+      setSupervisorTeams((currentTeams) =>
+        sortSupervisorTeams([
+          ...currentTeams.filter((team) => String(team.id) !== String(verifiedTeam.id)),
+          verifiedTeam,
+        ])
+      );
       announceSupervisorTeamsUpdated();
 
       if (Array.isArray(verifiedData.employeeOptions) && verifiedData.employeeOptions.length > 0) {
