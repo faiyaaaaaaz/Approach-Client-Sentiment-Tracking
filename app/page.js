@@ -4,7 +4,6 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../lib/supabase";
 import DisputeVerdictButton, { canUserDisputeResult } from "./components/DisputeVerdictButton";
-import TeamEngagementPanel from "./components/TeamEngagementPanel";
 
 const INTERCOM_BASE_URL =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
@@ -2779,7 +2778,6 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [welcomeIdentity, setWelcomeIdentity] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [dashboardSession, setDashboardSession] = useState(null);
   const [welcomeAlreadyShown, setWelcomeAlreadyShown] = useState(true);
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
@@ -2895,7 +2893,6 @@ export default function DashboardPage() {
       try {
         const sessionResult = await supabase.auth.getSession();
         const currentSession = sessionResult?.data?.session || null;
-        if (active) setDashboardSession(currentSession);
         await loadRowsForSession(currentSession, { showLoader: true });
       } catch (_error) {
         if (!active) return;
@@ -2912,8 +2909,6 @@ export default function DashboardPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
-
-      setDashboardSession(newSession || null);
 
       if (!newSession?.access_token) {
         if (event === "SIGNED_OUT") {
@@ -2952,6 +2947,21 @@ export default function DashboardPage() {
     handleScroll();
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    function showPreview(conversationIdValue, resultIdValue) {
+      const conversationId = String(conversationIdValue || "").trim();
+      const resultId = String(resultIdValue || "").trim() || null;
+      if (!conversationId) return;
+      setPreviewConversationId(conversationId);
+      setPreviewContext({ id: resultId, result_id: resultId, conversation_id: conversationId });
+    }
+    const params = new URLSearchParams(window.location.search);
+    showPreview(params.get("previewConversation"), params.get("resultId"));
+    const handleRequestedPreview = (event) => showPreview(event.detail?.conversationId, event.detail?.resultId);
+    window.addEventListener("open-conversation-preview", handleRequestedPreview);
+    return () => window.removeEventListener("open-conversation-preview", handleRequestedPreview);
   }, []);
 
   const dashboardRows = useMemo(() => (Array.isArray(rawRows) ? rawRows : []), [rawRows]);
@@ -3071,7 +3081,14 @@ export default function DashboardPage() {
   const showWelcomeOnLoading = Boolean(welcomeIdentity && !welcomeAlreadyShown);
 
   if (loading) {
-    return <DashboardLoadingScreen welcomeIdentity={welcomeIdentity} showWelcome={showWelcomeOnLoading} />;
+    return (
+      <>
+        <DashboardLoadingScreen welcomeIdentity={welcomeIdentity} showWelcome={showWelcomeOnLoading} />
+        {previewConversationId ? (
+          <ConversationPreviewModal conversationId={previewConversationId} previewContext={previewContext} profile={profile} supervisorTeams={supervisorTeams} onClose={closeConversationPreview} />
+        ) : null}
+      </>
+    );
   }
 
   function openConversationPreview(conversationId, context = null) {
@@ -3082,6 +3099,10 @@ export default function DashboardPage() {
   function closeConversationPreview() {
     setPreviewConversationId("");
     setPreviewContext(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("previewConversation");
+    url.searchParams.delete("resultId");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
   function toggleVerdict(key) {
@@ -3300,8 +3321,6 @@ export default function DashboardPage() {
           />
 
         </section>
-
-        <TeamEngagementPanel session={dashboardSession} />
 
         {loading ? (
           <section className="panel loading-panel">
