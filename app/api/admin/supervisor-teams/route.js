@@ -19,6 +19,11 @@ function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function isAllowedCompanyEmail(value) {
+  const email = normalizeEmail(value);
+  return email.endsWith("@nextventures.io") || email.endsWith("@wearenext.io");
+}
+
 function normalizeKey(value) {
   return normalizeText(value).toLowerCase();
 }
@@ -347,9 +352,9 @@ function validateTeamPayload(rawBody) {
     };
   }
 
-  if (supervisorEmail && !supervisorEmail.endsWith("@nextventures.io")) {
+  if (supervisorEmail && !isAllowedCompanyEmail(supervisorEmail)) {
     return {
-      error: "Supervisor email must use the nextventures.io domain.",
+      error: "Supervisor email must use the nextventures.io or wearenext.io domain.",
     };
   }
 
@@ -376,9 +381,9 @@ function validateMembersPayload(rawBody) {
 
     if (!employeeName) continue;
 
-    if (employeeEmail && !employeeEmail.endsWith("@nextventures.io")) {
+    if (employeeEmail && !isAllowedCompanyEmail(employeeEmail)) {
       return {
-        error: `Employee email for ${employeeName} must use the nextventures.io domain.`,
+        error: `Employee email for ${employeeName} must use the nextventures.io or wearenext.io domain.`,
       };
     }
 
