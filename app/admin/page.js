@@ -284,6 +284,11 @@ function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function isAllowedCompanyEmail(value) {
+  const email = normalizeEmail(value);
+  return email.endsWith("@nextventures.io") || email.endsWith("@wearenext.io");
+}
+
 function normalizeKey(value) {
   return normalizeText(value).toLowerCase();
 }
@@ -2739,8 +2744,8 @@ function AdminPageContent() {
       return;
     }
 
-    if (employeeEmail && !employeeEmail.endsWith("@nextventures.io")) {
-      setPageError("Employee email must use the nextventures.io domain.");
+    if (employeeEmail && !isAllowedCompanyEmail(employeeEmail)) {
+      setPageError("Employee email must use the nextventures.io or wearenext.io domain.");
       return;
     }
 
@@ -2983,8 +2988,8 @@ function AdminPageContent() {
       return;
     }
 
-    if (supervisorEmail && !supervisorEmail.endsWith("@nextventures.io")) {
-      setPageError("Supervisor Email must use the nextventures.io domain.");
+    if (supervisorEmail && !isAllowedCompanyEmail(supervisorEmail)) {
+      setPageError("Supervisor Email must use the nextventures.io or wearenext.io domain.");
       return;
     }
 
@@ -4480,7 +4485,7 @@ function AdminPageContent() {
                           supervisor_email: event.target.value,
                         }))
                       }
-                      placeholder="supervisor@nextventures.io"
+                      placeholder="supervisor@nextventures.io or supervisor@wearenext.io"
                     />
                   </label>
                 </div>
