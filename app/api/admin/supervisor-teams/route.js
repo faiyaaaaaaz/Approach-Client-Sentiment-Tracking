@@ -560,6 +560,46 @@ async function loadFullPayload(adminClient, stages) {
   };
 }
 
+async function loadSingleSupervisorTeam(adminClient, stages, teamId) {
+  const teamResult = await runStep(
+    stages,
+    "Verify saved Supervisor Team",
+    () =>
+      adminClient
+        .from("supervisor_teams")
+        .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
+        .eq("id", teamId)
+        .single(),
+    STEP_TIMEOUT_MS
+  );
+
+  if (teamResult?.error) {
+    throw new Error(teamResult.error.message || "Could not verify saved Supervisor Team.");
+  }
+
+  const membersResult = await runStep(
+    stages,
+    "Verify saved Supervisor Team members",
+    () =>
+      adminClient
+        .from("supervisor_team_members")
+        .select("id, supervisor_team_id, employee_name, employee_email, intercom_agent_name, team_name, is_active, created_at, updated_at")
+        .eq("supervisor_team_id", teamId)
+        .eq("is_active", true)
+        .order("employee_name", { ascending: true }),
+    STEP_TIMEOUT_MS
+  );
+
+  if (membersResult?.error) {
+    throw new Error(membersResult.error.message || "Could not verify saved Supervisor Team members.");
+  }
+
+  return {
+    ...teamResult.data,
+    members: Array.isArray(membersResult.data) ? membersResult.data : [],
+  };
+}
+
 export async function GET(request) {
   const stages = [];
 
@@ -568,6 +608,12 @@ export async function GET(request) {
 
     if (auth.error) {
       return jsonResponse({ ok: false, error: auth.error, stages }, auth.status);
+    }
+
+    const teamId = normalizeText(new URL(request.url).searchParams.get("teamId"));
+    if (teamId) {
+      const team = await loadSingleSupervisorTeam(auth.adminClient, stages, teamId);
+      return jsonResponse({ ok: true, teams: [team], employeeOptions: [], supervisorOptions: [], stages });
     }
 
     const payload = await loadFullPayload(auth.adminClient, stages);
@@ -667,102 +713,28 @@ export async function POST(request) {
           teamPayload.supervisor_email
         );
 
-    if (existing?.id) {
-      const updateResult = await runStep(
-        stages,
-        "Update Supervisor Team",
-        () =>
-          adminClient
-            .from("supervisor_teams")
-            .update({
-              supervisor_name: teamPayload.supervisor_name,
-              supervisor_email: teamPayload.supervisor_email,
-              notes: teamPayload.notes,
-              is_active: teamPayload.is_active,
-              updated_at: now,
-            })
-            .eq("id", existing.id)
-            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-            .single(),
-        STEP_TIMEOUT_MS
-      );
-
-      if (updateResult?.error) {
-        throw new Error(updateResult.error.message || "Could not update Supervisor Team.");
-      }
-
-      savedTeam = updateResult.data;
-    } else {
-      const insertResult = await runStep(
-        stages,
-        "Insert Supervisor Team",
-        () =>
-          adminClient
-            .from("supervisor_teams")
-            .insert({
-              supervisor_name: teamPayload.supervisor_name,
-              supervisor_email: teamPayload.supervisor_email,
-              notes: teamPayload.notes,
-              is_active: teamPayload.is_active,
-              created_at: now,
-              updated_at: now,
-            })
-            .select("id, supervisor_name, supervisor_email, notes, is_active, created_at, updated_at")
-            .single(),
-        STEP_TIMEOUT_MS
-      );
-
-      if (insertResult?.error) {
-        throw new Error(insertResult.error.message || "Could not create Supervisor Team.");
-      }
-
-      savedTeam = insertResult.data;
-    }
-
-    const teamId = savedTeam.id;
-
-    const deleteMembersResult = await runStep(
+    const saveResult = await runStep(
       stages,
-      "Clear old Supervisor Team members",
+      "Save Supervisor Team atomically",
       () =>
-        adminClient
-          .from("supervisor_team_members")
-          .delete()
-          .eq("supervisor_team_id", teamId),
+        adminClient.rpc("save_supervisor_team_atomic", {
+          p_team_id: existing?.id ? String(existing.id) : null,
+          p_supervisor_name: teamPayload.supervisor_name,
+          p_supervisor_email: teamPayload.supervisor_email,
+          p_notes: teamPayload.notes,
+          p_is_active: teamPayload.is_active,
+          p_members: membersPayload,
+        }),
       STEP_TIMEOUT_MS
     );
 
-    if (deleteMembersResult?.error) {
-      throw new Error(
-        deleteMembersResult.error.message || "Could not refresh Supervisor Team members."
-      );
+    if (saveResult?.error) {
+      throw new Error(saveResult.error.message || "Could not save Supervisor Team atomically.");
     }
 
-    if (membersPayload.length > 0) {
-      const rowsToInsert = membersPayload.map((member) => ({
-        supervisor_team_id: teamId,
-        employee_name: member.employee_name,
-        employee_email: member.employee_email,
-        intercom_agent_name: member.intercom_agent_name,
-        team_name: member.team_name,
-        is_active: member.is_active,
-        created_at: now,
-        updated_at: now,
-      }));
-
-      const insertMembersResult = await runStep(
-        stages,
-        "Insert Supervisor Team members",
-        () => adminClient.from("supervisor_team_members").insert(rowsToInsert),
-        STEP_TIMEOUT_MS
-      );
-
-      if (insertMembersResult?.error) {
-        throw new Error(
-          insertMembersResult.error.message || "Could not save Supervisor Team members."
-        );
-      }
-    }
+    const teamId = normalizeText(saveResult.data);
+    if (!teamId) throw new Error("The database did not return the saved Supervisor Team ID.");
+    savedTeam = await loadSingleSupervisorTeam(adminClient, stages, teamId);
 
     await writeActivityLog(adminClient, request, {
       ...buildActorPayload(auth),
