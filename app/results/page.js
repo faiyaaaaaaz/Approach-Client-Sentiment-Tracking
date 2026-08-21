@@ -1580,7 +1580,16 @@ export default function ResultsPage() {
     };
     const intervalId = window.setInterval(refreshRecent, 60 * 1000);
     window.addEventListener("focus", refreshRecent);
-    return () => { window.clearInterval(intervalId); window.removeEventListener("focus", refreshRecent); };
+    const onTeamUpdate = () => refreshRecent();
+    const onStorage = (event) => { if (event.key === "supervisor-teams-data-version") refreshRecent(); };
+    window.addEventListener("supervisor-teams-updated", onTeamUpdate);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshRecent);
+      window.removeEventListener("supervisor-teams-updated", onTeamUpdate);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [session?.access_token]);
 
   useEffect(() => {
@@ -1873,6 +1882,11 @@ export default function ResultsPage() {
   }, [supervisorTeams]);
 
   const supervisorLookup = useMemo(() => buildSupervisorLookup(supervisorTeams), [supervisorTeams]);
+
+  useEffect(() => {
+    const validIds = new Set((supervisorTeams || []).map((team) => team.id));
+    setSupervisorTeamFilter((current) => current.filter((id) => validIds.has(id)));
+  }, [supervisorTeams]);
 
   const filteredResults = useMemo(() => {
     return decoratedResults.filter((item) => {
