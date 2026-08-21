@@ -2307,7 +2307,26 @@ export default function RunPage() {
     }
 
     loadAgentMappingsForFilters(session);
-  }, [session?.access_token]);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const refreshSupervisorFilters = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) loadAgentMappingsForFilters(data.session);
+    };
+    const onStorage = (event) => { if (event.key === "supervisor-teams-data-version") refreshSupervisorFilters(); };
+    window.addEventListener("supervisor-teams-updated", refreshSupervisorFilters);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("supervisor-teams-updated", refreshSupervisorFilters);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    const validIds = new Set((supervisorTeams || []).filter((team) => team?.is_active !== false).map((team) => team.id));
+    setSelectedSupervisorTeamIds((current) => current.filter((id) => validIds.has(id)));
+  }, [supervisorTeams]);
 
   useEffect(() => {
     if (cacheHydratedRef.current) return;
