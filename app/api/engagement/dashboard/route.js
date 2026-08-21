@@ -33,20 +33,34 @@ export async function GET(request) {
     const auth = await authenticateServerRequest(request);
     if (!auth.ok) return json({ ok: false, error: auth.error }, { status: auth.status });
 
-    const { data: mappings, error: mappingError } = await auth.adminClient
-      .from("agent_mappings")
-      .select("employee_name,employee_email,intercom_agent_name,team_name,is_active")
-      .eq("is_active", true)
-      .order("employee_name", { ascending: true })
-      .limit(5000);
-    if (mappingError) throw new Error(mappingError.message || "Could not load agent mappings.");
+    const [mappingResult, teamResult, memberResult] = await Promise.all([
+      auth.adminClient.from("agent_mappings").select("employee_name,employee_email,intercom_agent_name,team_name,is_active").eq("is_active", true).order("employee_name", { ascending: true }).limit(5000),
+      auth.adminClient.from("supervisor_teams").select("id,supervisor_name,is_active").eq("is_active", true).limit(1000),
+      auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_email,is_active").eq("is_active", true).limit(10000),
+    ]);
+    const mappingError = mappingResult.error || teamResult.error || memberResult.error;
+    if (mappingError) throw new Error(mappingError.message || "Could not load the engagement roster.");
+    const mappings = mappingResult.data;
+    const teamNamesById = new Map((teamResult.data || []).map((team) => [String(team.id), team.supervisor_name || "Unnamed supervisor team"]));
+    const supervisorTeamsByEmail = new Map();
+    for (const member of memberResult.data || []) {
+      const email = normalizeServerEmail(member.employee_email);
+      const teamName = teamNamesById.get(String(member.supervisor_team_id));
+      if (!email || !teamName) continue;
+      const names = supervisorTeamsByEmail.get(email) || [];
+      if (!names.includes(teamName)) names.push(teamName);
+      supervisorTeamsByEmail.set(email, names);
+    }
 
     let roster = (Array.isArray(mappings) ? mappings : [])
-      .map((row) => ({ ...row, employee_email: normalizeServerEmail(row.employee_email) }))
+      .map((row) => {
+        const employeeEmail = normalizeServerEmail(row.employee_email);
+        return { ...row, employee_email: employeeEmail, supervisor_team_names: supervisorTeamsByEmail.get(employeeEmail) || [] };
+      })
       .filter((row) => row.employee_email);
     if (!auth.canViewAllEngagement) roster = roster.filter((row) => row.employee_email === auth.email);
     if (!roster.some((row) => row.employee_email === auth.email) && !auth.canViewAllEngagement) {
-      roster.push({ employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "" });
+      roster.push({ employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "", supervisor_team_names: supervisorTeamsByEmail.get(auth.email) || [] });
     }
 
     const emails = Array.from(new Set(roster.map((row) => row.employee_email)));
@@ -95,6 +109,7 @@ export async function GET(request) {
         employee_name: agent.employee_name || agent.intercom_agent_name || email,
         employee_email: email,
         team_name: agent.team_name || "Unassigned",
+        supervisor_team_names: agent.supervisor_team_names || [],
         intercom_agent_name: agent.intercom_agent_name || "",
         last_login_at: lastLogin,
         last_active_at: lastActive,
