@@ -113,7 +113,15 @@ export default function TeamEngagementPanel({ session }) {
   }, []);
 
   const allRows = Array.isArray(data?.rows) ? data.rows : [];
-  const supervisorTeamOptions = useMemo(() => Array.from(new Set(allRows.flatMap((row) => row.supervisor_team_names || []))).sort().map((item) => ({ value: item, label: item })), [allRows]);
+  const supervisorTeamOptions = useMemo(() => {
+    const directoryNames = Array.isArray(data?.supervisorTeams)
+      ? data.supervisorTeams.map((team) => String(team?.name || "").trim()).filter(Boolean)
+      : [];
+    const assignedNames = allRows.flatMap((row) => row.supervisor_team_names || []);
+    return Array.from(new Set([...directoryNames, ...assignedNames]))
+      .sort((a, b) => a.localeCompare(b))
+      .map((item) => ({ value: item, label: item }));
+  }, [allRows, data?.supervisorTeams]);
   const employeeOptions = useMemo(() => allRows.map((row) => ({ value: row.employee_email, label: row.employee_name })).sort((a, b) => a.label.localeCompare(b.label)), [allRows]);
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
