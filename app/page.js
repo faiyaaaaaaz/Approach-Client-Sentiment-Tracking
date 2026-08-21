@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../lib/supabase";
 import DisputeVerdictButton, { canUserDisputeResult } from "./components/DisputeVerdictButton";
+import TeamEngagementPanel from "./components/TeamEngagementPanel";
 
 const INTERCOM_BASE_URL =
   "https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation";
@@ -757,7 +758,18 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
 
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
-        if (!cancelled) setData(payload);
+        if (!cancelled) {
+          setData(payload);
+          const resultId = previewContext?.id || previewContext?.result_id;
+          if (resultId) {
+            fetch("/api/engagement/event", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+              body: JSON.stringify({ event_type: "conversation_preview_loaded", result_id: resultId, conversation_id: conversationId, source_page: "/" }),
+              keepalive: true,
+            }).catch(() => null);
+          }
+        }
       } catch (previewError) {
         if (!cancelled) {
           setError(previewError?.name === "AbortError" ? "The full Intercom preview is taking too long to load. You can still review the stored AI verdict and open the conversation on Intercom." : (previewError instanceof Error ? previewError.message : "Preview is not available for this conversation."));
@@ -1830,6 +1842,7 @@ function DateRangePicker({ filters, setFilters }) {
   }
 
   function renderCalendarMonth(monthDate) {
+    const dhakaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
     const monthLabel = firstDay.toLocaleDateString(undefined, {
       month: "long",
@@ -1850,13 +1863,17 @@ function DateRangePicker({ filters, setFilters }) {
       const isStart = isSameCalendarDate(date, selectedStart);
       const isEnd = isSameCalendarDate(date, selectedEnd);
       const inRange = isInsideDraftRange(date);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const isToday = dateKey === dhakaToday;
 
       cells.push(
         <button
           key={`${monthLabel}-${day}`}
           type="button"
+          aria-current={isToday ? "date" : undefined}
           className={[
             "calendar-day",
+            isToday ? "today" : "",
             inRange ? "in-range" : "",
             isStart ? "range-start" : "",
             isEnd ? "range-end" : "",
@@ -3278,6 +3295,8 @@ export default function DashboardPage() {
           />
 
         </section>
+
+        <TeamEngagementPanel session={session} />
 
         {loading ? (
           <section className="panel loading-panel">
