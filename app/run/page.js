@@ -303,8 +303,9 @@ function CalendarMonth({ monthDate, draftStart, draftEnd, onSelectDate }) {
           const isStart = draftStart && sameCalendarDay(date, draftStart);
           const isEnd = draftEnd && sameCalendarDay(date, draftEnd);
           const inRange = isDateInDraftRange(date, draftStart, draftEnd);
+          const isToday = formatDateInput(date) === getAppDateString();
           return (
-            <button key={formatDateInput(date)} type="button" className={["calendar-day", muted ? "muted" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
+            <button key={formatDateInput(date)} type="button" aria-current={isToday ? "date" : undefined} className={["calendar-day", muted ? "muted" : "", isToday ? "today" : "", inRange ? "in-range" : "", isStart ? "range-start" : "", isEnd ? "range-end" : ""].filter(Boolean).join(" ")} onClick={() => onSelectDate(date)}>
               {date.getDate()}
             </button>
           );
