@@ -26,6 +26,10 @@ function companyIdentityKey(value) {
     : email;
 }
 
+function normalizedIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function dhakaWeekStart() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dhaka", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" })
     .formatToParts(new Date()).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
@@ -44,7 +48,7 @@ export async function GET(request) {
     const [mappingResult, teamResult, memberResult] = await Promise.all([
       auth.adminClient.from("agent_mappings").select("employee_name,employee_email,intercom_agent_name,team_name,is_active").eq("is_active", true).order("employee_name", { ascending: true }).limit(5000),
       auth.adminClient.from("supervisor_teams").select("id,supervisor_name,is_active").eq("is_active", true).limit(1000),
-      auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_email,is_active").eq("is_active", true).limit(10000),
+      auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_name,employee_email,intercom_agent_name,is_active").eq("is_active", true).limit(10000),
     ]);
     const mappingError = mappingResult.error || teamResult.error || memberResult.error;
     if (mappingError) throw new Error(mappingError.message || "Could not load the engagement roster.");
@@ -54,27 +58,48 @@ export async function GET(request) {
       name: team.supervisor_name || "Unnamed supervisor team",
     }));
     const teamNamesById = new Map(activeSupervisorTeams.map((team) => [String(team.id), team.name]));
-    const supervisorTeamsByEmail = new Map();
+    const supervisorTeamsByIdentity = new Map();
+    const addTeamForIdentity = (identity, teamName) => {
+      if (!identity || !teamName) return;
+      const names = supervisorTeamsByIdentity.get(identity) || [];
+      if (!names.includes(teamName)) names.push(teamName);
+      supervisorTeamsByIdentity.set(identity, names);
+    };
     for (const member of memberResult.data || []) {
       const email = normalizeServerEmail(member.employee_email);
-      const identityKey = companyIdentityKey(email);
+      const employeeName = normalizedIdentity(member.employee_name);
+      const intercomName = normalizedIdentity(member.intercom_agent_name);
       const teamName = teamNamesById.get(String(member.supervisor_team_id));
-      if (!email || !teamName) continue;
-      const names = supervisorTeamsByEmail.get(email) || supervisorTeamsByEmail.get(identityKey) || [];
-      if (!names.includes(teamName)) names.push(teamName);
-      supervisorTeamsByEmail.set(email, names);
-      supervisorTeamsByEmail.set(identityKey, names);
+      if (!teamName) continue;
+      if (email) addTeamForIdentity(`email:${email}`, teamName);
+      if (email) addTeamForIdentity(`company:${companyIdentityKey(email)}`, teamName);
+      if (employeeName) addTeamForIdentity(`name:${employeeName}`, teamName);
+      if (intercomName) addTeamForIdentity(`intercom:${intercomName}`, teamName);
     }
+
+    const findSupervisorTeamNames = (row) => {
+      const email = normalizeServerEmail(row?.employee_email);
+      const employeeName = normalizedIdentity(row?.employee_name);
+      const intercomName = normalizedIdentity(row?.intercom_agent_name);
+      const identities = [
+        email ? `email:${email}` : "",
+        email ? `company:${companyIdentityKey(email)}` : "",
+        employeeName ? `name:${employeeName}` : "",
+        intercomName ? `intercom:${intercomName}` : "",
+      ].filter(Boolean);
+      return Array.from(new Set(identities.flatMap((identity) => supervisorTeamsByIdentity.get(identity) || [])));
+    };
 
     let roster = (Array.isArray(mappings) ? mappings : [])
       .map((row) => {
         const employeeEmail = normalizeServerEmail(row.employee_email);
-        return { ...row, employee_email: employeeEmail, supervisor_team_names: supervisorTeamsByEmail.get(employeeEmail) || supervisorTeamsByEmail.get(companyIdentityKey(employeeEmail)) || [] };
+        return { ...row, employee_email: employeeEmail, supervisor_team_names: findSupervisorTeamNames({ ...row, employee_email: employeeEmail }) };
       })
       .filter((row) => row.employee_email);
     if (!auth.canViewAllEngagement) roster = roster.filter((row) => row.employee_email === auth.email);
     if (!roster.some((row) => row.employee_email === auth.email) && !auth.canViewAllEngagement) {
-      roster.push({ employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "", supervisor_team_names: supervisorTeamsByEmail.get(auth.email) || supervisorTeamsByEmail.get(companyIdentityKey(auth.email)) || [] });
+      const ownAgent = { employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "" };
+      roster.push({ ...ownAgent, supervisor_team_names: findSupervisorTeamNames(ownAgent) });
     }
 
     const emails = Array.from(new Set(roster.map((row) => row.employee_email)));
