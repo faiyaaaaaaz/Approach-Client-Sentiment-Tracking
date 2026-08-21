@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const DHAKA_FORMAT = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Dhaka",
@@ -32,12 +32,22 @@ function statusLabel(value) {
 
 function SearchMultiSelect({ label, options, selected, onChange, placeholder }) {
   const [query, setQuery] = useState("");
+  const detailsRef = useRef(null);
   const visible = options.filter((option) => option.label.toLowerCase().includes(query.trim().toLowerCase()));
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (detailsRef.current?.open && !detailsRef.current.contains(event.target)) {
+        detailsRef.current.open = false;
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
   function toggle(value) {
     onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]);
   }
   return (
-    <details className="engagement-multiselect">
+    <details ref={detailsRef} className="engagement-multiselect">
       <summary><span>{label}</span><strong>{selected.length ? `${selected.length} selected` : placeholder}</strong><i>⌄</i></summary>
       <div className="engagement-multiselect-menu">
         <div className="engagement-option-search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${label.toLowerCase()}`} /></div>
