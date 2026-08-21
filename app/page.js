@@ -2792,6 +2792,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [welcomeIdentity, setWelcomeIdentity] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [dashboardSession, setDashboardSession] = useState(null);
   const [welcomeAlreadyShown, setWelcomeAlreadyShown] = useState(true);
   const [globalFilters, setGlobalFilters] = useState(createBaseFilters("past_30_days", true));
   const [leaderboardFilters, setLeaderboardFilters] = useState(createBaseFilters("past_30_days", true));
@@ -2817,6 +2818,9 @@ export default function DashboardPage() {
 
     async function loadRowsForSession(activeSession, options = {}) {
       const showLoader = options.showLoader !== false;
+      const fast = Boolean(options.fast);
+      const merge = Boolean(options.merge);
+      const preserveUi = Boolean(options.preserveUi);
 
       if (!active) return;
 
@@ -2841,7 +2845,16 @@ export default function DashboardPage() {
       const currentRequestId = requestId + 1;
       requestId = currentRequestId;
 
-      if (showLoader || !hasLoadedFreshRows) {
+      const dashboardCacheKey = getDashboardCacheKey(activeSession?.user?.email);
+      const cachedDashboard = readClientCache(dashboardCacheKey);
+      if (!hasLoadedFreshRows && Array.isArray(cachedDashboard?.rows) && cachedDashboard.rows.length) {
+        setRawRows(cachedDashboard.rows);
+        setSupervisorTeams(Array.isArray(cachedDashboard.supervisorTeams) ? cachedDashboard.supervisorTeams : []);
+        hasLoadedFreshRows = true;
+        setLoading(false);
+      }
+
+      if (!preserveUi && (showLoader || !hasLoadedFreshRows)) {
         setLoading(true);
       }
 
@@ -2849,7 +2862,7 @@ export default function DashboardPage() {
 
       try {
         const [response, welcomeProfile] = await Promise.all([
-          fetch(`/api/results?dashboardRefresh=${Date.now()}`, {
+          fetch(`/api/results?dashboardRefresh=${Date.now()}${fast ? `&fast=1&since=${encodeURIComponent(options.since || new Date(Date.now() - 75 * 86400000).toISOString())}` : ""}`, {
             method: "GET",
             headers: {
               "Content-Type": "application/json",
@@ -2890,16 +2903,27 @@ export default function DashboardPage() {
 
         hasLoadedFreshRows = true;
         setSupervisorTeams(loadedSupervisorTeams);
-        setRawRows(liveMappedRows);
+        if (merge) {
+          setRawRows((current) => {
+            const byId = new Map((current || []).map((row) => [String(row.id), row]));
+            liveMappedRows.forEach((row) => byId.set(String(row.id), row));
+            return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          });
+        } else {
+          setRawRows(liveMappedRows);
+          writeClientCache(dashboardCacheKey, { savedAt: Date.now(), rows: liveMappedRows, supervisorTeams: loadedSupervisorTeams });
+        }
       } catch (loadError) {
         if (!active || currentRequestId !== requestId) return;
 
-        setRawRows([]);
-        setSupervisorTeams([]);
-        setProfile(null);
-        setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
+        if (!preserveUi && !hasLoadedFreshRows) {
+          setRawRows([]);
+          setSupervisorTeams([]);
+          setProfile(null);
+          setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
+        }
       } finally {
-        if (active && currentRequestId === requestId) setLoading(false);
+        if (active && currentRequestId === requestId && !preserveUi) setLoading(false);
       }
     }
 
@@ -2907,7 +2931,9 @@ export default function DashboardPage() {
       try {
         const sessionResult = await supabase.auth.getSession();
         const currentSession = sessionResult?.data?.session || null;
-        await loadRowsForSession(currentSession, { showLoader: true });
+        if (active) setDashboardSession(currentSession);
+        await loadRowsForSession(currentSession, { showLoader: true, fast: true });
+        if (active) loadRowsForSession(currentSession, { showLoader: false, preserveUi: true });
       } catch (_error) {
         if (!active) return;
         setRawRows([]);
@@ -2923,6 +2949,7 @@ export default function DashboardPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
+      setDashboardSession(newSession || null);
 
       if (!newSession?.access_token) {
         if (event === "SIGNED_OUT") {
@@ -2945,6 +2972,32 @@ export default function DashboardPage() {
       subscription?.unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!dashboardSession?.access_token) return undefined;
+    let refreshing = false;
+    const refreshRecent = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const since = encodeURIComponent(new Date(Date.now() - 3 * 86400000).toISOString());
+        const response = await fetch(`/api/results?fast=1&since=${since}`, { headers: { Authorization: `Bearer ${dashboardSession.access_token}` }, cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.ok) return;
+        const mappings = await loadActiveAgentMappings();
+        const recentRows = applyAgentMappingsToRows(Array.isArray(data.results) ? data.results : [], mappings);
+        setRawRows((current) => {
+          const byId = new Map((current || []).map((row) => [String(row.id), row]));
+          recentRows.forEach((row) => byId.set(String(row.id), row));
+          return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        });
+        if (Array.isArray(data.supervisorTeams)) setSupervisorTeams(data.supervisorTeams);
+      } finally { refreshing = false; }
+    };
+    const intervalId = window.setInterval(refreshRecent, 60 * 1000);
+    window.addEventListener("focus", refreshRecent);
+    return () => { window.clearInterval(intervalId); window.removeEventListener("focus", refreshRecent); };
+  }, [dashboardSession?.access_token]);
 
   useEffect(() => {
     if (!loading && welcomeIdentity?.email && !welcomeAlreadyShown) {
