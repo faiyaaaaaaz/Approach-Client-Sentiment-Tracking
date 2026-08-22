@@ -108,7 +108,7 @@ export async function GET(request) {
 
     const [sessionsResult, viewsResult, resultsResult, statesResult] = await Promise.all([
       auth.adminClient.from("user_activity_sessions").select("email,started_at,last_seen_at").in("email", emails).order("last_seen_at", { ascending: false }).limit(20000),
-      auth.adminClient.from("system_activity_logs").select("actor_email,target_id,created_at").in("actor_email", emails).eq("action_type", "page_viewed").in("target_id", ["/", "/results"]).order("created_at", { ascending: false }).limit(20000),
+      auth.adminClient.from("system_activity_logs").select("actor_email,target_id,action_type,created_at").in("actor_email", emails).order("created_at", { ascending: false }).limit(20000),
       auth.adminClient.from("audit_results").select("id,conversation_id,employee_email,review_sentiment,created_at,replied_at,error").in("employee_email", emails).order("created_at", { ascending: false }).limit(50000),
       auth.adminClient.from("result_engagement_state").select("actor_email,result_id,first_opened_at,last_opened_at,conversation_opened_at,open_count,is_missed_approach").in("actor_email", emails).order("last_opened_at", { ascending: false }).limit(50000),
     ]);
@@ -142,8 +142,13 @@ export async function GET(request) {
       const dashboardViews = agentViews.filter((row) => row.target_id === "/");
       const resultsViews = agentViews.filter((row) => row.target_id === "/results");
       const lastConversationOpened = Array.from(stateByResult.values()).reduce((value, row) => latest(value, row.conversation_opened_at), null);
-      const lastLogin = agentSessions.reduce((value, row) => latest(value, row.started_at), null);
-      const lastActive = agentSessions.reduce((value, row) => latest(value, row.last_seen_at || row.started_at), null);
+      const loginEvents = agentViews.filter((row) => row.action_type === "session_started");
+      const lastSessionLogin = agentSessions.reduce((value, row) => latest(value, row.started_at), null);
+      const lastLoggedLogin = loginEvents.reduce((value, row) => latest(value, row.created_at), null);
+      const lastLogin = latest(lastSessionLogin, lastLoggedLogin);
+      const lastSessionActivity = agentSessions.reduce((value, row) => latest(value, row.last_seen_at || row.started_at), null);
+      const lastLoggedActivity = agentViews.reduce((value, row) => latest(value, row.created_at), null);
+      const lastActive = latest(lastSessionActivity, lastLoggedActivity);
 
       return {
         employee_name: agent.employee_name || agent.intercom_agent_name || email,
