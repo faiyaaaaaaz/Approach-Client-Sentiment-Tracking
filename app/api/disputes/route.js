@@ -51,7 +51,7 @@ async function authenticate(request) {
   if (userError || !user) return { ok: false, response: json({ ok: false, error: "Invalid or expired session." }, { status: 401 }) };
 
   const email = normalizeEmail(user.email);
-  if (!email.endsWith("@nextventures.io")) return { ok: false, response: json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 }) };
+  if (!email.endsWith("@nextventures.io") && !email.endsWith("@wearenext.io")) return { ok: false, response: json({ ok: false, error: "Only nextventures.io or wearenext.io accounts are allowed." }, { status: 403 }) };
 
   const { data: profileById, error: idError } = await adminClient
     .from("profiles")
@@ -200,6 +200,36 @@ export async function POST(request) {
     if (!auth.ok) return auth.response;
 
     const body = await request.json().catch(() => ({}));
+    if (normalizeKey(body.mode) === "status_batch") {
+      const items = Array.isArray(body.items) ? body.items.slice(0, 250) : [];
+      const resultIds = Array.from(new Set(items.map((item) => normalizeText(item?.result_id)).filter(Boolean)));
+      const conversationIds = Array.from(new Set(items.map((item) => normalizeText(item?.conversation_id)).filter(Boolean)));
+      const selectFields = "id,result_id,conversation_id,status,created_at,updated_at,submitted_by_name,submitted_by_email";
+      const queries = [];
+
+      if (resultIds.length) {
+        queries.push(auth.adminClient.from("verdict_disputes").select(selectFields).in("result_id", resultIds).order("created_at", { ascending: false }));
+      }
+      if (conversationIds.length) {
+        queries.push(auth.adminClient.from("verdict_disputes").select(selectFields).in("conversation_id", conversationIds).order("created_at", { ascending: false }));
+      }
+
+      const queryResults = await Promise.all(queries);
+      const failed = queryResults.find((item) => item.error);
+      if (failed?.error) throw new Error(failed.error.message || "Could not check dispute statuses.");
+
+      const byResultId = {};
+      const byConversationId = {};
+      queryResults.flatMap((item) => item.data || []).forEach((dispute) => {
+        const resultKey = normalizeText(dispute.result_id);
+        const conversationKey = normalizeText(dispute.conversation_id);
+        if (resultKey && !byResultId[resultKey]) byResultId[resultKey] = dispute;
+        if (conversationKey && !byConversationId[conversationKey]) byConversationId[conversationKey] = dispute;
+      });
+
+      return json({ ok: true, by_result_id: byResultId, by_conversation_id: byConversationId });
+    }
+
     const resultId = normalizeText(body.result_id);
     const conversationId = normalizeText(body.conversation_id);
     const reason = normalizeText(body.reason);
