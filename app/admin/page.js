@@ -8,7 +8,7 @@ import CalibrationSnippetsPanel from "../components/CalibrationSnippetsPanel";
 import OverviewReportPanel from "../components/OverviewReportPanel";
 
 const MASTER_ADMIN_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
-const TIMEOUT_MS = 10000;
+const TIMEOUT_MS = 15000;
 
 const ROLE_OPTIONS = [
   {
@@ -731,6 +731,7 @@ function AdminConversationPreview({ dispute, accessToken, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   const conversationId = normalizeText(dispute?.conversation_id);
   const messages = Array.isArray(preview?.messages) ? preview.messages : [];
@@ -743,35 +744,49 @@ function AdminConversationPreview({ dispute, accessToken, onClose }) {
   }, []);
 
   useEffect(() => {
+    let active = true;
     const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 32000);
 
     async function loadConversation() {
       setLoading(true);
       setError("");
+      setPreview(null);
       try {
         if (!accessToken) throw new Error("Your session is not ready. Close the preview and try again.");
-        const response = await fetch("/api/intercom/conversation-preview", {
+        const requestPreview = (accessToken) => fetch("/api/intercom/conversation-preview", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ conversationId, resultId: dispute?.result_id || null }),
           cache: "no-store",
           signal: controller.signal,
         });
+        let response = await requestPreview(accessToken);
+        if (response.status === 401 && !controller.signal.aborted) {
+          const refreshed = await supabase.auth.refreshSession();
+          const refreshedToken = refreshed?.data?.session?.access_token;
+          if (refreshedToken) response = await requestPreview(refreshedToken);
+        }
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Conversation preview is unavailable.");
-        setPreview(payload);
+        if (active) setPreview(payload);
       } catch (loadError) {
-        if (loadError?.name !== "AbortError") {
-          setError(loadError instanceof Error ? loadError.message : "Conversation preview is unavailable.");
-        }
+        if (active) setError(loadError?.name === "AbortError"
+          ? "The Intercom preview did not respond in time. Close and reopen the preview to try again."
+          : (loadError instanceof Error ? loadError.message : "Conversation preview is unavailable."));
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        clearTimeout(timeoutId);
+        if (active) setLoading(false);
       }
     }
 
     loadConversation();
-    return () => controller.abort();
-  }, [accessToken, conversationId, dispute?.result_id]);
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [accessToken, conversationId, dispute?.result_id, previewAttempt]);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -816,7 +831,7 @@ function AdminConversationPreview({ dispute, accessToken, onClose }) {
           </aside>
           <main>
             {loading ? <div className="admin-preview-state">Loading the conversation without leaving Admin…</div> : null}
-            {error ? <div className="admin-preview-state error"><strong>Preview unavailable</strong><span>{error}</span></div> : null}
+            {error ? <div className="admin-preview-state error"><strong>Preview unavailable</strong><span>{error}</span><button type="button" className="secondary-btn small" onClick={() => setPreviewAttempt((value) => value + 1)}>Retry Preview</button></div> : null}
             {!loading && !error && !messages.length ? <div className="admin-preview-state">No renderable messages were returned.</div> : null}
             {!loading && messages.length ? (
               <div className="admin-preview-messages">
@@ -1470,6 +1485,7 @@ function AdminPageContent() {
   const [showJumpTop, setShowJumpTop] = useState(false);
 
   const [dbReady, setDbReady] = useState(false);
+  const [promptLoading, setPromptLoading] = useState(false);
   const [promptData, setPromptData] = useState(null);
   const [historyRows, setHistoryRows] = useState([]);
   const [livePromptInput, setLivePromptInput] = useState("");
@@ -1737,26 +1753,39 @@ function AdminPageContent() {
       return;
     }
 
-    const response = await withTimeout(
-      fetch("/api/admin/prompt", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${activeSession.access_token}`,
-        },
-      }),
-      "Loading prompt settings"
-    );
-
-    const data = await readApiJson(response);
-
-    if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || "Could not load Admin prompt settings.");
+    setPromptLoading(true);
+    try {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        try {
+          const response = await fetch(`/api/admin/prompt?attempt=${attempt}&refresh=${Date.now()}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${activeSession.access_token}` },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const data = await readApiJson(response);
+          if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not load Admin prompt settings.");
+          setPromptData(data.prompt || null);
+          setHistoryRows(Array.isArray(data.history) ? data.history : []);
+          setDbReady(Boolean(data.dbReady));
+          setLivePromptInput(data?.prompt?.livePrompt || "");
+          return;
+        } catch (promptError) {
+          lastError = promptError?.name === "AbortError"
+            ? new Error("Prompt storage did not respond after two automatic attempts.")
+            : promptError;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250));
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+      throw lastError || new Error("Could not load Admin prompt settings.");
+    } finally {
+      setPromptLoading(false);
     }
-
-    setPromptData(data.prompt || null);
-    setHistoryRows(Array.isArray(data.history) ? data.history : []);
-    setDbReady(Boolean(data.dbReady));
-    setLivePromptInput(data?.prompt?.livePrompt || "");
   }
 
   async function loadMappingsData(activeSession = session) {
@@ -2417,10 +2446,6 @@ function AdminPageContent() {
       setAuthMessage(profileResult.message || "");
       setAuthChecked(true);
 
-      if (profileResult.profile && canManageAdmin(profileResult.profile)) {
-        await loadAll(currentSession, { silent: true, profile: profileResult.profile, sectionKey: activeSectionKey });
-      }
-
       setLoading(false);
       setAdminBooting(false);
     } catch (error) {
@@ -2473,17 +2498,15 @@ function AdminPageContent() {
         return;
       }
 
-      loadProfile(nextSession.user, nextSession).then((result) => {
-        if (!active) return;
+      window.setTimeout(() => {
+        loadProfile(nextSession.user, nextSession).then((result) => {
+          if (!active) return;
 
-        setProfile(result.profile);
-        setAuthMessage(result.message || "");
-        setAuthChecked(true);
-
-        if (!isBackgroundRefresh && result.profile && canManageAdmin(result.profile)) {
-          loadAll(nextSession, { silent: true, profile: result.profile, sectionKey: activeSectionKey });
-        }
-      });
+          setProfile(result.profile);
+          setAuthMessage(result.message || "");
+          setAuthChecked(true);
+        });
+      }, 0);
     });
 
     return () => {
@@ -3653,9 +3676,9 @@ function AdminPageContent() {
   const statusCards = [
     {
       label: "Prompt",
-      value: dbReady ? "Ready" : "Not ready",
-      note: dbReady ? "Live Prompt connected." : "Prompt storage unavailable.",
-      tone: dbReady ? "success" : "warning",
+      value: promptLoading ? "Loading…" : dbReady ? "Ready" : "Not ready",
+      note: promptLoading ? "Connecting to prompt storage." : dbReady ? "Live Prompt connected." : "Prompt storage unavailable.",
+      tone: promptLoading ? "notice" : dbReady ? "success" : "warning",
     },
     {
       label: "Coverage",
@@ -3669,14 +3692,14 @@ function AdminPageContent() {
     },
     {
       label: "Mappings",
-      value: `${formatNumber(activeMappingsCount)} / ${formatNumber(inactiveMappingsCount)}`,
-      note: "Active / inactive.",
+      value: mappingLoading ? "Loading…" : `${formatNumber(activeMappingsCount)} / ${formatNumber(inactiveMappingsCount)}`,
+      note: mappingLoading ? "Loading current mappings." : "Active / inactive.",
       tone: inactiveMappingsCount ? "notice" : "success",
     },
     {
       label: "Supervisor Teams",
-      value: formatNumber(activeSupervisorTeamsCount),
-      note: `${formatNumber(totalSupervisorMembersCount)} assigned member(s).`,
+      value: supervisorLoading ? "Loading…" : formatNumber(activeSupervisorTeamsCount),
+      note: supervisorLoading ? "Loading current teams." : `${formatNumber(totalSupervisorMembersCount)} assigned member(s).`,
       tone: activeSupervisorTeamsCount ? "success" : "notice",
     },
     {
