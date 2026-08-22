@@ -32,6 +32,11 @@ function normalizeKey(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function isAllowedCompanyEmail(value) {
+  const email = normalizeEmail(value);
+  return email.endsWith("@nextventures.io") || email.endsWith("@wearenext.io");
+}
+
 function getSupabaseClients() {
   const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
   const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
@@ -151,8 +156,8 @@ function validateMappingPayload(input = {}) {
     throw new Error("Employee name is required.");
   }
 
-  if (employeeEmail && !employeeEmail.endsWith("@nextventures.io")) {
-    throw new Error("Employee email must use the nextventures.io domain.");
+  if (employeeEmail && !isAllowedCompanyEmail(employeeEmail)) {
+    throw new Error("Employee email must use the nextventures.io or wearenext.io domain.");
   }
 
   return {
@@ -195,10 +200,10 @@ async function getAuthenticatedContext(request) {
 
   const email = normalizeEmail(user.email);
 
-  if (!email.endsWith("@nextventures.io")) {
+  if (!isAllowedCompanyEmail(email)) {
     return {
       ok: false,
-      response: json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 }),
+      response: json({ ok: false, error: "Only nextventures.io or wearenext.io accounts are allowed." }, { status: 403 }),
     };
   }
 
@@ -332,10 +337,10 @@ async function getAuthenticatedReadContext(request) {
 
   const email = normalizeEmail(user.email);
 
-  if (!email.endsWith("@nextventures.io")) {
+  if (!isAllowedCompanyEmail(email)) {
     return {
       ok: false,
-      response: json({ ok: false, error: "Only nextventures.io accounts are allowed." }, { status: 403 }),
+      response: json({ ok: false, error: "Only nextventures.io or wearenext.io accounts are allowed." }, { status: 403 }),
     };
   }
 
@@ -410,6 +415,20 @@ export async function GET(request) {
   }
 }
 
+async function resolveUnmappedObservation(adminClient, agentName, actorEmail) {
+  const normalizedAgentName = normalizeKey(agentName);
+  if (!normalizedAgentName) return;
+  await adminClient
+    .from("unmapped_agent_observations")
+    .update({
+      status: "mapped",
+      resolved_at: new Date().toISOString(),
+      resolved_by_email: actorEmail || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("normalized_agent_name", normalizedAgentName);
+}
+
 export async function POST(request) {
   const auth = await getAuthenticatedContext(request);
   if (!auth.ok) return auth.response;
@@ -449,6 +468,8 @@ export async function POST(request) {
 
       if (error) throw new Error(error.message || "Could not prefill mappings.");
 
+      await Promise.all(sanitizedRows.map((row) => resolveUnmappedObservation(adminClient, row.intercom_agent_name, actor.email)));
+
       await writeActivityLog(adminClient, request, actor, {
         action_type: "agent_mappings_prefilled",
         action_label: "Agent Mappings Prefilled",
@@ -486,6 +507,8 @@ export async function POST(request) {
 
       if (error) throw new Error(error.message || "Could not update the mapping.");
 
+      await resolveUnmappedObservation(adminClient, data?.intercom_agent_name || payload.intercom_agent_name, actor.email);
+
       await writeActivityLog(adminClient, request, actor, {
         action_type: "agent_mapping_updated",
         action_label: "Agent Mapping Updated",
@@ -520,6 +543,8 @@ export async function POST(request) {
       .single();
 
     if (error) throw new Error(error.message || "Could not create the mapping.");
+
+    await resolveUnmappedObservation(adminClient, data?.intercom_agent_name || payload.intercom_agent_name, actor.email);
 
     await writeActivityLog(adminClient, request, actor, {
       action_type: "agent_mapping_created",
