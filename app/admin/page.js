@@ -1097,7 +1097,7 @@ function buildStoredAgentStats(auditRows) {
       latest_seen_at: getRowDate(row),
     };
 
-    current.appearances += 1;
+    current.appearances += Math.max(1, Number(row?.observation_count || 1));
 
     const matchStatus = normalizeKey(row?.employee_match_status);
     if (matchStatus === "mapped") current.mapped_result_count += 1;
@@ -1421,6 +1421,8 @@ function AdminPageContent() {
   const [disputeActionId, setDisputeActionId] = useState("");
   const [disputeDrafts, setDisputeDrafts] = useState({});
   const [approvedDisputeEditId, setApprovedDisputeEditId] = useState("");
+  const [disputeStatusFilter, setDisputeStatusFilter] = useState("pending");
+  const [disputeSearch, setDisputeSearch] = useState("");
   const [activityLimit, setActivityLimit] = useState(150);
   const [activityVisibleCount, setActivityVisibleCount] = useState(25);
   const [activityDatePreset, setActivityDatePreset] = useState("all");
@@ -1458,6 +1460,24 @@ function AdminPageContent() {
     () => activityLogs.slice(0, activityVisibleCount),
     [activityLogs, activityVisibleCount]
   );
+
+  const visibleDisputeRows = useMemo(() => {
+    const query = normalizeKey(disputeSearch);
+    return disputeRows.filter((item) => {
+      if (disputeStatusFilter !== "all" && normalizeKey(item?.status) !== disputeStatusFilter) return false;
+      if (!query) return true;
+      return [
+        item?.conversation_id,
+        item?.result_id,
+        item?.agent_name,
+        item?.employee_name,
+        item?.employee_email,
+        item?.submitted_by_name,
+        item?.submitted_by_email,
+        item?.reason,
+      ].some((value) => normalizeKey(value).includes(query));
+    });
+  }, [disputeRows, disputeStatusFilter, disputeSearch]);
 
   function updateActivityFilter(key, value) {
     setActivityFilters((prev) => ({
@@ -1629,43 +1649,22 @@ function AdminPageContent() {
     setLivePromptInput(data?.prompt?.livePrompt || "");
   }
 
-  async function loadMappingsData() {
+  async function loadMappingsData(activeSession = session) {
     setMappingLoading(true);
 
     try {
-      const [mappingsResponse, auditResponse] = await Promise.all([
-        withTimeout(
-          supabase
-            .from("agent_mappings")
-            .select("*")
-            .order("employee_name", { ascending: true })
-            .order("intercom_agent_name", { ascending: true }),
-          "Loading agent mappings"
-        ),
-        withTimeout(
-          supabase
-            .from("audit_results")
-            .select(
-              "id, agent_name, employee_name, employee_email, team_name, employee_match_status, created_at, replied_at"
-            )
-            .order("created_at", { ascending: false })
-            .limit(5000),
-          "Loading stored audit samples"
-        ),
-      ]);
+      const usableSession = activeSession?.access_token ? activeSession : await getFreshSession();
+      const response = await withTimeout(fetch(`/api/admin/mappings?refresh=${Date.now()}`, {
+        headers: { Authorization: `Bearer ${usableSession.access_token}` },
+        cache: "no-store",
+      }), "Loading agent mappings");
+      const data = await readApiJson(response);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not load agent mappings.");
 
-      if (mappingsResponse.error) {
-        throw new Error(mappingsResponse.error.message || "Could not load agent mappings.");
-      }
-
-      if (auditResponse.error) {
-        throw new Error(auditResponse.error.message || "Could not load audit rows.");
-      }
-
-      const mappings = Array.isArray(mappingsResponse.data) ? mappingsResponse.data : [];
+      const mappings = Array.isArray(data.mappings) ? data.mappings : [];
 
       setMappingRows(mappings);
-      setAuditRows(Array.isArray(auditResponse.data) ? auditResponse.data : []);
+      setAuditRows(Array.isArray(data.auditRows) ? data.auditRows : []);
       setSupervisorEmployeeOptions(buildEmployeeOptionsFromMappings(mappings));
     } finally {
       setMappingLoading(false);
@@ -2192,7 +2191,7 @@ function AdminPageContent() {
     switch (sectionKey) {
       case "overview":
         jobs.push(loadPromptData(activeSession));
-        jobs.push(loadMappingsData());
+        jobs.push(loadMappingsData(activeSession));
         jobs.push(loadSupervisorTeamsData(activeSession));
         break;
 
@@ -2218,7 +2217,7 @@ function AdminPageContent() {
 
       case "mappings":
         if (hasPermission(permissionSource, "admin_mappings")) {
-          jobs.push(loadMappingsData());
+          jobs.push(loadMappingsData(activeSession));
         }
         break;
 
@@ -4046,11 +4045,36 @@ function AdminPageContent() {
                 </div>
               </div>
 
-              {!disputeRows.length ? (
-                <div className="empty-box">No disputes found yet.</div>
+              <div className="dispute-queue-toolbar">
+                <div className="dispute-status-tabs" role="tablist" aria-label="Dispute status">
+                  {[
+                    ["pending", "Pending"],
+                    ["approved", "Approved"],
+                    ["rejected", "Rejected"],
+                    ["all", "All"],
+                  ].map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={disputeStatusFilter === value ? "active" : ""}
+                      onClick={() => setDisputeStatusFilter(value)}
+                    >
+                      {label}
+                      <span>{value === "all" ? disputeRows.length : disputeRows.filter((item) => item.status === value).length}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="dispute-search-field">
+                  <span>Search disputes</span>
+                  <input value={disputeSearch} onChange={(event) => setDisputeSearch(event.target.value)} placeholder="Conversation, employee, submitter, or reason" />
+                </label>
+              </div>
+
+              {!visibleDisputeRows.length ? (
+                <div className="empty-box">No disputes match this queue.</div>
               ) : (
                 <div className="dispute-card-list">
-                  {disputeRows.map((dispute) => {
+                  {visibleDisputeRows.map((dispute) => {
                     const draft = disputeDrafts[dispute.id] || {};
                     const isPending = dispute.status === "pending";
                     const isApproved = dispute.status === "approved";
@@ -4068,6 +4092,14 @@ function AdminPageContent() {
                           <div className="dispute-card-topline">
                             <span className={`pill ${dispute.status === "approved" ? "success" : dispute.status === "rejected" ? "danger" : "warning"}`}>{dispute.status || "pending"}</span>
                             <span className="muted">Submitted {formatDateTime(dispute.created_at)}</span>
+                            <a
+                              className="secondary-btn small dispute-preview-link"
+                              href={`/?previewConversation=${encodeURIComponent(dispute.conversation_id || "")}${dispute.result_id ? `&resultId=${encodeURIComponent(dispute.result_id)}` : ""}`}
+                              aria-disabled={!dispute.conversation_id}
+                              onClick={(event) => { if (!dispute.conversation_id) event.preventDefault(); }}
+                            >
+                              Preview Conversation
+                            </a>
                           </div>
 
                           <div className="dispute-title-row">
@@ -5623,6 +5655,16 @@ const adminStyles = `
   .dispute-guidance-metrics { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 330px; justify-content: flex-end; }
   .dispute-guidance-metrics span { display: grid; gap: 2px; min-width: 92px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); background: rgba(2, 6, 23, 0.48); color: #9fb5ff; font-size: 12px; font-weight: 900; }
   .dispute-guidance-metrics strong { margin: 0; color: #fff; font-size: 20px; }
+  .dispute-queue-toolbar { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,420px); gap: 14px; align-items: end; margin: 16px 0; padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 18px; background: rgba(255,255,255,.025); }
+  .dispute-status-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dispute-status-tabs button { min-height: 40px; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,.09); background: rgba(2,6,23,.38); color: #aebceb; font-weight: 900; cursor: pointer; }
+  .dispute-status-tabs button.active { color: #fff; border-color: rgba(99,102,241,.52); background: rgba(99,102,241,.18); box-shadow: 0 0 0 3px rgba(99,102,241,.08); }
+  .dispute-status-tabs button span { min-width: 22px; padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,.08); font-size: 11px; text-align: center; }
+  .dispute-search-field span { display: block; margin-bottom: 7px; color: #8ea0d6; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+  .dispute-search-field input { width: 100%; }
+  .dispute-card-topline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dispute-preview-link { margin-left: auto; text-decoration: none; }
+  .dispute-preview-link[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
   .dispute-card-list { display: grid; gap: 16px; max-height: 780px; overflow: auto; padding-right: 8px; }
   .dispute-review-card {
     display: grid;
@@ -5667,6 +5709,7 @@ const adminStyles = `
     .dispute-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dispute-guidance-card { flex-direction: column; }
     .dispute-guidance-metrics { justify-content: flex-start; min-width: 0; }
+    .dispute-queue-toolbar { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 720px) {
