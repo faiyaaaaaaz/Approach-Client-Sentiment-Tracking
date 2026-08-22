@@ -35,6 +35,52 @@ function getResultIdentifier(result) {
   return result?.id || result?.result_id || result?.audit_result_id || "";
 }
 
+export function useExistingDispute(result) {
+  const resultId = normalizeText(getResultIdentifier(result || {}));
+  const conversationId = normalizeText(result?.conversation_id || result?.conversationId);
+  const [existingDispute, setExistingDispute] = useState(null);
+  const [checkingDispute, setCheckingDispute] = useState(Boolean(resultId || conversationId));
+
+  useEffect(() => {
+    let active = true;
+    if (!resultId && !conversationId) {
+      setExistingDispute(null);
+      setCheckingDispute(false);
+      return () => { active = false; };
+    }
+    setCheckingDispute(true);
+    supabase.auth.getSession().then(async ({ data }) => {
+      const token = data?.session?.access_token;
+      if (!token) return null;
+      const query = new URLSearchParams({ mode: "eligibility" });
+      if (resultId) query.set("result_id", resultId);
+      if (conversationId) query.set("conversation_id", conversationId);
+      const response = await fetch(`/api/disputes?${query.toString()}&check=${Date.now()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) return null;
+      return payload.existing_dispute || null;
+    }).then((value) => {
+      if (active) setExistingDispute(value);
+    }).finally(() => {
+      if (active) setCheckingDispute(false);
+    });
+    return () => { active = false; };
+  }, [resultId, conversationId]);
+
+  return { existingDispute, checkingDispute };
+}
+
+export function disputeStatusLabel(dispute) {
+  const status = normalizeKey(dispute?.status);
+  if (status === "approved") return "Dispute Approved";
+  if (status === "rejected") return "Dispute Rejected";
+  if (status === "pending") return "Dispute Pending Review";
+  return "Dispute Already Submitted";
+}
+
 function buildResultPayload(result) {
   return {
     result_id: getResultIdentifier(result) || null,
@@ -152,6 +198,8 @@ export default function DisputeVerdictButton({
     () => canUserDisputeResult(profile, supervisorTeams, result || {}),
     [profile, supervisorTeams, result]
   );
+  const { existingDispute, checkingDispute } = useExistingDispute(result || {});
+  const existingDisputeLabel = existingDispute ? disputeStatusLabel(existingDispute) : "";
 
   useEffect(() => {
     setSubmitted(false);
@@ -159,6 +207,13 @@ export default function DisputeVerdictButton({
     setError("");
     setReason("");
   }, [payload.result_id, payload.conversation_id]);
+
+  useEffect(() => {
+    if (!existingDispute) return;
+    setSubmitted(true);
+    setMessage(`${disputeStatusLabel(existingDispute)}. Another dispute cannot be submitted for this result.`);
+    setOpen(false);
+  }, [existingDispute?.id, existingDispute?.status]);
 
   function setOpen(nextOpen) {
     if (!isControlled) setInternalOpen(nextOpen);
@@ -311,10 +366,10 @@ export default function DisputeVerdictButton({
             }
             setOpen(true);
           }}
-          disabled={!canOpen || submitted || !allowedToDispute}
-          title={!canOpen ? "This row does not have enough saved result data to dispute." : submitted ? "A dispute request has already been submitted from this screen." : "Dispute this Review Status verdict"}
+          disabled={!canOpen || checkingDispute || submitted || Boolean(existingDispute) || !allowedToDispute}
+          title={!canOpen ? "This row does not have enough saved result data to dispute." : existingDispute ? `${existingDisputeLabel}.` : submitted ? "A dispute request has already been submitted from this screen." : checkingDispute ? "Checking dispute status." : "Dispute this Review Status verdict"}
         >
-          {submitted ? "Dispute Request Submitted" : "Dispute Verdict"}
+          {existingDispute ? existingDisputeLabel : checkingDispute ? "Checking Dispute…" : submitted ? "Dispute Request Submitted" : "Dispute Verdict"}
         </button>
       ) : null}
 
