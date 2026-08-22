@@ -7,7 +7,9 @@ import { supabase } from "../../lib/supabase";
 const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
-const AUDIT_BATCH_SIZE = 8;
+// Keep one server request to one concurrency wave. The audit function has a
+// 60-second Vercel limit and processes three conversations concurrently.
+const AUDIT_BATCH_SIZE = 3;
 const LARGE_FETCH_LIMIT_THRESHOLD = 250;
 const LARGE_FETCH_RANGE_DAYS = 7;
 const LARGE_QUEUE_CONFIRM_THRESHOLD = 100;
