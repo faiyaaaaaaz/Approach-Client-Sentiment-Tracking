@@ -142,9 +142,9 @@ async function authenticateAdmin(request) {
   const email = normalizeEmail(user.email);
   const domain = email.split("@")[1] || "";
 
-  if (domain !== "nextventures.io") {
+  if (domain !== "nextventures.io" && domain !== "wearenext.io") {
     return {
-      error: "Only nextventures.io accounts can access Admin mapping controls.",
+      error: "Only nextventures.io or wearenext.io accounts can access Admin mapping controls.",
       status: 403,
     };
   }
@@ -330,9 +330,9 @@ export async function GET(request) {
       latest_conversation_id: item.latest_conversation_id,
       persistent_unmapped_observation: true,
     }));
-    const observedAgentKeys = new Set(observationRows.map((item) => normalizeKey(item.agent_name)));
+    const observedAgentKeys = new Set(observationRows.map((item) => normalizeAgentKey(item.agent_name)));
     const sampledAuditRows = (Array.isArray(auditRowsResponse.data) ? auditRowsResponse.data : []).filter(
-      (item) => normalizeKey(item.employee_match_status) !== "unmapped" || !observedAgentKeys.has(normalizeKey(item.agent_name))
+      (item) => normalizeAgentKey(item.employee_match_status) !== "unmapped" || !observedAgentKeys.has(normalizeAgentKey(item.agent_name))
     );
 
     return jsonResponse({
@@ -425,7 +425,7 @@ export async function POST(request) {
         resolved_by_email: profile?.email || null,
         updated_at: now,
       })
-      .eq("normalized_agent_name", normalizeKey(payload.intercom_agent_name));
+      .eq("normalized_agent_name", normalizeAgentKey(payload.intercom_agent_name));
 
     return jsonResponse({
       ok: true,
