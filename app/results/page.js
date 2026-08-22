@@ -265,15 +265,18 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
   const [data, setData] = useState(null);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeSubmitted, setDisputeSubmitted] = useState(false);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   useEffect(() => {
     setDisputeOpen(false);
     setDisputeSubmitted(false);
+    setPreviewAttempt(0);
   }, [conversationId]);
 
   useEffect(() => {
     let cancelled = false;
     let controller = null;
+    let hardTimeoutId = null;
 
     async function loadPreview() {
       if (!conversationId) return;
@@ -282,19 +285,26 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
       setData(null);
 
       controller = new AbortController();
+      hardTimeoutId = setTimeout(() => controller?.abort(), 32000);
 
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
         if (!token) throw new Error("Your session expired. Please refresh and sign in again.");
 
-        const response = await fetch("/api/intercom/conversation-preview", {
+        const requestPreview = (accessToken) => fetch("/api/intercom/conversation-preview", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
           body: JSON.stringify({ conversationId, resultId: previewContext?.id || previewContext?.result_id || null }),
           cache: "no-store",
           signal: controller.signal,
         });
+        let response = await requestPreview(token);
+        if (response.status === 401 && !cancelled) {
+          const refreshed = await supabase.auth.refreshSession();
+          const refreshedToken = refreshed?.data?.session?.access_token;
+          if (refreshedToken) response = await requestPreview(refreshedToken);
+        }
 
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
@@ -315,6 +325,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
           setError(previewError?.name === "AbortError" ? "The full Intercom preview is taking too long to load. You can still review the stored AI verdict and open the conversation on Intercom." : (previewError instanceof Error ? previewError.message : "Preview is not available for this conversation."));
         }
       } finally {
+        if (hardTimeoutId) clearTimeout(hardTimeoutId);
         if (!cancelled) setLoading(false);
       }
     }
@@ -323,9 +334,10 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
 
     return () => {
       cancelled = true;
+      if (hardTimeoutId) clearTimeout(hardTimeoutId);
       controller?.abort();
     };
-  }, [conversationId, previewContext?.id, previewContext?.result_id]);
+  }, [conversationId, previewContext?.id, previewContext?.result_id, previewAttempt]);
 
   if (!conversationId) return null;
   const messages = normalizePreviewMessages(data);
@@ -403,7 +415,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
         ) : (
           <div className="conversation-preview-loaded">
             {error ? (
-              <div className="conversation-preview-error inline"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom to see this conversation.</small></div>
+              <div className="conversation-preview-error inline"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom or retry the preview.</small><button type="button" className="secondary-btn small" onClick={() => setPreviewAttempt((value) => value + 1)}>Retry Preview</button></div>
             ) : null}
             {auditResultCards.length ? (
               <div className="conversation-preview-result-strip">
@@ -1315,23 +1327,23 @@ export default function ResultsPage() {
   const presetMenuRef = useRef(null);
   const importProgressTimerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const authenticatedUserIdRef = useRef("");
 
-  async function loadProfile(user) {
+  async function loadProfile(user, activeSession = null) {
     const email = user?.email?.toLowerCase() || "";
     const domain = email.split("@")[1] || "";
 
     if (!user) return { profile: null, message: "" };
 
-    if (domain !== "nextventures.io") {
+    if (domain !== "nextventures.io" && domain !== "wearenext.io") {
       await supabase.auth.signOut();
-      return { profile: null, message: "Access blocked. Use a nextventures.io Google account." };
+      return { profile: null, message: "Access blocked. Use a nextventures.io or wearenext.io Google account." };
     }
 
     const fallbackProfile = buildFallbackProfile(user);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
+      const token = activeSession?.access_token || "";
       if (!token) return { profile: fallbackProfile, message: fallbackProfile ? "" : "Signed in, but profile loading failed." };
 
       const response = await fetch("/api/auth/profile", {
@@ -1510,7 +1522,8 @@ export default function ResultsPage() {
           return;
         }
 
-        const profileResult = await loadProfile(currentSession.user);
+        authenticatedUserIdRef.current = currentSession.user.id || "";
+        const profileResult = await loadProfile(currentSession.user, currentSession);
 
         if (!active) return;
 
@@ -1532,10 +1545,13 @@ export default function ResultsPage() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!active) return;
 
-      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED";
+      const nextUserId = newSession?.user?.id || "";
+      const isDuplicateSignedIn = event === "SIGNED_IN" && Boolean(nextUserId) && nextUserId === authenticatedUserIdRef.current;
+      const isBackgroundRefresh = event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || isDuplicateSignedIn;
+      authenticatedUserIdRef.current = nextUserId;
 
       setSession(newSession ?? null);
       setPageError("");
@@ -1552,16 +1568,27 @@ export default function ResultsPage() {
         return;
       }
 
-      const profileResult = await loadProfile(newSession.user);
-      if (!active) return;
-
-      setProfile(profileResult.profile);
-      setAuthMessage(profileResult.message);
-      setAuthLoading(false);
-
-      if (!isBackgroundRefresh) {
-        await loadStoredResults(newSession);
+      // Auth callbacks must return immediately. Awaiting Supabase work here can
+      // hold the session lock after inactivity and make the whole SPA appear frozen.
+      if (isBackgroundRefresh) {
+        setAuthLoading(false);
+        return;
       }
+
+      window.setTimeout(() => {
+        loadProfile(newSession.user, newSession).then((profileResult) => {
+          if (!active) return;
+          setProfile(profileResult.profile);
+          setAuthMessage(profileResult.message);
+          setAuthLoading(false);
+          return loadStoredResults(newSession);
+        }).catch((authError) => {
+          if (!active) return;
+          setAuthMessage(authError instanceof Error ? authError.message : "Could not refresh the Results session.");
+          setAuthLoading(false);
+          setLoading(false);
+        });
+      }, 0);
     });
 
     return () => {
@@ -1577,7 +1604,11 @@ export default function ResultsPage() {
       if (refreshing) return;
       refreshing = true;
       try {
-        await loadStoredResults(session, { fast: true, merge: true, preserveUi: true, since: new Date(Date.now() - 3 * 86400000).toISOString() });
+        const sessionResult = await supabase.auth.getSession();
+        const activeSession = sessionResult?.data?.session || session;
+        if (!activeSession?.access_token) return;
+        if (activeSession.access_token !== session.access_token) setSession(activeSession);
+        await loadStoredResults(activeSession, { fast: true, merge: true, preserveUi: true, since: new Date(Date.now() - 3 * 86400000).toISOString() });
       } finally { refreshing = false; }
     };
     const intervalId = window.setInterval(refreshRecent, 60 * 1000);
