@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabase";
-import DisputeVerdictButton, { canUserDisputeResult } from "../components/DisputeVerdictButton";
+import DisputeVerdictButton, { canUserDisputeResult, disputeStatusLabel, useExistingDispute } from "../components/DisputeVerdictButton";
 import MasterVerdictEditButton from "../components/MasterVerdictEditButton";
 
 const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
@@ -342,6 +342,8 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
     resolution_status: previewText(previewContext?.resolution_status, mergedMetadata.resolutionStatus),
     replied_at: previewContext?.replied_at || previewContext?.created_at || mergedMetadata.updatedAt || mergedMetadata.createdAt || null,
   }), [previewContext, conversationId, mergedMetadata]);
+  const { existingDispute, checkingDispute } = useExistingDispute(disputeResultContext);
+  const existingDisputeLabel = existingDispute ? disputeStatusLabel(existingDispute) : "";
   const auditResultCards = [
     { label: "Review Approach", value: mergedMetadata.reviewApproach || "", tone: "review" },
     { label: "Client Sentiment", value: mergedMetadata.clientSentiment || "", tone: "client" },
@@ -381,15 +383,15 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
             </span>
           </div>
           <div className="conversation-preview-actions">
-            {canDisputePreview || disputeSubmitted ? (
+            {canDisputePreview || disputeSubmitted || existingDispute ? (
               <button
                 type="button"
                 className={`secondary-btn dispute-action ${disputeOpen ? "active" : ""} ${disputeSubmitted ? "submitted" : ""}`}
-                onClick={() => { if (!disputeSubmitted) setDisputeOpen((current) => !current); }}
-                disabled={disputeSubmitted || !canDisputePreview}
-                title={disputeSubmitted ? "Dispute request submitted." : "Dispute this Review Status verdict."}
+                onClick={() => { if (!disputeSubmitted && !existingDispute) setDisputeOpen((current) => !current); }}
+                disabled={checkingDispute || disputeSubmitted || Boolean(existingDispute) || !canDisputePreview}
+                title={existingDispute ? `${existingDisputeLabel}.` : disputeSubmitted ? "Dispute request submitted." : checkingDispute ? "Checking dispute status." : "Dispute this Review Status verdict."}
               >
-                {disputeSubmitted ? "Dispute Request Submitted" : disputeOpen ? "Close Dispute" : "Dispute Verdict"}
+                {existingDispute ? existingDisputeLabel : checkingDispute ? "Checking Dispute…" : disputeSubmitted ? "Dispute Request Submitted" : disputeOpen ? "Close Dispute" : "Dispute Verdict"}
               </button>
             ) : null}
             <a href={intercomConversationUrl(conversationId)} target="_blank" rel="noreferrer" className="secondary-btn">Open on Intercom</a>
