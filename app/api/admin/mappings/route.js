@@ -281,7 +281,7 @@ export async function GET(request) {
   const { adminClient } = auth;
 
   try {
-    const [mappingsResponse, auditRowsResponse] = await Promise.all([
+    const [mappingsResponse, auditRowsResponse, observationsResponse] = await Promise.all([
       adminClient
         .from("agent_mappings")
         .select("*")
@@ -295,6 +295,13 @@ export async function GET(request) {
         )
         .order("created_at", { ascending: false })
         .limit(5000),
+
+      adminClient
+        .from("unmapped_agent_observations")
+        .select("id,agent_name,first_seen_at,last_seen_at,occurrence_count,latest_conversation_id,latest_result_id,status")
+        .eq("status", "unmapped")
+        .order("last_seen_at", { ascending: false })
+        .limit(5000),
     ]);
 
     if (mappingsResponse.error) {
@@ -305,10 +312,33 @@ export async function GET(request) {
       throw new Error(auditRowsResponse.error.message || "Could not load audit result samples.");
     }
 
+    if (observationsResponse.error) {
+      throw new Error(observationsResponse.error.message || "Could not load persistent unmapped agents.");
+    }
+
+    const observationRows = (observationsResponse.data || []).map((item) => ({
+      id: item.latest_result_id || item.id,
+      agent_name: item.agent_name,
+      employee_name: null,
+      employee_email: null,
+      team_name: null,
+      employee_match_status: "unmapped",
+      created_at: item.last_seen_at,
+      replied_at: item.last_seen_at,
+      observation_count: Number(item.occurrence_count || 1),
+      first_seen_at: item.first_seen_at,
+      latest_conversation_id: item.latest_conversation_id,
+      persistent_unmapped_observation: true,
+    }));
+    const observedAgentKeys = new Set(observationRows.map((item) => normalizeKey(item.agent_name)));
+    const sampledAuditRows = (Array.isArray(auditRowsResponse.data) ? auditRowsResponse.data : []).filter(
+      (item) => normalizeKey(item.employee_match_status) !== "unmapped" || !observedAgentKeys.has(normalizeKey(item.agent_name))
+    );
+
     return jsonResponse({
       ok: true,
       mappings: Array.isArray(mappingsResponse.data) ? mappingsResponse.data : [],
-      auditRows: Array.isArray(auditRowsResponse.data) ? auditRowsResponse.data : [],
+      auditRows: [...sampledAuditRows, ...observationRows],
     });
   } catch (error) {
     return jsonResponse(
@@ -386,6 +416,16 @@ export async function POST(request) {
 
       savedRow = data;
     }
+
+    await adminClient
+      .from("unmapped_agent_observations")
+      .update({
+        status: "mapped",
+        resolved_at: now,
+        resolved_by_email: profile?.email || null,
+        updated_at: now,
+      })
+      .eq("normalized_agent_name", normalizeKey(payload.intercom_agent_name));
 
     return jsonResponse({
       ok: true,
