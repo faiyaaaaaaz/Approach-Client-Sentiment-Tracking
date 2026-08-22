@@ -710,10 +710,10 @@ function AppShellClientInner({ children }) {
     const email = normalizeEmail(user.email);
     const domain = email.split("@")[1] || "";
 
-    if (domain !== "nextventures.io") {
+    if (domain !== "nextventures.io" && domain !== "wearenext.io") {
       return {
         profile: null,
-        message: "Only nextventures.io accounts are allowed.",
+        message: "Only nextventures.io or wearenext.io accounts are allowed.",
       };
     }
 
@@ -915,23 +915,25 @@ function AppShellClientInner({ children }) {
           return;
         }
 
-        loadProfile(newSession)
-          .then((result) => {
-            if (!active) return;
-            setProfile(result.profile);
-            setAuthMessage(result.message);
-            setAuthLoading(false);
-          })
-          .catch((error) => {
-            if (!active) return;
-            setProfile(buildFallbackProfile(newSession?.user) || null);
-            setAuthMessage(
-              error instanceof Error
-                ? error.message
-                : "Could not refresh profile quietly."
-            );
-            setAuthLoading(false);
-          });
+        window.setTimeout(() => {
+          loadProfile(newSession)
+            .then((result) => {
+              if (!active) return;
+              setProfile(result.profile);
+              setAuthMessage(result.message);
+              setAuthLoading(false);
+            })
+            .catch((error) => {
+              if (!active) return;
+              setProfile(buildFallbackProfile(newSession?.user) || null);
+              setAuthMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Could not refresh profile quietly."
+              );
+              setAuthLoading(false);
+            });
+        }, 0);
 
         return;
       }
@@ -942,18 +944,20 @@ function AppShellClientInner({ children }) {
       setAuthLoading(true);
       setAuthMessage("");
 
-      completeSessionCheck(newSession || null, runId).catch((error) => {
-        if (!active || runId !== authRunIdRef.current) return;
+      window.setTimeout(() => {
+        completeSessionCheck(newSession || null, runId).catch((error) => {
+          if (!active || runId !== authRunIdRef.current) return;
 
-        setSession(newSession || null);
-        setProfile(buildFallbackProfile(newSession?.user) || null);
-        setAuthMessage(
-          error instanceof Error
-            ? error.message
-            : "Could not complete session check."
-        );
-        setAuthLoading(false);
-      });
+          setSession(newSession || null);
+          setProfile(buildFallbackProfile(newSession?.user) || null);
+          setAuthMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not complete session check."
+          );
+          setAuthLoading(false);
+        });
+      }, 0);
     });
 
     return () => {
@@ -976,10 +980,19 @@ function AppShellClientInner({ children }) {
     if (!activeSession?.access_token) return;
     setNotificationLoading(true);
     try {
-      const response = await fetch("/api/notifications", {
-        headers: { Authorization: `Bearer ${activeSession.access_token}` },
+      const requestNotifications = (accessToken) => fetch("/api/notifications", {
+        headers: { Authorization: `Bearer ${accessToken}` },
         cache: "no-store",
       });
+      let response = await requestNotifications(activeSession.access_token);
+      if (response.status === 401) {
+        const refreshed = await supabase.auth.refreshSession();
+        const refreshedSession = refreshed?.data?.session || null;
+        if (refreshedSession?.access_token) {
+          setSession(refreshedSession);
+          response = await requestNotifications(refreshedSession.access_token);
+        }
+      }
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.ok) setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
     } finally {
