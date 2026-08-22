@@ -718,11 +718,13 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeSubmitted, setDisputeSubmitted] = useState(false);
   const [storedResult, setStoredResult] = useState(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   useEffect(() => {
     setDisputeOpen(false);
     setDisputeSubmitted(false);
     setStoredResult(null);
+    setPreviewAttempt(0);
   }, [conversationId]);
 
   useEffect(() => {
@@ -742,7 +744,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
         controller?.abort();
         setError("The full Intercom preview is taking too long to load. You can still review the stored AI verdict and open the conversation on Intercom.");
         setLoading(false);
-      }, 58000);
+      }, 32000);
 
       try {
         const { data: sessionData } = await supabase.auth.getSession();
@@ -751,22 +753,31 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
 
         const resultId = previewContext?.id || previewContext?.result_id || null;
         if (resultId && !previewContext?.review_sentiment && !previewContext?.ai_verdict) {
-          const contextResponse = await fetch(`/api/engagement/result-context?resultId=${encodeURIComponent(resultId)}`, {
+          // Stored-result enrichment is useful, but it must never delay the Intercom request.
+          // Run it alongside the conversation fetch so Dashboard behaves like Results.
+          fetch(`/api/engagement/result-context?resultId=${encodeURIComponent(resultId)}`, {
             headers: { Authorization: "Bearer " + token },
             cache: "no-store",
             signal: controller.signal,
-          });
-          const contextPayload = await contextResponse.json().catch(() => null);
-          if (contextResponse.ok && contextPayload?.ok && !cancelled) setStoredResult(contextPayload.result || null);
+          }).then(async (contextResponse) => {
+            const contextPayload = await contextResponse.json().catch(() => null);
+            if (contextResponse.ok && contextPayload?.ok && !cancelled) setStoredResult(contextPayload.result || null);
+          }).catch(() => null);
         }
 
-        const response = await fetch("/api/intercom/conversation-preview", {
+        const requestPreview = (accessToken) => fetch("/api/intercom/conversation-preview", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + accessToken },
           body: JSON.stringify({ conversationId, resultId: previewContext?.id || previewContext?.result_id || null }),
           cache: "no-store",
           signal: controller.signal,
         });
+        let response = await requestPreview(token);
+        if (response.status === 401 && !cancelled) {
+          const refreshed = await supabase.auth.refreshSession();
+          const refreshedToken = refreshed?.data?.session?.access_token;
+          if (refreshedToken) response = await requestPreview(refreshedToken);
+        }
 
         const payload = await response.json().catch(() => null);
         if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Preview is not available for this conversation.");
@@ -799,7 +810,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
       if (hardTimeoutId) clearTimeout(hardTimeoutId);
       controller?.abort();
     };
-  }, [conversationId, previewContext?.id, previewContext?.result_id]);
+  }, [conversationId, previewContext?.id, previewContext?.result_id, previewAttempt]);
 
   if (!conversationId) return null;
   const messages = normalizePreviewMessages(data);
@@ -878,7 +889,7 @@ function ConversationPreviewModal({ conversationId, previewContext = null, profi
         ) : (
           <div className="conversation-preview-loaded">
             {error ? (
-              <div className="conversation-preview-error inline"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom to see this conversation.</small></div>
+              <div className="conversation-preview-error inline"><strong>Preview Not Available</strong><span>{error}</span><small>Open on Intercom or retry the preview.</small><button type="button" className="secondary-btn small" onClick={() => setPreviewAttempt((value) => value + 1)}>Retry Preview</button></div>
             ) : null}
             {auditResultCards.length ? (
               <div className="conversation-preview-result-strip">
@@ -3003,8 +3014,12 @@ export default function DashboardPage() {
       if (refreshing) return;
       refreshing = true;
       try {
+        const sessionResult = await supabase.auth.getSession();
+        const activeSession = sessionResult?.data?.session || dashboardSession;
+        if (!activeSession?.access_token) return;
+        if (activeSession.access_token !== dashboardSession.access_token) setDashboardSession(activeSession);
         const since = encodeURIComponent(new Date(Date.now() - 3 * 86400000).toISOString());
-        const response = await fetch(`/api/results?fast=1&since=${since}`, { headers: { Authorization: `Bearer ${dashboardSession.access_token}` }, cache: "no-store" });
+        const response = await fetch(`/api/results?fast=1&since=${since}`, { headers: { Authorization: `Bearer ${activeSession.access_token}` }, cache: "no-store" });
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.ok) return;
         const mappings = await loadActiveAgentMappings();
