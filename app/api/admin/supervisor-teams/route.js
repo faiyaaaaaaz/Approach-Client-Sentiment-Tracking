@@ -276,9 +276,9 @@ async function authenticateAdmin(request, stages) {
   const email = normalizeEmail(user.email);
   const domain = email.split("@")[1] || "";
 
-  if (domain !== "nextventures.io") {
+  if (domain !== "nextventures.io" && domain !== "wearenext.io") {
     return {
-      error: "Only nextventures.io accounts can access Supervisor Teams.",
+      error: "Only nextventures.io or wearenext.io accounts can access Supervisor Teams.",
       status: 403,
     };
   }
