@@ -488,11 +488,11 @@ async function getAuthenticatedAdmin(request) {
   const email = String(user.email || "").toLowerCase();
   const domain = email.split("@")[1] || "";
 
-  if (domain !== "nextventures.io") {
+  if (domain !== "nextventures.io" && domain !== "wearenext.io") {
     return {
       ok: false,
       status: 403,
-      error: "Only nextventures.io accounts are allowed.",
+      error: "Only nextventures.io or wearenext.io accounts are allowed.",
     };
   }
 
