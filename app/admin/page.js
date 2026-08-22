@@ -727,6 +727,115 @@ function MoreMembersChip({ members = [], count = 0 }) {
   );
 }
 
+function AdminConversationPreview({ dispute, accessToken, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState(null);
+
+  const conversationId = normalizeText(dispute?.conversation_id);
+  const messages = Array.isArray(preview?.messages) ? preview.messages : [];
+  const metadata = preview?.metadata || {};
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadConversation() {
+      setLoading(true);
+      setError("");
+      try {
+        if (!accessToken) throw new Error("Your session is not ready. Close the preview and try again.");
+        const response = await fetch("/api/intercom/conversation-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ conversationId, resultId: dispute?.result_id || null }),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Conversation preview is unavailable.");
+        setPreview(payload);
+      } catch (loadError) {
+        if (loadError?.name !== "AbortError") {
+          setError(loadError instanceof Error ? loadError.message : "Conversation preview is unavailable.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }
+
+    loadConversation();
+    return () => controller.abort();
+  }, [accessToken, conversationId, dispute?.result_id]);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (!conversationId || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="admin-preview-backdrop" onMouseDown={onClose}>
+      <section className="admin-preview-modal" role="dialog" aria-modal="true" aria-label={`Conversation ${conversationId}`} onMouseDown={(event) => event.stopPropagation()}>
+        <header className="admin-preview-head">
+          <div>
+            <p className="eyebrow">Disputed Conversation Preview</p>
+            <h2>{conversationId}</h2>
+            <span>{dispute?.employee_name || dispute?.agent_name || metadata?.assignedAdmin || "Unassigned agent"}</span>
+          </div>
+          <div className="action-row">
+            <a className="secondary-btn" href={`https://app.intercom.com/a/inbox/aphmhtyj/inbox/conversation/${encodeURIComponent(conversationId)}`} target="_blank" rel="noreferrer">Open on Intercom</a>
+            <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
+          </div>
+        </header>
+
+        <div className="admin-preview-results">
+          <article><span>Stored AI Result</span><strong>{dispute?.current_review_status || "Not recorded"}</strong></article>
+          <article><span>Requested Correction</span><strong>{dispute?.corrected_review_status || "Not selected"}</strong></article>
+          <article><span>Dispute Status</span><strong>{dispute?.status || "Pending"}</strong></article>
+        </div>
+
+        <div className="admin-preview-content">
+          <aside>
+            <h3>Dispute Details</h3>
+            <dl>
+              <div><dt>Submitted by</dt><dd>{dispute?.submitted_by_name || dispute?.submitted_by_email || "Unknown"}</dd></div>
+              <div><dt>Employee</dt><dd>{dispute?.employee_name || dispute?.employee_email || "Unmapped"}</dd></div>
+              <div><dt>Intercom agent</dt><dd>{dispute?.agent_name || metadata?.assignedAdmin || "Unassigned"}</dd></div>
+              <div><dt>Reason</dt><dd>{dispute?.reason || "No reason recorded"}</dd></div>
+            </dl>
+          </aside>
+          <main>
+            {loading ? <div className="admin-preview-state">Loading the conversation without leaving Admin…</div> : null}
+            {error ? <div className="admin-preview-state error"><strong>Preview unavailable</strong><span>{error}</span></div> : null}
+            {!loading && !error && !messages.length ? <div className="admin-preview-state">No renderable messages were returned.</div> : null}
+            {!loading && messages.length ? (
+              <div className="admin-preview-messages">
+                {messages.map((message, index) => (
+                  <article key={message?.id || index} className={`admin-preview-message ${message?.authorType || "system"}`}>
+                    <div><strong>{message?.authorName || "Conversation event"}</strong><span>{formatDateTime(message?.createdAt)}</span></div>
+                    <p>{message?.body || "Open on Intercom to view this message."}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </main>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 function AdminActivityDateRangePicker({ startDate, endDate, presetKey, onApplyPreset, onApplyCustom }) {
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(() => toActivityDate(startDate));
@@ -1353,6 +1462,7 @@ function AdminPageContent() {
   const [profile, setProfile] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const [adminBooting, setAdminBooting] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [pageError, setPageError] = useState("");
@@ -1423,6 +1533,7 @@ function AdminPageContent() {
   const [approvedDisputeEditId, setApprovedDisputeEditId] = useState("");
   const [disputeStatusFilter, setDisputeStatusFilter] = useState("pending");
   const [disputeSearch, setDisputeSearch] = useState("");
+  const [disputePreview, setDisputePreview] = useState(null);
   const [activityLimit, setActivityLimit] = useState(150);
   const [activityVisibleCount, setActivityVisibleCount] = useState(25);
   const [activityDatePreset, setActivityDatePreset] = useState("all");
@@ -1520,14 +1631,13 @@ function AdminPageContent() {
 
   async function loadProfile(user, activeSession = null) {
     const email = normalizeEmail(user?.email);
-    const domain = email.split("@")[1] || "";
 
     if (!user) return { profile: null, message: "" };
 
-    if (domain !== "nextventures.io") {
+    if (!isAllowedCompanyEmail(email)) {
       return {
         profile: null,
-        message: "Access blocked. Use a nextventures.io Google account.",
+        message: "Access blocked. Use a nextventures.io or wearenext.io Google account.",
       };
     }
 
@@ -2282,6 +2392,7 @@ function AdminPageContent() {
   }
 
   async function bootAdmin() {
+    setAdminBooting(true);
     setAuthChecked(false);
     setAuthMessage("");
     setPageError("");
@@ -2297,6 +2408,7 @@ function AdminPageContent() {
         setProfile(null);
         setAuthChecked(true);
         setLoading(false);
+        setAdminBooting(false);
         return;
       }
 
@@ -2310,11 +2422,13 @@ function AdminPageContent() {
       }
 
       setLoading(false);
+      setAdminBooting(false);
     } catch (error) {
       setSession(null);
       setProfile(null);
       setAuthChecked(true);
       setLoading(false);
+      setAdminBooting(false);
       setPageError(
         error instanceof Error
           ? error.message
@@ -3201,10 +3315,9 @@ function AdminPageContent() {
     }
 
     const email = normalizeEmail(roleForm.email);
-    const domain = email.split("@")[1] || "";
 
-    if (!email || domain !== "nextventures.io") {
-      setPageError("Use a valid nextventures.io email address.");
+    if (!email || !isAllowedCompanyEmail(email)) {
+      setPageError("Use a valid nextventures.io or wearenext.io email address.");
       return;
     }
 
@@ -3576,6 +3689,21 @@ function AdminPageContent() {
     },
   ];
 
+  if (adminBooting) {
+    return (
+      <main className="admin-page admin-boot-page">
+        <style>{adminStyles}</style>
+        <section className="admin-boot-card" role="status" aria-live="polite">
+          <div className="admin-boot-mark">⚡</div>
+          <p className="eyebrow">Admin Control Center</p>
+          <h1>Opening your workspace…</h1>
+          <p>Confirming access and loading this section. Controls will appear when they are ready to use.</p>
+          <div className="admin-boot-progress"><span /></div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="admin-page">
       <style>{adminStyles}</style>
@@ -3668,7 +3796,7 @@ function AdminPageContent() {
         <section className="panel gate-panel">
           <p className="eyebrow">Sign In Required</p>
           <h2>Admin Is Ready, but You Are Not Signed In.</h2>
-          <p className="muted">Use your nextventures.io Google account to continue.</p>
+          <p className="muted">Use your nextventures.io or wearenext.io Google account to continue.</p>
           <button type="button" className="primary-btn" onClick={handleGoogleLogin}>
             Sign In with Google
           </button>
@@ -4092,14 +4220,14 @@ function AdminPageContent() {
                           <div className="dispute-card-topline">
                             <span className={`pill ${dispute.status === "approved" ? "success" : dispute.status === "rejected" ? "danger" : "warning"}`}>{dispute.status || "pending"}</span>
                             <span className="muted">Submitted {formatDateTime(dispute.created_at)}</span>
-                            <a
+                            <button
+                              type="button"
                               className="secondary-btn small dispute-preview-link"
-                              href={`/?previewConversation=${encodeURIComponent(dispute.conversation_id || "")}${dispute.result_id ? `&resultId=${encodeURIComponent(dispute.result_id)}` : ""}`}
-                              aria-disabled={!dispute.conversation_id}
-                              onClick={(event) => { if (!dispute.conversation_id) event.preventDefault(); }}
+                              disabled={!dispute.conversation_id}
+                              onClick={() => setDisputePreview(dispute)}
                             >
                               Preview Conversation
-                            </a>
+                            </button>
                           </div>
 
                           <div className="dispute-title-row">
@@ -5584,6 +5712,14 @@ function AdminPageContent() {
           Jump to top
         </button>
       ) : null}
+
+      {disputePreview ? (
+        <AdminConversationPreview
+          dispute={disputePreview}
+          accessToken={session?.access_token || ""}
+          onClose={() => setDisputePreview(null)}
+        />
+      ) : null}
     </main>
   );
 }
@@ -5600,6 +5736,59 @@ const adminStyles = `
       linear-gradient(180deg, #040714 0%, #050918 46%, #04060d 100%);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     scroll-behavior: smooth;
+  }
+
+  .admin-boot-page { display: grid; place-items: center; padding: 28px; }
+  .admin-boot-card {
+    width: min(520px, 100%);
+    padding: 38px;
+    border: 1px solid rgba(129, 140, 248, .28);
+    border-radius: 28px;
+    background: linear-gradient(145deg, rgba(15, 23, 42, .96), rgba(36, 24, 61, .94));
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .38);
+    text-align: center;
+  }
+  .admin-boot-card h1 { margin: 8px 0 12px; font-size: clamp(30px, 5vw, 48px); letter-spacing: -.05em; }
+  .admin-boot-card > p:last-of-type { margin: 0 auto; max-width: 430px; color: #b7c4e5; line-height: 1.6; }
+  .admin-boot-mark { display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 20px; border-radius: 22px; background: linear-gradient(135deg, #2563eb, #7c3aed); font-size: 34px; box-shadow: 0 16px 40px rgba(79, 70, 229, .35); }
+  .admin-boot-progress { height: 5px; margin-top: 26px; overflow: hidden; border-radius: 999px; background: rgba(148, 163, 184, .14); }
+  .admin-boot-progress span { display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #38bdf8, #8b5cf6); animation: adminBootProgress 1.15s ease-in-out infinite alternate; }
+  @keyframes adminBootProgress { from { transform: translateX(0); } to { transform: translateX(138%); } }
+
+  .admin-preview-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 18px; background: rgba(2, 6, 23, .82); backdrop-filter: blur(12px); }
+  .admin-preview-modal { width: min(1500px, calc(100vw - 36px)); height: min(900px, calc(100dvh - 36px)); overflow: hidden; border: 1px solid rgba(129, 140, 248, .3); border-radius: 28px; background: #0b1020; box-shadow: 0 36px 100px rgba(0, 0, 0, .58); color: #f8fafc; }
+  .admin-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 28px; border-bottom: 1px solid rgba(148, 163, 184, .18); background: linear-gradient(135deg, rgba(30, 41, 59, .94), rgba(30, 20, 55, .94)); }
+  .admin-preview-head h2 { margin: 5px 0; font-size: clamp(27px, 3vw, 42px); letter-spacing: -.05em; }
+  .admin-preview-head > div > span { color: #b7c4e5; font-weight: 750; }
+  .admin-preview-results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px 18px; border-bottom: 1px solid rgba(148, 163, 184, .16); }
+  .admin-preview-results article { min-width: 0; padding: 13px 16px; border: 1px solid rgba(129, 140, 248, .2); border-radius: 15px; background: rgba(30, 41, 59, .72); }
+  .admin-preview-results span, .admin-preview-results strong { display: block; }
+  .admin-preview-results span { margin-bottom: 5px; color: #93a4cf; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+  .admin-preview-results strong { overflow-wrap: anywhere; font-size: 15px; }
+  .admin-preview-content { display: grid; grid-template-columns: minmax(270px, 340px) minmax(0, 1fr); height: calc(100% - 180px); min-height: 0; }
+  .admin-preview-content > aside { overflow: auto; padding: 22px; border-right: 1px solid rgba(148, 163, 184, .16); background: rgba(15, 23, 42, .78); }
+  .admin-preview-content > aside h3 { margin: 0 0 16px; }
+  .admin-preview-content dl { margin: 0; }
+  .admin-preview-content dl div { padding: 13px 0; border-bottom: 1px solid rgba(148, 163, 184, .13); }
+  .admin-preview-content dt { margin-bottom: 5px; color: #8da2d5; font-size: 11px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+  .admin-preview-content dd { margin: 0; color: #f8fafc; line-height: 1.5; overflow-wrap: anywhere; }
+  .admin-preview-content > main { min-width: 0; overflow: auto; padding: 22px; }
+  .admin-preview-state { display: grid; gap: 7px; margin: 24px; padding: 22px; border: 1px dashed rgba(129, 140, 248, .32); border-radius: 18px; color: #c7d2fe; background: rgba(30, 41, 59, .62); }
+  .admin-preview-state.error { color: #fecaca; border-color: rgba(248, 113, 113, .35); }
+  .admin-preview-messages { display: grid; gap: 14px; }
+  .admin-preview-message { max-width: min(78%, 820px); padding: 16px 18px; border: 1px solid rgba(148, 163, 184, .18); border-radius: 20px; background: rgba(30, 41, 59, .82); }
+  .admin-preview-message.admin { margin-left: auto; background: rgba(49, 46, 129, .4); }
+  .admin-preview-message.system { max-width: 90%; margin: 0 auto; text-align: center; background: rgba(15, 23, 42, .7); }
+  .admin-preview-message > div { display: flex; justify-content: space-between; gap: 16px; color: #a5b4fc; font-size: 12px; }
+  .admin-preview-message p { margin: 10px 0 0; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media (max-width: 800px) {
+    .admin-preview-backdrop { padding: 8px; }
+    .admin-preview-modal { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+    .admin-preview-head { align-items: flex-start; flex-direction: column; padding: 18px; }
+    .admin-preview-results { grid-template-columns: 1fr; }
+    .admin-preview-content { display: block; height: calc(100% - 315px); overflow: auto; }
+    .admin-preview-content > aside, .admin-preview-content > main { overflow: visible; border-right: 0; }
+    .admin-preview-message { max-width: 100%; }
   }
 
   .hero,
@@ -5664,7 +5853,7 @@ const adminStyles = `
   .dispute-search-field input { width: 100%; }
   .dispute-card-topline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .dispute-preview-link { margin-left: auto; text-decoration: none; }
-  .dispute-preview-link[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+  .dispute-preview-link:disabled { opacity: .45; cursor: not-allowed; }
   .dispute-card-list { display: grid; gap: 16px; max-height: 780px; overflow: auto; padding-right: 8px; }
   .dispute-review-card {
     display: grid;
