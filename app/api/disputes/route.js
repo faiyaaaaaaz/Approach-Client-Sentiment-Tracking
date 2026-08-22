@@ -160,7 +160,16 @@ export async function GET(request) {
       if (!resultId && !conversationId) return json({ ok: false, error: "Missing result ID or conversation ID." }, { status: 400 });
       const result = await loadResultForDispute(auth.adminClient, { resultId, conversationId });
       const permission = await canActorDisputeResult(auth.adminClient, auth, result);
-      return json({ ok: true, allowed: permission.allowed, reason: permission.reason });
+      let disputeQuery = auth.adminClient
+        .from("verdict_disputes")
+        .select("id,status,created_at,updated_at,submitted_by_name,submitted_by_email")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (result?.id) disputeQuery = disputeQuery.eq("result_id", result.id);
+      else disputeQuery = disputeQuery.eq("conversation_id", result?.conversation_id || conversationId);
+      const { data: existingDisputes, error: disputeError } = await disputeQuery;
+      if (disputeError) throw new Error(disputeError.message || "Could not check existing dispute status.");
+      return json({ ok: true, allowed: permission.allowed, reason: permission.reason, existing_dispute: existingDisputes?.[0] || null });
     }
 
     if (!hasPermission(auth, "admin_disputes") && !hasPermission(auth, "disputes_review")) {
