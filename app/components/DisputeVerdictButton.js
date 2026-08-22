@@ -35,6 +35,80 @@ function getResultIdentifier(result) {
   return result?.id || result?.result_id || result?.audit_result_id || "";
 }
 
+const DISPUTE_STATUS_CACHE_MS = 30000;
+const disputeStatusCache = new Map();
+let disputeStatusQueue = [];
+let disputeStatusTimer = null;
+
+function disputeLookupKey(resultId, conversationId) {
+  return resultId ? `result:${resultId}` : `conversation:${conversationId}`;
+}
+
+async function fetchDisputeStatusBatch(items) {
+  let sessionResult = await supabase.auth.getSession();
+  let token = sessionResult?.data?.session?.access_token || "";
+  if (!token) return { ok: false, by_result_id: {}, by_conversation_id: {} };
+
+  const request = async (accessToken) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await fetch("/api/disputes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ mode: "status_batch", items }),
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  let response = await request(token);
+  if (response.status === 401) {
+    sessionResult = await supabase.auth.refreshSession();
+    token = sessionResult?.data?.session?.access_token || "";
+    if (token) response = await request(token);
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not check dispute status.");
+  return payload;
+}
+
+async function flushDisputeStatusQueue() {
+  disputeStatusTimer = null;
+  const queued = disputeStatusQueue;
+  disputeStatusQueue = [];
+  const uniqueItems = Array.from(new Map(queued.map((entry) => [entry.key, entry.item])).values());
+
+  try {
+    const payload = await fetchDisputeStatusBatch(uniqueItems);
+    const now = Date.now();
+    queued.forEach((entry) => {
+      const value = (entry.item.result_id ? payload.by_result_id?.[entry.item.result_id] : null)
+        || (entry.item.conversation_id ? payload.by_conversation_id?.[entry.item.conversation_id] : null)
+        || null;
+      disputeStatusCache.set(entry.key, { value, savedAt: now });
+      entry.resolve(value);
+    });
+  } catch (_error) {
+    queued.forEach((entry) => entry.resolve(null));
+  }
+}
+
+function queueDisputeStatusCheck(resultId, conversationId) {
+  const key = disputeLookupKey(resultId, conversationId);
+  const cached = disputeStatusCache.get(key);
+  if (cached && Date.now() - cached.savedAt < DISPUTE_STATUS_CACHE_MS) return Promise.resolve(cached.value);
+
+  return new Promise((resolve) => {
+    disputeStatusQueue.push({ key, item: { result_id: resultId || null, conversation_id: conversationId || null }, resolve });
+    if (!disputeStatusTimer) disputeStatusTimer = setTimeout(flushDisputeStatusQueue, 40);
+  });
+}
+
 export function useExistingDispute(result) {
   const resultId = normalizeText(getResultIdentifier(result || {}));
   const conversationId = normalizeText(result?.conversation_id || result?.conversationId);
@@ -49,20 +123,7 @@ export function useExistingDispute(result) {
       return () => { active = false; };
     }
     setCheckingDispute(true);
-    supabase.auth.getSession().then(async ({ data }) => {
-      const token = data?.session?.access_token;
-      if (!token) return null;
-      const query = new URLSearchParams({ mode: "eligibility" });
-      if (resultId) query.set("result_id", resultId);
-      if (conversationId) query.set("conversation_id", conversationId);
-      const response = await fetch(`/api/disputes?${query.toString()}&check=${Date.now()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) return null;
-      return payload.existing_dispute || null;
-    }).then((value) => {
+    queueDisputeStatusCheck(resultId, conversationId).then((value) => {
       if (active) setExistingDispute(value);
     }).finally(() => {
       if (active) setCheckingDispute(false);
