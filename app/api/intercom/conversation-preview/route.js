@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const INTERCOM_API_BASE = "https://api.intercom.io";
-const INTERCOM_PREVIEW_TIMEOUT_MS = 54000;
+const INTERCOM_PREVIEW_TIMEOUT_MS = 14000;
+const INTERCOM_PREVIEW_ATTEMPTS = 2;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -570,8 +571,8 @@ async function authenticate(request) {
   }
 
   const email = normalizeEmail(user.email);
-  if (!email.endsWith("@nextventures.io")) {
-    return { ok: false, response: json({ ok: false, error: "Access blocked. Only nextventures.io accounts are allowed." }, { status: 403 }) };
+  if (!email.endsWith("@nextventures.io") && !email.endsWith("@wearenext.io")) {
+    return { ok: false, response: json({ ok: false, error: "Access blocked. Only nextventures.io or wearenext.io accounts are allowed." }, { status: 403 }) };
   }
 
   return { ok: true, adminClient, user, email };
@@ -590,16 +591,28 @@ export async function POST(request) {
     }
 
     const intercomApiKey = await loadActiveApiKey(auth.adminClient);
-    const { response, text } = await fetchIntercomConversationWithTimeout(buildIntercomConversationUrl(conversationId, { displayAsPlainText: true }), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "Intercom-Version": "2.12",
-        Authorization: `Bearer ${intercomApiKey}`,
-      },
-      cache: "no-store",
-    });
+    let intercomResult = null;
+    let lastIntercomError = null;
+    for (let attempt = 1; attempt <= INTERCOM_PREVIEW_ATTEMPTS; attempt += 1) {
+      try {
+        intercomResult = await fetchIntercomConversationWithTimeout(buildIntercomConversationUrl(conversationId, { displayAsPlainText: true }), {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "Intercom-Version": "2.12",
+            Authorization: `Bearer ${intercomApiKey}`,
+          },
+          cache: "no-store",
+        });
+        break;
+      } catch (intercomError) {
+        lastIntercomError = intercomError;
+        if (attempt < INTERCOM_PREVIEW_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    if (!intercomResult) throw lastIntercomError || new Error("Intercom preview is temporarily unavailable.");
+    const { response, text } = intercomResult;
     let conversation = null;
     try {
       conversation = text ? JSON.parse(text) : null;
