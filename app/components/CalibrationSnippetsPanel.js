@@ -504,7 +504,7 @@ export default function CalibrationSnippetsPanel({ session }) {
             <p className="eyebrow">Impact Tracking</p>
             <h3>Are Active Snippets Correcting Review Status?</h3>
             <p className="muted">
-              This shows which active snippets were sent with each audit and compares the old Review Status against the new rerun verdict. It is directional tracking, not proof that the model used one specific snippet unless the old-to-new verdict path matches that snippet.
+              Active snippets still guide every audit. To keep storage tiny, this view records only possible corrections where the old verdict matches a snippet&apos;s wrong verdict and the rerun matches its corrected verdict.
             </p>
           </div>
           <button type="button" className="secondary-btn" onClick={() => loadData(false)} disabled={loading}>
@@ -521,19 +521,19 @@ export default function CalibrationSnippetsPanel({ session }) {
           <>
             <div className="impact-summary-grid">
               <div className="impact-summary-card">
-                <span>Snippet Sends</span>
+                <span>Possible Corrections Logged</span>
                 <strong>{formatCount(impactSummary?.totalRows)}</strong>
-                <small>Snippet-conversation pairs logged.</small>
+                <small>Only useful correction candidates are stored.</small>
               </div>
               <div className="impact-summary-card">
-                <span>Conversations</span>
+                <span>Corrected Conversations</span>
                 <strong>{formatCount(impactSummary?.uniqueConversations)}</strong>
-                <small>Audited with snippets attached.</small>
+                <small>Conversations with a possible snippet correction.</small>
               </div>
               <div className="impact-summary-card">
-                <span>Verdict Changes</span>
+                <span>Matching Verdict Changes</span>
                 <strong>{formatCount(impactSummary?.verdictChangedCount)}</strong>
-                <small>Old and new Review Status differed.</small>
+                <small>Wrong-to-correct paths worth reviewing.</small>
               </div>
               <div className="impact-summary-card success">
                 <span>Possible Corrections</span>
@@ -544,14 +544,14 @@ export default function CalibrationSnippetsPanel({ session }) {
 
             <div className="impact-log-head">
               <div>
-                <h4>Latest Impact Logs</h4>
-                <p className="muted tight">Latest tracked audits are shown first. Rerun a known disputed conversation with overwrite enabled to compare before and after results.</p>
+                <h4>Latest Possible Corrections</h4>
+                <p className="muted tight">Only useful correction candidates are shown. Ordinary snippet sends and unchanged verdicts use no tracking storage.</p>
               </div>
               <input className="snippet-search" value={impactSearch} onChange={(event) => setImpactSearch(event.target.value)} placeholder="Search chat ID, snippet, verdict, runner..." />
             </div>
 
             {!filteredImpactLogs.length ? (
-              <div className="empty-box">No snippet impact logs match this view yet.</div>
+              <div className="empty-box">No possible snippet corrections match this view yet.</div>
             ) : (
               <div className="impact-log-list">
                 {filteredImpactLogs.slice(0, 40).map((row) => (
