@@ -1041,6 +1041,12 @@ function buildSnippetImpactRows({
           newReviewStatus === correctVerdict
       );
 
+      // Active snippets are still included in every audit prompt above. Persist
+      // only the rare old-wrong -> new-correct match that is useful to an Admin;
+      // saving every snippet/conversation pair caused this table to grow without
+      // adding evidence that a correction occurred.
+      if (!possibleSnippetCorrection) continue;
+
       rows.push({
         run_id: runId,
         conversation_id: conversationId,
