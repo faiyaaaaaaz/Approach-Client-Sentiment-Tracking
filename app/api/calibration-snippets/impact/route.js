@@ -202,7 +202,7 @@ export async function GET(request) {
       logs,
       summary: summarizeLogs(logs),
       explanation:
-        "Impact tracking confirms which active snippets were sent with each audited conversation and compares old vs new Review Status. A possible correction is flagged only when the previous status matched the snippet's wrong verdict and the rerun matched its corrected verdict.",
+        "Impact tracking stores only possible corrections: the previous status matched a snippet's wrong verdict and the rerun matched its corrected verdict. Active snippets still guide every audit, but non-corrections are not stored.",
     });
   } catch (error) {
     return json(
