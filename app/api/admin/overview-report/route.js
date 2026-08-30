@@ -9,6 +9,7 @@ const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim()
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PAGE_SIZE = 1000;
 const MAX_REPORT_ROWS = 50000;
+const OPENAI_REPORT_TIMEOUT_MS = 18000;
 const POSITIVE_MISSED_SENTIMENTS = ["Very Positive", "Positive", "Slightly Positive"];
 const CEX_TEAM_NAME = "CEx";
 
@@ -956,6 +957,28 @@ function buildFallbackReport(summary) {
   return lines.join("\n");
 }
 
+function buildAiFacts(summary) {
+  return {
+    generatedAt: summary.generatedAt,
+    range: summary.range,
+    platformUrl: summary.platformUrl,
+    totalAudited: summary.totalAudited,
+    totalMissedPositive: summary.totalMissedPositive,
+    missedPositiveRateLabel: summary.missedPositiveRateLabel,
+    sentimentBreakdown: summary.sentimentBreakdown,
+    likelyReviewShoutouts: summary.likelyReviewShoutouts,
+    topAgents: (summary.topAgents || []).slice(0, 10),
+    engagementRisks: (summary.engagementRisks || []).slice(0, 12),
+    weekOverWeekChanges: (summary.weekOverWeekChanges || []).slice(0, 12),
+    supervisorAttention: (summary.supervisorAttention || []).slice(0, 8),
+    weeklyTotals: summary.weeklyTotals,
+    weeklyHighlights: (summary.weeklyHighlights || []).slice(0, 10),
+    riskSignals: (summary.riskSignals || []).slice(0, 8),
+    engagementSummary: summary.engagementSummary,
+    meta: summary.meta,
+  };
+}
+
 function buildOpenAiPrompt(summary, customInstructions = "") {
   return `You are writing a plain-text ClickUp channel update for an internal FundedNext support QA platform.
 
@@ -1029,7 +1052,7 @@ Request relevant leads/supervisors to review and share feedback.
 Note: ...
 
 Calculated facts JSON:
-${JSON.stringify(summary, null, 2)}
+${JSON.stringify(buildAiFacts(summary))}
 
 Editable report instructions from the Platform Owner:
 ${normalizeText(customInstructions) || "No additional instructions. Follow the standard structure above."}
@@ -1040,6 +1063,8 @@ The editable instructions may change wording, tone, ordering, emphasis, or reque
 async function generateAiReport(openAiApiKey, summary, customInstructions = "") {
   if (!openAiApiKey) return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_no_openai_key" };
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OPENAI_REPORT_TIMEOUT_MS);
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -1060,8 +1085,10 @@ async function generateAiReport(openAiApiKey, summary, customInstructions = "") 
           },
         ],
         temperature: 0.2,
+        max_tokens: 2200,
       }),
       cache: "no-store",
+      signal: controller.signal,
     });
 
     const data = await response.json().catch(() => null);
@@ -1072,8 +1099,13 @@ async function generateAiReport(openAiApiKey, summary, customInstructions = "") 
     }
 
     return { report: stripReportMarkdown(content), source: "openai" };
-  } catch (_error) {
-    return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_openai_exception" };
+  } catch (error) {
+    return {
+      report: stripReportMarkdown(buildFallbackReport(summary)),
+      source: error?.name === "AbortError" ? "server_fallback_openai_timeout" : "server_fallback_openai_exception",
+    };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
