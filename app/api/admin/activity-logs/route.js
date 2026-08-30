@@ -58,6 +58,26 @@ function normalizeSearchTerm(value) {
   return normalizeText(value).replace(/[%,]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function summarizeMeaningfulActivity(logs, sessions) {
+  const rows = Array.isArray(logs) ? logs : [];
+  const sessionRows = Array.isArray(sessions) ? sessions : [];
+  const uniqueActors = new Set(rows.map((row) => normalizeEmail(row?.actor_email)).filter(Boolean));
+  const failedRows = rows.filter((row) => normalizeText(row?.status).toLowerCase() === "failed");
+  const warningRows = rows.filter((row) => normalizeText(row?.status).toLowerCase() === "warning");
+  const auditRows = rows.filter((row) => normalizeText(row?.area).toLowerCase().includes("audit"));
+  const configurationRows = rows.filter((row) => ["Agent Mapping", "Supervisor Teams", "Prompt", "API Keys", "Roles"].includes(normalizeText(row?.area)));
+  return {
+    meaningful_events: rows.length,
+    unique_actors: uniqueActors.size,
+    failed_events: failedRows.length,
+    warning_events: warningRows.length,
+    audit_events: auditRows.length,
+    configuration_changes: configurationRows.length,
+    active_sessions: sessionRows.filter((row) => row?.status === "active").length,
+    latest_failure: failedRows[0] || null,
+  };
+}
+
 function getSupabaseClients() {
   const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
   const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
@@ -262,6 +282,7 @@ export async function GET(request) {
     const search = normalizeSearchTerm(url.searchParams.get("search"));
     const startDate = normalizeText(url.searchParams.get("start_date"));
     const endDate = normalizeText(url.searchParams.get("end_date"));
+    const includeRoutine = url.searchParams.get("include_routine") === "true";
 
     let logsQuery = auth.adminClient
       .from("system_activity_logs")
@@ -296,6 +317,9 @@ export async function GET(request) {
     if (actionType) logsQuery = logsQuery.eq("action_type", actionType);
     if (status) logsQuery = logsQuery.eq("status", status);
     if (area) logsQuery = logsQuery.eq("area", area);
+    if (!includeRoutine && !actionType) {
+      logsQuery = logsQuery.not("action_type", "in", '("page_viewed","session_ended","session_heartbeat")');
+    }
     if (startDate) logsQuery = logsQuery.gte("created_at", `${startDate}T00:00:00.000Z`);
     if (endDate) logsQuery = logsQuery.lte("created_at", `${endDate}T23:59:59.999Z`);
     if (search) {
@@ -403,6 +427,7 @@ export async function GET(request) {
       ok: true,
       logs,
       sessions,
+      summary: summarizeMeaningfulActivity(logs, sessions),
       count: logs.length,
       session_count: sessions.length,
       filters: {
@@ -414,6 +439,7 @@ export async function GET(request) {
         search,
         start_date: startDate,
         end_date: endDate,
+        include_routine: includeRoutine,
       },
     });
   } catch (error) {
