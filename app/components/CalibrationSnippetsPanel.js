@@ -504,7 +504,7 @@ export default function CalibrationSnippetsPanel({ session }) {
             <p className="eyebrow">Impact Tracking</p>
             <h3>Are Active Snippets Correcting Review Status?</h3>
             <p className="muted">
-              Active snippets still guide every audit. To keep storage tiny, this view records only possible corrections where the old verdict matches a snippet&apos;s wrong verdict and the rerun matches its corrected verdict.
+              Active snippets still guide every audit. This view can confirm a possible correction only when a conversation is rerun: its previous saved verdict must match a snippet&apos;s wrong verdict and its new verdict must match the correction. First-time audits have no baseline and will not increase these counters.
             </p>
           </div>
           <button type="button" className="secondary-btn" onClick={() => loadData(false)} disabled={loading}>
@@ -545,13 +545,13 @@ export default function CalibrationSnippetsPanel({ session }) {
             <div className="impact-log-head">
               <div>
                 <h4>Latest Possible Corrections</h4>
-                <p className="muted tight">Only useful correction candidates are shown. Ordinary snippet sends and unchanged verdicts use no tracking storage.</p>
+                <p className="muted tight">Only verified old-to-new correction candidates are shown. A zero after a first-time audit does not mean snippets were skipped; it means no earlier saved verdict existed for comparison.</p>
               </div>
               <input className="snippet-search" value={impactSearch} onChange={(event) => setImpactSearch(event.target.value)} placeholder="Search chat ID, snippet, verdict, runner..." />
             </div>
 
             {!filteredImpactLogs.length ? (
-              <div className="empty-box">No possible snippet corrections match this view yet.</div>
+              <div className="empty-box">No verified rerun corrections match this view yet. First-time audits cannot appear here because they have no previous verdict baseline.</div>
             ) : (
               <div className="impact-log-list">
                 {filteredImpactLogs.slice(0, 40).map((row) => (
