@@ -9,6 +9,12 @@ const REPORT_DATE_PRESETS = [
   { key: "month_to_date", label: "Month to Date" },
 ];
 
+const OVERVIEW_PROMPT_STORAGE_KEY = "overview-report-custom-instructions-v1";
+const DEFAULT_REPORT_INSTRUCTIONS = `Keep the report concise, practical, and suitable for ClickUp.
+Recognize the strongest likely-positive review outcomes.
+Separate likely-negative review risks from positive shoutouts.
+Prioritize actionable agent and supervisor insights.`;
+
 const HEADING_LINES = new Set([
   "Analysis of Missed Review Approaches",
   "Client Sentiment Breakdown",
@@ -345,6 +351,26 @@ export default function OverviewReportPanel({ session }) {
   const [report, setReport] = useState("");
   const [summary, setSummary] = useState(null);
   const [reportSource, setReportSource] = useState("");
+  const [customInstructions, setCustomInstructions] = useState(DEFAULT_REPORT_INSTRUCTIONS);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(OVERVIEW_PROMPT_STORAGE_KEY);
+      if (saved !== null) setCustomInstructions(saved);
+    } catch (_error) {
+      // Report generation remains available when browser storage is blocked.
+    }
+  }, []);
+
+  function updateCustomInstructions(value) {
+    const nextValue = String(value || "").slice(0, 4000);
+    setCustomInstructions(nextValue);
+    try {
+      window.localStorage.setItem(OVERVIEW_PROMPT_STORAGE_KEY, nextValue);
+    } catch (_error) {
+      // Keep the current in-memory prompt when browser storage is blocked.
+    }
+  }
 
   function applyPreset(key) {
     const today = getDhakaDateString();
@@ -416,13 +442,20 @@ export default function OverviewReportPanel({ session }) {
           startDate,
           endDate,
           platformUrl: buildPlatformUrl(),
+          customInstructions,
         }),
       });
 
-      const data = await response.json().catch(() => null);
+      const responseText = await response.text();
+      let data = null;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch (_error) {
+        data = null;
+      }
 
       if (!response.ok || !data?.ok) {
-        throw new Error(data?.error || "Could not generate overview report.");
+        throw new Error(data?.error || `Overview report server request failed (HTTP ${response.status}). Please retry once; if it repeats, check the deployment logs.`);
       }
 
       setReport(data.report || "");
@@ -497,6 +530,25 @@ export default function OverviewReportPanel({ session }) {
           <div className="filter-summary-grid">
             <div><span>Date Range</span><strong>{displayRangeLabel}</strong></div>
             <div><span>Scope</span><strong>CEx only</strong></div>
+          </div>
+
+          <div className="overview-prompt-editor">
+            <div className="overview-prompt-head">
+              <div>
+                <span>Editable Report Prompt</span>
+                <small>Controls wording, structure, emphasis, and tone. Verified numbers and access rules remain code-controlled.</small>
+              </div>
+              <button type="button" onClick={() => updateCustomInstructions(DEFAULT_REPORT_INSTRUCTIONS)} disabled={loading}>Reset</button>
+            </div>
+            <textarea
+              value={customInstructions}
+              onChange={(event) => updateCustomInstructions(event.target.value)}
+              placeholder="Example: Start with an executive summary, praise top positive outcomes, then list negative risks and required actions."
+              rows={7}
+              maxLength={4000}
+              disabled={loading}
+            />
+            <small>{formatNumber(customInstructions.length)} / 4,000 characters · Saved in this browser automatically</small>
           </div>
 
           <button type="button" className="generate-btn" onClick={generateReport} disabled={loading || !session?.access_token}>
@@ -738,6 +790,67 @@ export default function OverviewReportPanel({ session }) {
           padding: 12px;
           position: relative;
           overflow: visible;
+        }
+
+        .overview-prompt-editor {
+          display: grid;
+          gap: 10px;
+          margin: 14px 0;
+          padding: 14px;
+          border: 1px solid rgba(96, 165, 250, 0.2);
+          border-radius: 16px;
+          background: rgba(2, 6, 23, 0.42);
+        }
+
+        .overview-prompt-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .overview-prompt-head div,
+        .overview-prompt-head span,
+        .overview-prompt-head small {
+          display: block;
+        }
+
+        .overview-prompt-head span {
+          color: #f8fafc;
+          font-weight: 900;
+        }
+
+        .overview-prompt-head small,
+        .overview-prompt-editor > small {
+          margin-top: 4px;
+          color: #93a4c7;
+          line-height: 1.45;
+        }
+
+        .overview-prompt-head button {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.05);
+          color: #dbeafe;
+          padding: 7px 11px;
+          font: inherit;
+          font-size: 0.78rem;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .overview-prompt-editor textarea {
+          width: 100%;
+          resize: vertical;
+          min-height: 132px;
+          box-sizing: border-box;
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 12px;
+          background: rgba(15, 23, 42, 0.72);
+          color: #f8fafc;
+          padding: 12px;
+          font: inherit;
+          line-height: 1.5;
         }
 
         .run-date-range-picker {
