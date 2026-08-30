@@ -47,8 +47,8 @@ export async function GET(request) {
 
     const [mappingResult, teamResult, memberResult] = await Promise.all([
       auth.adminClient.from("agent_mappings").select("employee_name,employee_email,intercom_agent_name,team_name,is_active").eq("is_active", true).order("employee_name", { ascending: true }).limit(5000),
-      auth.adminClient.from("supervisor_teams").select("id,supervisor_name,is_active,updated_at").eq("is_active", true).order("supervisor_name", { ascending: true }).limit(1000),
-      auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_name,employee_email,intercom_agent_name,is_active").eq("is_active", true).limit(10000),
+      auth.adminClient.from("supervisor_teams").select("id,supervisor_name,supervisor_email,is_active,updated_at").eq("is_active", true).order("supervisor_name", { ascending: true }).limit(1000),
+      auth.adminClient.from("supervisor_team_members").select("supervisor_team_id,employee_name,employee_email,intercom_agent_name,team_name,is_active").eq("is_active", true).limit(10000),
     ]);
     const mappingError = mappingResult.error || teamResult.error || memberResult.error;
     if (mappingError) throw new Error(mappingError.message || "Could not load the engagement roster.");
@@ -91,26 +91,61 @@ export async function GET(request) {
       return Array.from(new Set(identities.flatMap((identity) => supervisorTeamsByIdentity.get(identity) || [])));
     };
 
-    let roster = (Array.isArray(mappings) ? mappings : [])
-      .map((row) => {
-        const employeeEmail = normalizeServerEmail(row.employee_email);
-        return { ...row, employee_email: employeeEmail, supervisor_team_names: findSupervisorTeamNames({ ...row, employee_email: employeeEmail }) };
-      })
-      .filter((row) => row.employee_email);
+    const rosterCandidates = [
+      ...(Array.isArray(mappings) ? mappings : []),
+      ...(memberResult.data || []),
+      ...activeSupervisorTeams.map((team) => {
+        const source = (teamResult.data || []).find((row) => String(row.id) === String(team.id));
+        return {
+          employee_name: source?.supervisor_name || team.name,
+          employee_email: source?.supervisor_email || "",
+          intercom_agent_name: "",
+          team_name: "Supervisor",
+          is_supervisor: true,
+        };
+      }),
+    ];
+    const rosterByIdentity = new Map();
+    for (const candidate of rosterCandidates) {
+      const employeeEmail = normalizeServerEmail(candidate?.employee_email);
+      const employeeName = String(candidate?.employee_name || "").trim();
+      const intercomName = String(candidate?.intercom_agent_name || "").trim();
+      const identityKey = employeeEmail
+        ? `email:${companyIdentityKey(employeeEmail)}`
+        : intercomName
+          ? `intercom:${normalizedIdentity(intercomName)}`
+          : `name:${normalizedIdentity(employeeName)}`;
+      if (!employeeName && !employeeEmail && !intercomName) continue;
+      const existing = rosterByIdentity.get(identityKey) || {};
+      const merged = {
+        ...candidate,
+        ...existing,
+        employee_name: existing.employee_name || employeeName || intercomName || employeeEmail,
+        employee_email: existing.employee_email || employeeEmail,
+        intercom_agent_name: existing.intercom_agent_name || intercomName,
+        team_name: existing.team_name || String(candidate?.team_name || "").trim() || "Unassigned",
+        is_supervisor: Boolean(existing.is_supervisor || candidate?.is_supervisor),
+      };
+      merged.identity_key = identityKey;
+      merged.supervisor_team_names = findSupervisorTeamNames(merged);
+      rosterByIdentity.set(identityKey, merged);
+    }
+    let roster = Array.from(rosterByIdentity.values());
     if (!auth.canViewAllEngagement) roster = roster.filter((row) => row.employee_email === auth.email);
     if (!roster.some((row) => row.employee_email === auth.email) && !auth.canViewAllEngagement) {
       const ownAgent = { employee_name: auth.profile.full_name || auth.email, employee_email: auth.email, intercom_agent_name: "", team_name: "" };
       roster.push({ ...ownAgent, supervisor_team_names: findSupervisorTeamNames(ownAgent) });
     }
 
-    const emails = Array.from(new Set(roster.map((row) => row.employee_email)));
-    if (!emails.length) return json({ ok: true, scope: auth.canViewAllEngagement ? "all_agents" : "own", rows: [], supervisorTeams: activeSupervisorTeams, summary: {} });
+    const emails = Array.from(new Set(roster.map((row) => row.employee_email).filter(Boolean)));
+    if (!roster.length) return json({ ok: true, scope: auth.canViewAllEngagement ? "all_agents" : "own", rows: [], supervisorTeams: activeSupervisorTeams, summary: {} });
 
+    const emptyResult = { data: [], error: null };
     const [sessionsResult, viewsResult, resultsResult, statesResult] = await Promise.all([
-      auth.adminClient.from("user_activity_sessions").select("email,started_at,last_seen_at").in("email", emails).order("last_seen_at", { ascending: false }).limit(20000),
-      auth.adminClient.from("system_activity_logs").select("actor_email,target_id,action_type,created_at").in("actor_email", emails).order("created_at", { ascending: false }).limit(20000),
-      auth.adminClient.from("audit_results").select("id,conversation_id,employee_email,review_sentiment,created_at,replied_at,error").in("employee_email", emails).order("created_at", { ascending: false }).limit(50000),
-      auth.adminClient.from("result_engagement_state").select("actor_email,result_id,first_opened_at,last_opened_at,conversation_opened_at,open_count,is_missed_approach").in("actor_email", emails).order("last_opened_at", { ascending: false }).limit(50000),
+      emails.length ? auth.adminClient.from("user_activity_sessions").select("email,started_at,last_seen_at").in("email", emails).order("last_seen_at", { ascending: false }).limit(20000) : emptyResult,
+      emails.length ? auth.adminClient.from("system_activity_logs").select("actor_email,target_id,action_type,created_at").in("actor_email", emails).order("created_at", { ascending: false }).limit(20000) : emptyResult,
+      auth.adminClient.from("audit_results").select("id,conversation_id,employee_name,employee_email,agent_name,team_name,review_sentiment,created_at,replied_at,error").order("created_at", { ascending: false }).limit(50000),
+      emails.length ? auth.adminClient.from("result_engagement_state").select("actor_email,result_id,first_opened_at,last_opened_at,conversation_opened_at,open_count,is_missed_approach").in("actor_email", emails).order("last_opened_at", { ascending: false }).limit(50000) : emptyResult,
     ]);
     const firstError = sessionsResult.error || viewsResult.error || resultsResult.error || statesResult.error;
     if (firstError) throw new Error(firstError.message || "Could not load engagement data.");
@@ -122,11 +157,22 @@ export async function GET(request) {
     const weekStart = dhakaWeekStart();
     const now = new Date();
 
+    const resultMatchesAgent = (result, agent) => {
+      const resultEmail = normalizeServerEmail(result?.employee_email);
+      const agentEmail = normalizeServerEmail(agent?.employee_email);
+      if (resultEmail && agentEmail && companyIdentityKey(resultEmail) === companyIdentityKey(agentEmail)) return true;
+      const agentNames = new Set([
+        normalizedIdentity(agent?.employee_name),
+        normalizedIdentity(agent?.intercom_agent_name),
+      ].filter(Boolean));
+      return [result?.employee_name, result?.agent_name].some((value) => agentNames.has(normalizedIdentity(value)));
+    };
+
     const rows = roster.map((agent) => {
       const email = agent.employee_email;
       const agentSessions = sessions.filter((row) => normalizeServerEmail(row.email) === email);
       const agentViews = views.filter((row) => normalizeServerEmail(row.actor_email) === email);
-      const agentResults = results.filter((row) => normalizeServerEmail(row.employee_email) === email);
+      const agentResults = results.filter((row) => resultMatchesAgent(row, agent));
       const stateByResult = new Map(states.filter((row) => normalizeServerEmail(row.actor_email) === email).map((row) => [String(row.result_id), row]));
       const weeklyResults = agentResults.filter((row) => (toDate(row.created_at) || toDate(row.replied_at)) >= weekStart);
       const weeklyMisses = weeklyResults.filter((row) => String(row.review_sentiment || "").toLowerCase() === "missed opportunity");
@@ -153,6 +199,8 @@ export async function GET(request) {
       return {
         employee_name: agent.employee_name || agent.intercom_agent_name || email,
         employee_email: email,
+        identity_key: agent.identity_key,
+        is_supervisor: Boolean(agent.is_supervisor),
         team_name: agent.team_name || "Unassigned",
         supervisor_team_names: agent.supervisor_team_names || [],
         intercom_agent_name: agent.intercom_agent_name || "",
