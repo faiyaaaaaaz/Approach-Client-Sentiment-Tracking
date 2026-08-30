@@ -273,18 +273,24 @@ function formatSimpleDate(date) {
   }).format(date);
 }
 
-async function fetchAuditRows(adminClient) {
+async function fetchAuditRows(adminClient, startDate, endDate) {
   const allRows = [];
   let from = 0;
+  const rangeStart = dateAtDhakaBoundary(startDate, false)?.toISOString();
+  const rangeEnd = dateAtDhakaBoundary(endDate, true)?.toISOString();
 
   while (from < MAX_REPORT_ROWS) {
     const to = from + PAGE_SIZE - 1;
 
-    const { data, error } = await adminClient
+    let query = adminClient
       .from("audit_results")
       .select("id, run_id, conversation_id, replied_at, created_at, agent_name, employee_name, employee_email, team_name, review_sentiment, client_sentiment, resolution_status, error")
       .order("created_at", { ascending: false })
       .range(from, to);
+    if (rangeStart && rangeEnd) {
+      query = query.or(`and(replied_at.gte.${rangeStart},replied_at.lte.${rangeEnd}),and(replied_at.is.null,created_at.gte.${rangeStart},created_at.lte.${rangeEnd})`);
+    }
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message || "Could not load audit results for the report.");
@@ -303,66 +309,55 @@ async function fetchAuditRows(adminClient) {
 async function loadAgentActivity(adminClient, emails) {
   const normalizedEmails = Array.from(new Set((emails || []).map(normalizeEmail).filter(Boolean)));
   const activityByEmail = new Map();
+  if (!normalizedEmails.length) return activityByEmail;
 
-  let cursor = 0;
-  const workerCount = Math.min(6, normalizedEmails.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < normalizedEmails.length) {
-      const email = normalizedEmails[cursor];
-      cursor += 1;
+  const sessions = [];
+  const pageViews = [];
+  for (let index = 0; index < normalizedEmails.length; index += 200) {
+    const emailChunk = normalizedEmails.slice(index, index + 200);
+    const [sessionResult, viewResult] = await Promise.all([
+      adminClient
+        .from("user_activity_sessions")
+        .select("email,started_at,last_seen_at")
+        .in("email", emailChunk)
+        .order("last_seen_at", { ascending: false })
+        .limit(10000),
+      adminClient
+        .from("system_activity_logs")
+        .select("actor_email,target_id,created_at")
+        .in("actor_email", emailChunk)
+        .eq("action_type", "page_viewed")
+        .in("target_id", ["/", "/results"])
+        .order("created_at", { ascending: false })
+        .limit(20000),
+    ]);
+    const queryError = sessionResult.error || viewResult.error;
+    if (queryError) throw new Error(queryError.message || "Could not load report engagement activity.");
+    sessions.push(...(sessionResult.data || []));
+    pageViews.push(...(viewResult.data || []));
+  }
 
-      const [sessionResult, dashboardResult, resultsResult] = await Promise.all([
-        adminClient
-          .from("user_activity_sessions")
-          .select("started_at, last_seen_at")
-          .eq("email", email)
-          .order("last_seen_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        adminClient
-          .from("system_activity_logs")
-          .select("created_at")
-          .eq("actor_email", email)
-          .eq("action_type", "page_viewed")
-          .eq("target_id", "/")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        adminClient
-          .from("system_activity_logs")
-          .select("created_at")
-          .eq("actor_email", email)
-          .eq("action_type", "page_viewed")
-          .eq("target_id", "/results")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-      const queryError = sessionResult.error || dashboardResult.error || resultsResult.error;
-      if (queryError) throw new Error(queryError.message || `Could not load activity for ${email}.`);
-
-      const lastDashboardVisitAt = toDate(dashboardResult.data?.created_at)?.toISOString() || null;
-      const lastResultsVisitAt = toDate(resultsResult.data?.created_at)?.toISOString() || null;
-      const dashboardDate = toDate(lastDashboardVisitAt);
-      const resultsDate = toDate(lastResultsVisitAt);
-      const lastPerformanceCheckAt =
-        dashboardDate && resultsDate
-          ? (dashboardDate > resultsDate ? dashboardDate : resultsDate).toISOString()
-          : (dashboardDate || resultsDate)?.toISOString() || null;
-
-      activityByEmail.set(email, {
-        email,
-        lastSignedInAt: toDate(sessionResult.data?.started_at)?.toISOString() || null,
-        lastSeenAt: toDate(sessionResult.data?.last_seen_at || sessionResult.data?.started_at)?.toISOString() || null,
-        lastDashboardVisitAt,
-        lastResultsVisitAt,
-        lastPerformanceCheckAt,
-      });
-    }
-  });
-
-  await Promise.all(workers);
+  for (const email of normalizedEmails) {
+    const latestSession = sessions.find((row) => normalizeEmail(row?.email) === email) || null;
+    const agentViews = pageViews.filter((row) => normalizeEmail(row?.actor_email) === email);
+    const dashboardView = agentViews.find((row) => row?.target_id === "/") || null;
+    const resultsView = agentViews.find((row) => row?.target_id === "/results") || null;
+    const lastDashboardVisitAt = toDate(dashboardView?.created_at)?.toISOString() || null;
+    const lastResultsVisitAt = toDate(resultsView?.created_at)?.toISOString() || null;
+    const dashboardDate = toDate(lastDashboardVisitAt);
+    const resultsDate = toDate(lastResultsVisitAt);
+    const lastPerformanceCheckAt = dashboardDate && resultsDate
+      ? (dashboardDate > resultsDate ? dashboardDate : resultsDate).toISOString()
+      : (dashboardDate || resultsDate)?.toISOString() || null;
+    activityByEmail.set(email, {
+      email,
+      lastSignedInAt: toDate(latestSession?.started_at)?.toISOString() || null,
+      lastSeenAt: toDate(latestSession?.last_seen_at || latestSession?.started_at)?.toISOString() || null,
+      lastDashboardVisitAt,
+      lastResultsVisitAt,
+      lastPerformanceCheckAt,
+    });
+  }
 
   return activityByEmail;
 }
@@ -961,7 +956,7 @@ function buildFallbackReport(summary) {
   return lines.join("\n");
 }
 
-function buildOpenAiPrompt(summary) {
+function buildOpenAiPrompt(summary, customInstructions = "") {
   return `You are writing a plain-text ClickUp channel update for an internal FundedNext support QA platform.
 
 Write a polished ClickUp-ready report in the user's practical management-update style.
@@ -1034,10 +1029,15 @@ Request relevant leads/supervisors to review and share feedback.
 Note: ...
 
 Calculated facts JSON:
-${JSON.stringify(summary, null, 2)}`;
+${JSON.stringify(summary, null, 2)}
+
+Editable report instructions from the Platform Owner:
+${normalizeText(customInstructions) || "No additional instructions. Follow the standard structure above."}
+
+The editable instructions may change wording, tone, ordering, emphasis, or requested sections. They must never override the verified facts, scope, security rules, or the instruction not to invent data.`;
 }
 
-async function generateAiReport(openAiApiKey, summary) {
+async function generateAiReport(openAiApiKey, summary, customInstructions = "") {
   if (!openAiApiKey) return { report: stripReportMarkdown(buildFallbackReport(summary)), source: "server_fallback_no_openai_key" };
 
   try {
@@ -1056,7 +1056,7 @@ async function generateAiReport(openAiApiKey, summary) {
           },
           {
             role: "user",
-            content: buildOpenAiPrompt(summary),
+            content: buildOpenAiPrompt(summary, customInstructions),
           },
         ],
         temperature: 0.2,
@@ -1122,6 +1122,7 @@ export async function POST(request) {
     const startDate = parseDateInput(body?.startDate);
     const endDate = parseDateInput(body?.endDate);
     const platformUrl = normalizeText(body?.platformUrl);
+    const customInstructions = normalizeText(body?.customInstructions).slice(0, 4000);
 
     if (!startDate || !endDate) {
       return json({ ok: false, error: "Select a valid start date and end date." }, { status: 400 });
@@ -1132,7 +1133,7 @@ export async function POST(request) {
     }
 
     const [rows, supervisorLookup, openAiApiKey] = await Promise.all([
-      fetchAuditRows(auth.adminClient),
+      fetchAuditRows(auth.adminClient, startDate, endDate),
       loadSupervisorLookup(auth.adminClient),
       loadActiveOpenAiKey(auth.adminClient),
     ]);
@@ -1164,7 +1165,7 @@ export async function POST(request) {
       activityByEmail,
     });
 
-    const generated = await generateAiReport(openAiApiKey, summary);
+    const generated = await generateAiReport(openAiApiKey, summary, customInstructions);
 
     await writeActivityLog(auth.adminClient, request, auth, summary, generated.source);
 
