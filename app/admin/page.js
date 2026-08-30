@@ -1024,6 +1024,7 @@ function createEmptyActivityFilters() {
     status: "",
     area: "",
     search: "",
+    include_routine: false,
   };
 }
 
@@ -1538,6 +1539,7 @@ function AdminPageContent() {
 
   const [activityLogs, setActivityLogs] = useState([]);
   const [activitySessions, setActivitySessions] = useState([]);
+  const [activitySummary, setActivitySummary] = useState({});
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
   const [activityFilters, setActivityFilters] = useState(createEmptyActivityFilters());
@@ -2038,6 +2040,7 @@ function AdminPageContent() {
 
       setActivityLogs(Array.isArray(data.logs) ? data.logs : []);
       setActivitySessions(Array.isArray(data.sessions) ? data.sessions : []);
+      setActivitySummary(data?.summary && typeof data.summary === "object" ? data.summary : {});
       setActivityVisibleCount(25);
       setExpandedActivityLogId("");
     } catch (error) {
@@ -2045,6 +2048,7 @@ function AdminPageContent() {
       setActivityError(message);
       setActivityLogs([]);
       setActivitySessions([]);
+      setActivitySummary({});
     } finally {
       setActivityLoading(false);
     }
@@ -3839,7 +3843,7 @@ function AdminPageContent() {
                   <p className="eyebrow">Master Admin Only</p>
                   <h2>System Activity Logs</h2>
                   <p className="muted">
-                    Review sign-ins, page visits, admin changes, and session history with clearer event details.
+                    Focus on audits, failures, configuration changes, and other actions that matter. Routine page visits stay hidden unless requested.
                   </p>
                 </div>
 
@@ -3866,24 +3870,24 @@ function AdminPageContent() {
 
               <div className="activity-summary-grid">
                 <article>
-                  <span>Log Events</span>
-                  <strong>{formatNumber(activityLogs.length)}</strong>
-                  <small>Latest protected events</small>
+                  <span>Meaningful Events</span>
+                  <strong>{formatNumber(activitySummary.meaningful_events ?? activityLogs.length)}</strong>
+                  <small>Routine navigation excluded</small>
                 </article>
                 <article>
-                  <span>Sessions</span>
-                  <strong>{formatNumber(activitySessions.length)}</strong>
-                  <small>Recent user sessions</small>
+                  <span>Failures / Warnings</span>
+                  <strong>{formatNumber((activitySummary.failed_events || 0) + (activitySummary.warning_events || 0))}</strong>
+                  <small>{formatNumber(activitySummary.failed_events || 0)} failed actions</small>
                 </article>
                 <article>
-                  <span>Active Now</span>
-                  <strong>{formatNumber(activeActivitySessions)}</strong>
-                  <small>Based on last heartbeat</small>
+                  <span>Audit Events</span>
+                  <strong>{formatNumber(activitySummary.audit_events || 0)}</strong>
+                  <small>Runs, imports, and audit operations</small>
                 </article>
                 <article>
-                  <span>Visibility</span>
-                  <strong>Master Admin</strong>
-                  <small>Co-Admins cannot view this section</small>
+                  <span>Configuration Changes</span>
+                  <strong>{formatNumber(activitySummary.configuration_changes || 0)}</strong>
+                  <small>Mappings, teams, prompts, keys, and roles</small>
                 </article>
               </div>
 
@@ -3903,6 +3907,16 @@ function AdminPageContent() {
                     onChange={(event) => updateActivityFilter("email", normalizeEmail(event.target.value))}
                     placeholder="user@nextventures.io"
                   />
+                </label>
+
+                <label className="activity-routine-toggle">
+                  <span>Routine Activity <HelpTip text="Include page visits and sign-outs when you need a detailed navigation investigation. They are hidden by default to keep the log useful." /></span>
+                  <input
+                    type="checkbox"
+                    checked={activityFilters.include_routine === true}
+                    onChange={(event) => updateActivityFilter("include_routine", event.target.checked)}
+                  />
+                  <small>Include page visits and sign-outs</small>
                 </label>
 
                 <label>
