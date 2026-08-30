@@ -68,7 +68,7 @@ export default function TeamEngagementPanel({ session }) {
   const [search, setSearch] = useState("");
   const [supervisorTeams, setSupervisorTeams] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [cexOnly, setCexOnly] = useState(true);
+  const [cexOnly, setCexOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [teamDataVersion, setTeamDataVersion] = useState(0);
   const hasLoadedRef = useRef(false);
@@ -121,12 +121,12 @@ export default function TeamEngagementPanel({ session }) {
       .sort((a, b) => a.localeCompare(b))
       .map((item) => ({ value: item, label: item }));
   }, [data?.supervisorTeams, data?.supervisorTeamsVersion]);
-  const employeeOptions = useMemo(() => allRows.map((row) => ({ value: row.employee_email, label: row.employee_name })).sort((a, b) => a.label.localeCompare(b.label)), [allRows]);
+  const employeeOptions = useMemo(() => allRows.map((row) => ({ value: row.identity_key || row.employee_email, label: row.employee_name })).sort((a, b) => a.label.localeCompare(b.label)), [allRows]);
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     return allRows.filter((row) => {
       if (supervisorTeams.length && !supervisorTeams.some((team) => (row.supervisor_team_names || []).includes(team))) return false;
-      if (employees.length && !employees.includes(row.employee_email)) return false;
+      if (employees.length && !employees.includes(row.identity_key || row.employee_email)) return false;
       if (cexOnly && String(row.team_name || "").trim().toLowerCase() !== "cex") return false;
       return !query || [row.employee_name, row.employee_email, row.team_name, ...(row.supervisor_team_names || [])].join(" ").toLowerCase().includes(query);
     });
