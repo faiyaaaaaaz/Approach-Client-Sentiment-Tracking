@@ -547,6 +547,33 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     count: missedPositiveRows.filter((row) => sameText(row?.client_sentiment, sentiment)).length,
   }));
 
+  const buildLikelyReviewLeaders = (statuses) => {
+    const statusKeys = new Set(statuses.map(normalizeKey));
+    const leaders = new Map();
+    for (const row of scopedRows.filter((item) => statusKeys.has(normalizeKey(item?.review_sentiment)))) {
+      const key = agentKeyFor(row);
+      const current = leaders.get(key) || {
+        employee: employeeNameFor(row),
+        email: normalizeEmail(row?.employee_email),
+        team: getResolvedTeamName(row, supervisorLookup) || "-",
+        total: 0,
+        highlyLikely: 0,
+        conversationIds: [],
+      };
+      current.total += 1;
+      if (normalizeKey(row?.review_sentiment).startsWith("highly likely")) current.highlyLikely += 1;
+      const conversationId = normalizeText(row?.conversation_id);
+      if (conversationId && current.conversationIds.length < 3) current.conversationIds.push(conversationId);
+      leaders.set(key, current);
+    }
+    return Array.from(leaders.values())
+      .sort((a, b) => b.highlyLikely - a.highlyLikely || b.total - a.total || a.employee.localeCompare(b.employee))
+      .slice(0, 5);
+  };
+
+  const likelyPositiveLeaders = buildLikelyReviewLeaders(["Likely Positive Review", "Highly Likely Positive Review"]);
+  const likelyNegativeLeaders = buildLikelyReviewLeaders(["Likely Negative Review", "Highly Likely Negative Review"]);
+
   const agentMap = new Map();
   const supervisorMap = new Map();
 
@@ -774,6 +801,12 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     missedPositiveRate,
     missedPositiveRateLabel: formatPercent(missedPositiveRate),
     sentimentBreakdown,
+    likelyReviewShoutouts: {
+      positive: likelyPositiveLeaders,
+      negative: likelyNegativeLeaders,
+      positiveTotal: scopedRows.filter((row) => ["likely positive review", "highly likely positive review"].includes(normalizeKey(row?.review_sentiment))).length,
+      negativeTotal: scopedRows.filter((row) => ["likely negative review", "highly likely negative review"].includes(normalizeKey(row?.review_sentiment))).length,
+    },
     topAgents,
     agentInsights,
     engagementRisks,
@@ -848,6 +881,23 @@ function buildFallbackReport(summary) {
     lines.push("Dashboard Reference");
     lines.push("You can check the data yourself by applying the right filters from this dashboard I created -");
     lines.push(summary.platformUrl);
+    lines.push("");
+  }
+
+  if (summary.likelyReviewShoutouts?.positive?.length || summary.likelyReviewShoutouts?.negative?.length) {
+    lines.push("Likely Review Shoutouts");
+    if (summary.likelyReviewShoutouts.positive.length) {
+      lines.push("Top positive review signals:");
+      summary.likelyReviewShoutouts.positive.slice(0, 5).forEach((item) => {
+        lines.push(`• ${item.employee} - ${formatNumber(item.total)} likely positive review(s), including ${formatNumber(item.highlyLikely)} highly likely.`);
+      });
+    }
+    if (summary.likelyReviewShoutouts.negative.length) {
+      lines.push("Top negative review risks:");
+      summary.likelyReviewShoutouts.negative.slice(0, 5).forEach((item) => {
+        lines.push(`• ${item.employee} - ${formatNumber(item.total)} likely negative review(s), including ${formatNumber(item.highlyLikely)} highly likely.`);
+      });
+    }
     lines.push("");
   }
 
@@ -933,6 +983,7 @@ Mandatory rules:
 - Clearly distinguish never signed in, signed in without a recorded performance check, and new misses published after the last performance check.
 - Include Results Engagement Risks when engagementRisks contains entries. State the agent, recorded engagement status, unseen miss count, and elapsed days when available.
 - Include Week-over-Week Direction when weekOverWeekChanges contains entries. Cover meaningful increases and decreases, and compare both missed count and missed rate so changes in audited volume are not misrepresented.
+- Include Likely Review Shoutouts when likelyReviewShoutouts contains entries. Recognize the agents with the strongest likely-positive review outcomes and separately flag the agents with the strongest likely-negative review risk. Never mix the two groups.
 - Rates are more important than raw counts for week-over-week direction. Do not call a trend worse merely because the count increased when the rate did not increase.
 - Do not mention Neutral, Negative, Slightly Negative, or Very Negative sentiment categories.
 - The report is only about CEx team Missed Opportunity results where Client Sentiment is Very Positive, Positive, or Slightly Positive.
@@ -964,6 +1015,10 @@ Platform URL if provided
 Agent Focus
 • Agent name - miss count
   ◦ Include the most useful sub-point from the data.
+
+Likely Review Shoutouts
+• Recognize top likely-positive review outcomes.
+• Separately flag top likely-negative review risks, including highly likely counts.
 
 Results Engagement Risks
 • Name agents who never signed in, signed in without checking Dashboard or Results, or accumulated new misses after their last performance check.
