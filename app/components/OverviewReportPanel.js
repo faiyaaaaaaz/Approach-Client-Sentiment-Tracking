@@ -352,6 +352,7 @@ export default function OverviewReportPanel({ session }) {
   const [summary, setSummary] = useState(null);
   const [reportSource, setReportSource] = useState("");
   const [customInstructions, setCustomInstructions] = useState(DEFAULT_REPORT_INSTRUCTIONS);
+  const [generationSeconds, setGenerationSeconds] = useState(0);
 
   useEffect(() => {
     try {
@@ -361,6 +362,18 @@ export default function OverviewReportPanel({ session }) {
       // Report generation remains available when browser storage is blocked.
     }
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setGenerationSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setGenerationSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 500);
+    return () => window.clearInterval(intervalId);
+  }, [loading]);
 
   function updateCustomInstructions(value) {
     const nextValue = String(value || "").slice(0, 4000);
@@ -491,6 +504,13 @@ export default function OverviewReportPanel({ session }) {
   const activePresetLabel = REPORT_DATE_PRESETS.find((item) => item.key === selectedPreset)?.label || "Custom";
   const displayRangeLabel = formatReportRangeLabel(startDate, endDate);
   const previewLines = report ? report.split("\n") : [];
+  const generationStage = generationSeconds < 4
+    ? "Loading verified audit results"
+    : generationSeconds < 9
+      ? "Calculating trends and agent insights"
+      : generationSeconds < 18
+        ? "Writing the report from your prompt"
+        : "Finalizing a safe report response";
 
   return (
     <section className="overview-report-shell">
@@ -552,8 +572,22 @@ export default function OverviewReportPanel({ session }) {
           </div>
 
           <button type="button" className="generate-btn" onClick={generateReport} disabled={loading || !session?.access_token}>
-            {loading ? "Generating Report..." : "Generate Report"}
+            {loading ? `Generating Report · ${generationSeconds}s` : "Generate Report"}
           </button>
+
+          {loading ? (
+            <div className="report-generation-progress" role="status" aria-live="polite">
+              <div className="generation-progress-head">
+                <span className="generation-spinner" aria-hidden="true" />
+                <div>
+                  <strong>{generationStage}</strong>
+                  <small>Keep this page open. Larger date ranges need more time, but the server will return a verified fallback instead of waiting indefinitely.</small>
+                </div>
+                <b>{generationSeconds}s</b>
+              </div>
+              <div className="generation-progress-track"><i /></div>
+            </div>
+          ) : null}
 
           <div className="scope-note">
             <strong>Included scope:</strong> CEx team only · Missed Opportunity + Very Positive, Positive, and Slightly Positive client sentiment.
@@ -851,6 +885,78 @@ export default function OverviewReportPanel({ session }) {
           padding: 12px;
           font: inherit;
           line-height: 1.5;
+        }
+
+        .report-generation-progress {
+          display: grid;
+          gap: 12px;
+          margin-top: 12px;
+          padding: 14px;
+          border: 1px solid rgba(34, 211, 238, 0.24);
+          border-radius: 16px;
+          background: linear-gradient(135deg, rgba(8, 145, 178, 0.12), rgba(79, 70, 229, 0.1));
+        }
+
+        .generation-progress-head {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .generation-progress-head strong,
+        .generation-progress-head small {
+          display: block;
+        }
+
+        .generation-progress-head strong {
+          color: #ecfeff;
+          font-weight: 900;
+        }
+
+        .generation-progress-head small {
+          margin-top: 3px;
+          color: #a5c8e8;
+          line-height: 1.4;
+        }
+
+        .generation-progress-head b {
+          color: #67e8f9;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .generation-spinner {
+          width: 22px;
+          height: 22px;
+          border: 3px solid rgba(103, 232, 249, 0.2);
+          border-top-color: #67e8f9;
+          border-radius: 999px;
+          animation: overview-spin 0.8s linear infinite;
+        }
+
+        .generation-progress-track {
+          height: 6px;
+          overflow: hidden;
+          border-radius: 999px;
+          background: rgba(148, 163, 184, 0.16);
+        }
+
+        .generation-progress-track i {
+          display: block;
+          width: 38%;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, #22d3ee, #8b5cf6, #22d3ee);
+          animation: overview-progress 1.45s ease-in-out infinite;
+        }
+
+        @keyframes overview-spin {
+          to { transform: rotate(360deg); }
+        }
+
+        @keyframes overview-progress {
+          0% { transform: translateX(-110%); }
+          100% { transform: translateX(365%); }
         }
 
         .run-date-range-picker {
