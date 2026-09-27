@@ -24,7 +24,7 @@ function number(value) {
 }
 
 function statusLabel(value) {
-  if (value === "never_logged_in") return "Never logged in";
+  if (value === "never_logged_in") return "No verified sign-in";
   if (value === "misses_unopened") return "Misses unopened";
   if (value === "results_unopened") return "Results unopened";
   return "All published results opened";
@@ -168,31 +168,33 @@ export default function TeamEngagementPanel({ session }) {
         <>
           <div className="team-engagement-stats">
             <div><span>Visible agents</span><strong>{number(data?.summary?.agents)}</strong></div>
-            <div><span>Never logged in</span><strong>{number(data?.summary?.never_logged_in)}</strong></div>
+            <div><span>No verified sign-in</span><strong>{number(data?.summary?.never_logged_in)}</strong></div>
             <div><span>Agents with unopened misses</span><strong>{number(data?.summary?.agents_with_unopened_misses)}</strong></div>
             <div><span>Conversations opened this week</span><strong>{number(data?.summary?.results_opened_this_week)}</strong></div>
           </div>
           <div className="team-engagement-table-wrap">
             <table className="team-engagement-table">
-              <thead><tr><th>Agent</th><th>Last login</th><th>Last active</th><th>Last conversation opened</th><th>Weekly review</th><th>Unopened</th><th>Status</th></tr></thead>
+              <thead><tr><th>Agent</th><th>Verified sign-in</th><th>Explicit sign-out</th><th>Last app activity</th><th>Results opened from Dashboard</th><th>Results opened from Results page</th><th>Weekly review</th><th>Unopened</th><th>Status</th></tr></thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.employee_email}>
                     <td><strong>{row.employee_name}</strong><small title={row.employee_email}>{row.employee_email}</small><em>{row.team_name}</em></td>
                     <td className="engagement-time">{formatDhaka(row.last_login_at)}</td>
+                    <td className="engagement-time">{formatDhaka(row.last_logout_at)}</td>
                     <td className="engagement-time">{formatDhaka(row.last_active_at)}</td>
-                    <td className="engagement-time">{formatDhaka(row.last_conversation_opened_at)}</td>
+                    <td><strong>{number(row.dashboard_result_opens)}</strong><small>Last: {formatDhaka(row.last_dashboard_result_open_at)}</small></td>
+                    <td><strong>{number(row.results_page_result_opens)}</strong><small>Last: {formatDhaka(row.last_results_page_result_open_at)}</small></td>
                     <td><strong>{Number(row.weekly_review_rate || 0).toFixed(0)}%</strong><small>{number(row.results_opened_this_week)} of {number(row.new_results_this_week)} opened</small></td>
                     <td><strong>{number(row.unopened_misses)} misses</strong><small>{number(row.unopened_results)} total results</small></td>
                     <td><span className={`engagement-status ${row.status}`}>{statusLabel(row.status)}</span></td>
                   </tr>
                 ))}
-                {!rows.length ? <tr><td colSpan="7" className="team-engagement-empty">No matching agents.</td></tr> : null}
+                {!rows.length ? <tr><td colSpan="9" className="team-engagement-empty">No matching agents.</td></tr> : null}
               </tbody>
             </table>
           </div>
           <div className="team-engagement-pagination"><span>Showing {filteredRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filteredRows.length)} of {filteredRows.length}</span><div><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button><strong>Page {page} of {pageCount}</strong><button type="button" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</button></div></div>
-          <p className="team-engagement-definition"><strong>All published results opened</strong> means the agent has opened every result currently published to them. It does not evaluate whether their performance improved afterward.</p>
+          <p className="team-engagement-definition"><strong>Verified sign-in</strong> records completion of the Google sign-in button flow. A restored tab or token refresh does not count. <strong>Last app activity</strong> can include a routine heartbeat and does not prove the person interacted with the page. <strong>Result opened</strong> means the Intercom preview loaded successfully; counts and last-open times are separated by the page where it was opened. Older activity may have no verified sign-in or source record. Weekly review counts results published and opened during this week. Times are GMT+6.</p>
         </>
       )}
       <style>{`
