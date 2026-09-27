@@ -307,16 +307,31 @@ async function fetchAuditRows(adminClient, startDate, endDate) {
   return allRows;
 }
 
-async function loadAgentActivity(adminClient, emails) {
+async function loadAgentActivity(adminClient, emails, resultIds = []) {
   const normalizedEmails = Array.from(new Set((emails || []).map(normalizeEmail).filter(Boolean)));
   const activityByEmail = new Map();
   if (!normalizedEmails.length) return activityByEmail;
 
   const sessions = [];
-  const pageViews = [];
+  const resultOpens = [];
+  const signIns = [];
+  const openedByEmail = new Map();
+  const uniqueResultIds = Array.from(new Set(resultIds.map((id) => normalizeText(id)).filter(Boolean)));
+  for (let index = 0; index < uniqueResultIds.length; index += 200) {
+    const { data, error } = await adminClient.from("result_engagement_state")
+      .select("actor_email,result_id,conversation_opened_at")
+      .in("result_id", uniqueResultIds.slice(index, index + 200));
+    if (error) throw new Error(error.message || "Could not verify which report results were opened.");
+    for (const state of data || []) {
+      if (!state.conversation_opened_at) continue;
+      const email = normalizeEmail(state.actor_email);
+      if (!openedByEmail.has(email)) openedByEmail.set(email, new Set());
+      openedByEmail.get(email).add(String(state.result_id));
+    }
+  }
   for (let index = 0; index < normalizedEmails.length; index += 200) {
     const emailChunk = normalizedEmails.slice(index, index + 200);
-    const [sessionResult, viewResult] = await Promise.all([
+    const [sessionResult, openResult, signInResult] = await Promise.all([
       adminClient
         .from("user_activity_sessions")
         .select("email,started_at,last_seen_at")
@@ -324,39 +339,50 @@ async function loadAgentActivity(adminClient, emails) {
         .order("last_seen_at", { ascending: false })
         .limit(10000),
       adminClient
-        .from("system_activity_logs")
-        .select("actor_email,target_id,created_at")
+        .from("agent_engagement_events")
+        .select("actor_email,source_page,occurred_at")
         .in("actor_email", emailChunk)
-        .eq("action_type", "page_viewed")
-        .in("target_id", ["/", "/results"])
-        .order("created_at", { ascending: false })
+        .eq("event_type", "conversation_preview_loaded")
+        .in("source_page", ["/", "/results"])
+        .order("occurred_at", { ascending: false })
         .limit(20000),
+      adminClient
+        .from("system_activity_logs")
+        .select("actor_email,created_at")
+        .in("actor_email", emailChunk)
+        .eq("action_type", "session_started")
+        .order("created_at", { ascending: false })
+        .limit(10000),
     ]);
-    const queryError = sessionResult.error || viewResult.error;
+    const queryError = sessionResult.error || openResult.error || signInResult.error;
     if (queryError) throw new Error(queryError.message || "Could not load report engagement activity.");
     sessions.push(...(sessionResult.data || []));
-    pageViews.push(...(viewResult.data || []));
+    resultOpens.push(...(openResult.data || []));
+    signIns.push(...(signInResult.data || []));
   }
 
   for (const email of normalizedEmails) {
     const latestSession = sessions.find((row) => normalizeEmail(row?.email) === email) || null;
-    const agentViews = pageViews.filter((row) => normalizeEmail(row?.actor_email) === email);
-    const dashboardView = agentViews.find((row) => row?.target_id === "/") || null;
-    const resultsView = agentViews.find((row) => row?.target_id === "/results") || null;
-    const lastDashboardVisitAt = toDate(dashboardView?.created_at)?.toISOString() || null;
-    const lastResultsVisitAt = toDate(resultsView?.created_at)?.toISOString() || null;
-    const dashboardDate = toDate(lastDashboardVisitAt);
-    const resultsDate = toDate(lastResultsVisitAt);
+    const agentOpens = resultOpens.filter((row) => normalizeEmail(row?.actor_email) === email);
+    const dashboardOpen = agentOpens.find((row) => row?.source_page === "/") || null;
+    const resultsOpen = agentOpens.find((row) => row?.source_page === "/results") || null;
+    const lastDashboardResultOpenAt = toDate(dashboardOpen?.occurred_at)?.toISOString() || null;
+    const lastResultsPageResultOpenAt = toDate(resultsOpen?.occurred_at)?.toISOString() || null;
+    const dashboardDate = toDate(lastDashboardResultOpenAt);
+    const resultsDate = toDate(lastResultsPageResultOpenAt);
     const lastPerformanceCheckAt = dashboardDate && resultsDate
       ? (dashboardDate > resultsDate ? dashboardDate : resultsDate).toISOString()
       : (dashboardDate || resultsDate)?.toISOString() || null;
     activityByEmail.set(email, {
       email,
-      lastSignedInAt: toDate(latestSession?.started_at)?.toISOString() || null,
+      // Legacy session rows can be created by a page load. Only the explicit
+      // sign-in event proves that the person completed the login flow.
+      lastSignedInAt: toDate(signIns.find((row) => normalizeEmail(row?.actor_email) === email)?.created_at)?.toISOString() || null,
       lastSeenAt: toDate(latestSession?.last_seen_at || latestSession?.started_at)?.toISOString() || null,
-      lastDashboardVisitAt,
-      lastResultsVisitAt,
+      lastDashboardResultOpenAt,
+      lastResultsPageResultOpenAt,
       lastPerformanceCheckAt,
+      openedResultIds: openedByEmail.get(email) || new Set(),
     });
   }
 
@@ -433,7 +459,7 @@ async function loadSupervisorLookup(adminClient) {
       for (const key of keys) {
         const existing = lookup.get(key);
         if (existing) {
-          if (!existing.teamName && payload.teamName) existing.teamName = payload.teamName;
+          if (payload.teamName) existing.teamName = payload.teamName;
         } else {
           lookup.set(key, payload);
         }
@@ -480,10 +506,19 @@ function getSupervisorForRow(row, supervisorLookup) {
 }
 
 function getResolvedTeamName(row, supervisorLookup) {
-  const directTeam = normalizeText(row?.team_name);
-  if (directTeam) return directTeam;
   const mapping = getMappingContextForRow(row, supervisorLookup);
-  return normalizeText(mapping?.teamName);
+  return normalizeText(mapping?.teamName) || normalizeText(row?.team_name);
+}
+
+function latestPerConversation(rows) {
+  const byId = new Map();
+  for (const row of rows || []) {
+    const key = normalizeText(row?.conversation_id);
+    if (!key) continue;
+    const previous = byId.get(key);
+    if (!previous || (toDate(row?.created_at)?.getTime() || 0) > (toDate(previous?.created_at)?.getTime() || 0)) byId.set(key, row);
+  }
+  return Array.from(byId.values());
 }
 
 function buildWeekPeriods(startDate, endDate) {
@@ -492,12 +527,14 @@ function buildWeekPeriods(startDate, endDate) {
   if (!start || !end || start > end) return [];
 
   const periods = [];
-  let cursor = startOfUtcDay(start);
+  // Keep the selected Dhaka midnight as the anchor. UTC calendar boundaries
+  // would shift a conversation near midnight into the wrong reporting week.
+  let cursor = start;
   let index = 1;
 
   while (cursor <= end) {
     const periodStart = cursor;
-    const periodEnd = endOfUtcDay(addDays(cursor, 6));
+    const periodEnd = new Date(addDays(cursor, 7).getTime() - 1);
     const safeEnd = periodEnd > end ? end : periodEnd;
 
     periods.push({
@@ -507,6 +544,7 @@ function buildWeekPeriods(startDate, endDate) {
       rangeLabel: `${formatSimpleDate(periodStart)} - ${formatSimpleDate(safeEnd)}`,
       start: periodStart,
       end: safeEnd,
+      complete: safeEnd.getTime() === periodEnd.getTime(),
     });
 
     cursor = addDays(cursor, 7);
@@ -521,11 +559,11 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
   const end = dateAtDhakaBoundary(endDate, true);
   const rangeLabel = buildRangeLabel(startDate, endDate);
 
-  const allRowsInRange = (rows || []).filter((row) => {
+  const allRowsInRange = latestPerConversation((rows || []).filter((row) => {
     const date = toDate(getAnalyticsDate(row));
     if (!date || date < start || date > end) return false;
     return !normalizeText(row?.error);
-  });
+  }));
 
   const scopedRows = allRowsInRange.filter((row) => isCexTeam(getResolvedTeamName(row, supervisorLookup)));
 
@@ -688,8 +726,11 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
       };
     });
 
-    const currentWeek = weeklyTrend.at(-1) || null;
-    const previousWeek = weeklyTrend.at(-2) || null;
+    // A partial final week can be displayed, but cannot support a growth or
+    // decline claim against a full seven-day period.
+    const comparableWeeks = weeklyTrend.filter((week, index) => periods[index]?.complete);
+    const currentWeek = comparableWeeks.at(-1) || null;
+    const previousWeek = comparableWeeks.at(-2) || null;
     const missedChange = currentWeek && previousWeek ? currentWeek.missed - previousWeek.missed : null;
     const ratePointChange = currentWeek && previousWeek ? currentWeek.rate - previousWeek.rate : null;
     const trendDirection =
@@ -702,19 +743,14 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
             : "decreasing";
 
     const activity = agent.email ? activityByEmail?.get(agent.email) : null;
-    const lastPerformanceCheck = toDate(activity?.lastPerformanceCheckAt);
-    const latestMiss = toDate(agent.latestMissPublishedAt);
-    const unseenMisses = agentMissRows.filter((row) => {
-      const publishedAt = toDate(row?.created_at);
-      return publishedAt && (!lastPerformanceCheck || publishedAt > lastPerformanceCheck);
-    }).length;
+    const unseenMisses = agentMissRows.filter((row) => !activity?.openedResultIds?.has(String(row?.id))).length;
     const engagementStatus = !agent.email
       ? "activity_unavailable_unmapped_email"
       : !activity?.lastSignedInAt
         ? "never_signed_in"
         : !activity?.lastPerformanceCheckAt
           ? "signed_in_no_performance_check"
-          : latestMiss && lastPerformanceCheck < latestMiss
+          : unseenMisses > 0
             ? "new_misses_since_last_check"
             : "checked_after_latest_miss";
 
@@ -733,8 +769,8 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
         status: engagementStatus,
         lastSignedInAt: activity?.lastSignedInAt || null,
         lastSeenAt: activity?.lastSeenAt || null,
-        lastDashboardVisitAt: activity?.lastDashboardVisitAt || null,
-        lastResultsVisitAt: activity?.lastResultsVisitAt || null,
+        lastDashboardResultOpenAt: activity?.lastDashboardResultOpenAt || null,
+        lastResultsPageResultOpenAt: activity?.lastResultsPageResultOpenAt || null,
         lastPerformanceCheckAt: activity?.lastPerformanceCheckAt || null,
         daysSinceLastSignIn: daysSince(activity?.lastSignedInAt, now),
         daysSinceLastSeen: daysSince(activity?.lastSeenAt, now),
@@ -779,7 +815,7 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
   const neverSignedInCount = engagementRisks.filter((agent) => agent.engagement.status === "never_signed_in").length;
   const noPerformanceCheckCount = engagementRisks.filter((agent) => agent.engagement.status === "signed_in_no_performance_check").length;
   if (neverSignedInCount) riskSignals.push(`${formatNumber(neverSignedInCount)} agent(s) with missed approaches have no recorded platform sign-in.`);
-  if (noPerformanceCheckCount) riskSignals.push(`${formatNumber(noPerformanceCheckCount)} signed-in agent(s) with missed approaches have no recorded Dashboard or Results visit.`);
+  if (noPerformanceCheckCount) riskSignals.push(`${formatNumber(noPerformanceCheckCount)} signed-in agent(s) with missed approaches have no recorded result preview open.`);
   if (weekOverWeekRisks.length) riskSignals.push(`${formatNumber(weekOverWeekRisks.length)} agent(s) show an increasing week-over-week missed-approach rate.`);
 
   return {
@@ -791,6 +827,7 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     },
     platformUrl: normalizeText(platformUrl),
     totalAudited: scopedRows.length,
+    allMissedOpportunities: scopedRows.filter((row) => sameText(row?.review_sentiment, "Missed Opportunity")).length,
     totalMissedPositive: missedPositiveRows.length,
     excludedNonCexRows,
     excludedNonCexMissedPositiveRows,
@@ -917,15 +954,15 @@ function buildFallbackReport(summary) {
 
   if (summary.engagementRisks.length) {
     lines.push("Results Engagement Risks");
-    lines.push("The following observations are based on recorded sign-ins and Dashboard or Results page views:");
+    lines.push("The following observations are based on verified sign-ins and successful result preview opens:");
     summary.engagementRisks.slice(0, 8).forEach((item) => {
       const engagement = item.engagement;
       if (engagement.status === "never_signed_in") {
         lines.push(`• ${item.employee} - no platform sign-in was recorded; ${formatNumber(engagement.unseenMisses)} missed approach(es) remain unseen in recorded activity.`);
       } else if (engagement.status === "signed_in_no_performance_check") {
-        lines.push(`• ${item.employee} - signed in, but no Dashboard or Results visit was recorded; ${formatNumber(engagement.unseenMisses)} missed approach(es) remain unseen in recorded activity.`);
+        lines.push(`• ${item.employee} - signed in, but no result preview open was recorded; ${formatNumber(engagement.unseenMisses)} missed approach(es) remain unseen in recorded activity.`);
       } else if (engagement.status === "new_misses_since_last_check") {
-        lines.push(`• ${item.employee} - ${formatNumber(engagement.unseenMisses)} new missed approach(es) were published since the last recorded performance check ${formatNumber(engagement.daysSincePerformanceCheck)} day(s) ago.`);
+        lines.push(`• ${item.employee} - ${formatNumber(engagement.unseenMisses)} missed approach result(s) have no recorded preview open. The last recorded result open was ${formatNumber(engagement.daysSincePerformanceCheck)} day(s) ago.`);
       } else {
         lines.push(`• ${item.employee} - engagement could not be matched because no mapped employee email is available.`);
       }
@@ -937,7 +974,7 @@ function buildFallbackReport(summary) {
     lines.push("Week-over-Week Direction");
     summary.weekOverWeekChanges.slice(0, 8).forEach((item) => {
       const trend = item.weekOverWeek;
-      lines.push(`• ${item.employee} - missed-approach rate ${trend.direction === "increasing" ? "increased" : "decreased"} from ${trend.previousWeek.rateLabel} to ${trend.currentWeek.rateLabel} (${trend.ratePointChangeLabel}).`);
+      lines.push(`• ${item.employee} - missed-approach rate ${trend.direction === "increasing" ? "increased" : "decreased"} from ${trend.previousWeek.rateLabel} (${trend.previousWeek.range}) to ${trend.currentWeek.rateLabel} (${trend.currentWeek.range}) (${trend.ratePointChangeLabel}).`);
       lines.push(`  ◦ Miss count changed from ${formatNumber(trend.previousWeek.missed)} to ${formatNumber(trend.currentWeek.missed)}, across ${formatNumber(trend.previousWeek.audited)} and ${formatNumber(trend.currentWeek.audited)} audited conversation(s).`);
     });
     lines.push("");
@@ -996,11 +1033,11 @@ Mandatory rules:
 - Mention alarming trends only when supported by the calculated facts.
 - Do not invent numbers, dates, agent names, supervisor names, or links.
 - Use only the provided calculated facts.
-- Treat a performance check as a recorded visit to either the Dashboard (/) or Results (/results) page.
+- Treat a performance check as a successfully loaded result preview opened from either Dashboard (/) or Results (/results). A page visit alone does not prove a review.
 - Never claim that an agent ignored feedback. Say that no relevant recorded activity was found.
-- Clearly distinguish never signed in, signed in without a recorded performance check, and new misses published after the last performance check.
+- Clearly distinguish no verified sign-in, no recorded result open, and individual missed results that have not been opened.
 - Include Results Engagement Risks when engagementRisks contains entries. State the agent, recorded engagement status, unseen miss count, and elapsed days when available.
-- Include Week-over-Week Direction when weekOverWeekChanges contains entries. Cover meaningful increases and decreases, and compare both missed count and missed rate so changes in audited volume are not misrepresented.
+- Include Week-over-Week Direction only when weekOverWeekChanges contains entries. Compare only complete seven-day periods of equal length; never infer growth or decline from a partial week. State the exact date range for both periods and compare both missed count and missed rate so changes in audited volume are not misrepresented.
 - Include Likely Review Shoutouts when likelyReviewShoutouts contains entries. Recognize the agents with the strongest likely-positive review outcomes and separately flag the agents with the strongest likely-negative review risk. Never mix the two groups.
 - Rates are more important than raw counts for week-over-week direction. Do not call a trend worse merely because the count increased when the rate did not increase.
 - Do not mention Neutral, Negative, Slightly Negative, or Very Negative sentiment categories.
@@ -1039,7 +1076,7 @@ Likely Review Shoutouts
 • Separately flag top likely-negative review risks, including highly likely counts.
 
 Results Engagement Risks
-• Name agents who never signed in, signed in without checking Dashboard or Results, or accumulated new misses after their last performance check.
+• Name agents with no verified sign-in, no recorded result preview open, or new misses after their last result preview open.
   ◦ Use cautious wording based on recorded activity only.
 
 Week-over-Week Direction
@@ -1172,7 +1209,7 @@ export async function POST(request) {
 
     const reportStart = dateAtDhakaBoundary(startDate, false);
     const reportEnd = dateAtDhakaBoundary(endDate, true);
-    const agentEmails = rows
+    const reportMissRows = latestPerConversation(rows
       .filter((row) => {
         const analyticsDate = toDate(getAnalyticsDate(row));
         return (
@@ -1184,10 +1221,9 @@ export async function POST(request) {
           sameText(row?.review_sentiment, "Missed Opportunity") &&
           POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment))
         );
-      })
-      .map((row) => normalizeEmail(row?.employee_email))
-      .filter(Boolean);
-    const activityByEmail = await loadAgentActivity(auth.adminClient, agentEmails);
+      }));
+    const agentEmails = reportMissRows.map((row) => normalizeEmail(row?.employee_email)).filter(Boolean);
+    const activityByEmail = await loadAgentActivity(auth.adminClient, agentEmails, reportMissRows.map((row) => row.id));
 
     const summary = buildReportSummary(rows, {
       startDate,
