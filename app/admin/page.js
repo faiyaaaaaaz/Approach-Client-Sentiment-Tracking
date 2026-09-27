@@ -3843,7 +3843,7 @@ function AdminPageContent() {
                   <p className="eyebrow">Master Admin Only</p>
                   <h2>System Activity Logs</h2>
                   <p className="muted">
-                    Focus on audits, failures, configuration changes, and other actions that matter. Routine page visits stay hidden unless requested.
+                    Verified sign-ins, explicit sign-outs, and successful result opens appear alongside audits, failures, and configuration changes. Routine page visits stay hidden unless requested.
                   </p>
                 </div>
 
@@ -3910,13 +3910,13 @@ function AdminPageContent() {
                 </label>
 
                 <label className="activity-routine-toggle">
-                  <span>Routine Activity <HelpTip text="Include page visits and sign-outs when you need a detailed navigation investigation. They are hidden by default to keep the log useful." /></span>
+                  <span>Routine Activity <HelpTip text="Include ordinary page visits when you need a navigation investigation. Sign-ins, sign-outs, and successful result opens are always visible." /></span>
                   <input
                     type="checkbox"
                     checked={activityFilters.include_routine === true}
                     onChange={(event) => updateActivityFilter("include_routine", event.target.checked)}
                   />
-                  <small>Include page visits and sign-outs</small>
+                  <small>Include page visits</small>
                 </label>
 
                 <label>
