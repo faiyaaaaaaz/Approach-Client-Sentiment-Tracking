@@ -1298,6 +1298,10 @@ function createMissedInsightsDefaultFilters() {
   return filters;
 }
 
+function missedChartColor(index) {
+  return `hsl(${(205 + index * 137.508) % 360} 62% 65%)`;
+}
+
 function detailFiltersWith(baseFilters, overrides = {}) {
   const next = cloneFilters(baseFilters, "all", false);
 
@@ -2592,6 +2596,16 @@ function DetailModal({
 function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, employees, onOpenDetail }) {
   const [filters, setFilters] = useState(() => createMissedInsightsDefaultFilters());
   const [timeframe, setTimeframe] = useState("weekly");
+  useEffect(() => {
+    const validTeams = new Set((supervisorTeams || []).map((team) => team.id));
+    const validEmployees = new Set(employees || []);
+    setFilters((current) => {
+      const supervisorTeamIds = (current.supervisorTeamIds || []).filter((id) => validTeams.has(id));
+      const selectedEmployees = (current.employees || []).filter((name) => validEmployees.has(name));
+      if (supervisorTeamIds.length === (current.supervisorTeamIds || []).length && selectedEmployees.length === (current.employees || []).length) return current;
+      return { ...current, supervisorTeamIds, employees: selectedEmployees };
+    });
+  }, [supervisorTeams, employees]);
   const missedRows = useMemo(() => filterRows(rows, { ...filters, reviewSentiments: ["Missed Opportunity"] }, supervisorLookup), [rows, filters, supervisorLookup]);
   const previousFilters = useMemo(() => createPreviousPeriodFilters(filters), [filters]);
   const previousMissedRows = useMemo(() => previousFilters ? filterRows(rows, { ...previousFilters, reviewSentiments: ["Missed Opportunity"] }, supervisorLookup) : [], [rows, previousFilters, supervisorLookup]);
@@ -2638,21 +2652,21 @@ function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, em
       />
       <div className="missed-insights-grid">
         <article className="missed-insights-chart">
-          <div className="section-title-row"><div><h3>Misses by Team Lead</h3><span>{formatNumber(missedRows.length)} matching conversations across {formatNumber(teamEntries.length)} lead groups. {previousFilters ? `Change versus ${getRangeDisplay(previousFilters)}.` : ""}</span></div></div>
-          {teamEntries.length ? teamEntries.map((entry) => (
-            <button key={entry.key} type="button" className="missed-team-bar" onClick={() => onOpenDetail("Misses by Team Lead", entry.label, entry.rows, drillFilters)}>
-              <span>{entry.label}</span><div><i style={{ width: `${(entry.rows.length / largestTeam) * 100}%` }} /></div><strong>{formatNumber(entry.rows.length)}{previousFilters ? <small className={entry.rows.length > (previousByLead.get(entry.key) || 0) ? "bad" : "good"}> {entry.rows.length > (previousByLead.get(entry.key) || 0) ? "▲" : entry.rows.length < (previousByLead.get(entry.key) || 0) ? "▼" : "—"} {Math.abs(entry.rows.length - (previousByLead.get(entry.key) || 0))}</small> : null}</strong>
+          <div className="section-title-row"><div><div className="title-with-help"><h3>Misses by Team Lead</h3><InfoTip text="Counts the latest saved result for each matching conversation, grouped by the employee's current supervisor team. Select a lead to inspect its conversations." /></div><span>{formatNumber(missedRows.length)} matching conversations across {formatNumber(teamEntries.length)} lead groups. {previousFilters ? `Change versus ${getRangeDisplay(previousFilters)}.` : ""}</span></div>{previousFilters ? <InfoTip text="The arrow compares each lead with the preceding period of equal length. Up means more misses; down means fewer. Both periods use the same supervisor, employee, sentiment, and other filters." /> : null}</div>
+          {teamEntries.length ? teamEntries.map((entry, index) => (
+            <button key={entry.key} type="button" className="missed-team-bar" title={`${entry.label}: ${entry.rows.length} missed conversations. Select to inspect them.`} onClick={() => onOpenDetail("Misses by Team Lead", entry.label, entry.rows, drillFilters)}>
+              <span>{entry.label}</span><div><i style={{ width: `${(entry.rows.length / largestTeam) * 100}%`, backgroundColor: missedChartColor(index) }} /></div><strong>{formatNumber(entry.rows.length)}{previousFilters ? <small className={entry.rows.length > (previousByLead.get(entry.key) || 0) ? "bad" : "good"}> {entry.rows.length > (previousByLead.get(entry.key) || 0) ? "▲" : entry.rows.length < (previousByLead.get(entry.key) || 0) ? "▼" : "—"} {Math.abs(entry.rows.length - (previousByLead.get(entry.key) || 0))}</small> : null}</strong>
             </button>
           )) : <p className="muted">No missed opportunities match these filters.</p>}
         </article>
         <article className="missed-insights-chart">
-          <div className="section-title-row"><div><h3>Missed Opportunities Over Time</h3><span>Select a bar to inspect its conversations.</span></div>
-            <label className="missed-timeframe">Group by <select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>{TIMEFRAME_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
+          <div className="section-title-row"><div><div className="title-with-help"><h3>Missed Opportunities Over Time</h3><InfoTip text="Shows matching missed conversations over the selected dates, grouped into daily, weekly, monthly, or yearly bars. The filters above apply. Select a bar to inspect its conversations." /></div><span>Select a bar to inspect its conversations.</span></div>
+            <label className="missed-timeframe">Group by <InfoTip text="Changes date grouping without changing the selected range or other filters. Bars at the range edges may cover part of a week, month, or year." /><select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>{TIMEFRAME_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
           </div>
           <div className="missed-trend-bars">
-            {trendEntries.map((entry) => (
+            {trendEntries.map((entry, index) => (
               <button key={entry.key} type="button" title={`${entry.label}: ${entry.rows.length} misses`} onClick={() => onOpenDetail("Missed Opportunity Trend", entry.label, entry.rows, drillFilters)}>
-                <strong>{formatNumber(entry.rows.length)}</strong><i style={{ height: `${Math.max(4, (entry.rows.length / largestPeriod) * 120)}px` }} /><span>{entry.label}</span>
+                <strong>{formatNumber(entry.rows.length)}</strong><i style={{ height: `${Math.max(4, (entry.rows.length / largestPeriod) * 120)}px`, backgroundColor: missedChartColor(index) }} /><span>{entry.label}</span>
               </button>
             ))}
           </div>
@@ -3107,7 +3121,7 @@ export default function DashboardPage() {
         const mappings = await loadActiveAgentMappings();
         const recentRows = applyAgentMappingsToRows(Array.isArray(data.results) ? data.results : [], mappings);
         setRawRows((current) => {
-          const byId = new Map((current || []).map((row) => [String(row.id), row]));
+          const byId = new Map(applyAgentMappingsToRows(current || [], mappings).map((row) => [String(row.id), row]));
           recentRows.forEach((row) => byId.set(String(row.id), row));
           return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
         });
@@ -3989,21 +4003,23 @@ export default function DashboardPage() {
 }
 
 const dashboardStyles = `
-  .missed-insights-panel{margin-top:16px;padding:22px}
-  .missed-insights-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .missed-insights-panel{margin-top:16px;padding:22px;z-index:5;isolation:isolate}
+  .missed-insights-panel > .filter-panel{position:relative;z-index:20;overflow:visible}
+  .missed-insights-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;z-index:1}
   .missed-insights-chart{min-width:0;padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--card)}
   .missed-insights-chart h3{margin:0 0 4px;font-size:20px;color:var(--text)}
   .missed-insights-chart .section-title-row{align-items:start;margin-bottom:16px}
   .missed-team-bar{display:grid;grid-template-columns:minmax(100px,1fr) minmax(80px,2fr) auto;align-items:center;gap:12px;width:100%;margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--raised);color:var(--text);text-align:left;cursor:pointer;font-size:14px}
   .missed-team-bar:hover,.missed-trend-bars button:hover{border-color:var(--brand)}
   .missed-team-bar div{height:12px;overflow:hidden;border-radius:9px;background:var(--hover)}
-  .missed-team-bar i{display:block;height:100%;border-radius:9px;background:#d8a63a}
+  .missed-team-bar i{display:block;height:100%;border-radius:9px}
   .missed-team-bar strong{white-space:nowrap}.missed-team-bar small{font-size:12px}.missed-team-bar .bad{color:var(--danger)}.missed-team-bar .good{color:var(--success)}
   .missed-timeframe{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px;white-space:nowrap}
   .missed-timeframe select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:var(--text);font-size:14px}
   .missed-trend-bars{display:flex;align-items:end;gap:7px;min-height:185px;overflow-x:auto;padding:4px 2px 8px}
   .missed-trend-bars button{display:flex;flex:1 0 48px;flex-direction:column;align-items:center;justify-content:end;gap:5px;min-width:48px;min-height:175px;padding:6px 4px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--text);cursor:pointer}
-  .missed-trend-bars button strong{font-size:13px}.missed-trend-bars button i{display:block;width:100%;max-width:36px;border-radius:6px 6px 0 0;background:#d8a63a}.missed-trend-bars button span{max-width:80px;color:var(--muted);font-size:11px;white-space:nowrap}
+  .missed-trend-bars button strong{font-size:13px}.missed-trend-bars button i{display:block;width:100%;max-width:36px;border-radius:6px 6px 0 0}.missed-trend-bars button span{max-width:80px;color:var(--muted);font-size:11px;white-space:nowrap}
+  .missed-insights-chart .title-with-help h3{margin:0}
   .missed-insights-chart>small{display:block;margin-top:8px;color:var(--muted);font-size:12px}
   @media(max-width:1000px){.missed-insights-grid{grid-template-columns:1fr}}
   .dashboard-page {
@@ -4536,7 +4552,10 @@ const dashboardStyles = `
     margin-bottom: 18px;
     z-index: 100;
     isolation: isolate;
+    overflow: visible;
   }
+
+  .panel > .filter-panel { z-index: 20; }
 
   .leaderboard-panel,
   .weekly-panel,
@@ -4564,11 +4583,15 @@ const dashboardStyles = `
   }
 
   .filter-row.first {
+    position: relative;
+    z-index: 2;
     grid-template-columns: minmax(300px, 1.45fr) minmax(240px, 1fr) minmax(240px, 1fr) auto;
     margin-bottom: 12px;
   }
 
   .filter-row.second {
+    position: relative;
+    z-index: 1;
     grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
   }
 
