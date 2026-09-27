@@ -10,7 +10,9 @@ const PLATFORM_OWNER_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim
 
 const OPENAI_MODEL = "gpt-4.1-mini";
 const PROMPT_KEY = "audit_review_prompt";
-const CONVERSATION_CONCURRENCY = 3;
+// A batch of up to ten completes in at most two waves while retaining one
+// independent model call and the same validation for every conversation.
+const CONVERSATION_CONCURRENCY = 5;
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 700;
 
@@ -1727,6 +1729,10 @@ export async function POST(request) {
     }
 
     if (duplicateConversationIds.length && duplicateMode === "overwrite_existing") {
+      // Verify the provider before removing an existing result. Normal runs
+      // use their real audit calls as the access check, avoiding a redundant
+      // provider request on every batch.
+      await verifyOpenAiAuditAccess(openAiApiKey);
       const removalSummary = await removeStoredDuplicates(
         adminClient,
         duplicateConversationIds
@@ -1789,8 +1795,6 @@ export async function POST(request) {
         results: [],
       });
     }
-
-    await verifyOpenAiAuditAccess(openAiApiKey);
 
     const liveAuditPrompt = await loadLiveAuditPrompt(adminClient);
     const activeCalibrationSnippets = await loadActiveCalibrationSnippets(adminClient);
