@@ -28,8 +28,10 @@ export async function POST(request) {
     const eventType = text(body.event_type);
     const resultId = text(body.result_id);
     const conversationId = text(body.conversation_id);
-    const sourcePage = text(body.source_page).slice(0, 100) || null;
+    const requestedSource = text(body.source_page);
+    const sourcePage = requestedSource === "/" || requestedSource === "/results" ? requestedSource : null;
     if (!ALLOWED_EVENTS.has(eventType)) return json({ ok: false, error: "Unsupported engagement event." }, { status: 400 });
+    if (eventType === "conversation_preview_loaded" && !sourcePage) return json({ ok: false, error: "A verified source page is required for a result open." }, { status: 400 });
     if (!resultId) return json({ ok: false, error: "A saved result ID is required." }, { status: 400 });
 
     const { data: result, error: resultError } = await auth.adminClient
@@ -48,9 +50,7 @@ export async function POST(request) {
     const isMissed = String(result.review_sentiment || "").trim().toLowerCase() === "missed opportunity";
     const now = new Date().toISOString();
     const resolvedConversationId = conversationId || text(result.conversation_id) || null;
-    const dedupeKey = eventType === "conversation_preview_loaded"
-      ? `${auth.email}:${resultId}:${eventType}:${now.slice(0, 13)}`
-      : null;
+    const dedupeKey = null;
 
     const { error: eventError } = await auth.adminClient.from("agent_engagement_events").insert({
       actor_user_id: auth.user.id,
@@ -94,6 +94,27 @@ export async function POST(request) {
       .from("result_engagement_state")
       .upsert(statePayload, { onConflict: "actor_email,result_id" });
     if (stateError) throw new Error(stateError.message || "Could not update result engagement.");
+
+    if (eventType === "conversation_preview_loaded") {
+      // This event is sent only after the preview loaded successfully. It is
+      // a stronger signal than a page visit or a click on a result card.
+      await auth.adminClient.from("system_activity_logs").insert({
+        actor_user_id: auth.user.id,
+        actor_email: auth.email,
+        actor_name: auth.profile?.full_name || auth.email,
+        actor_role: auth.profile?.role || "viewer",
+        action_type: "result_opened",
+        action_label: "Result Opened",
+        area: "Results",
+        target_type: "audit_result",
+        target_id: resultId,
+        target_label: resolvedConversationId || resultId,
+        status: "info",
+        description: `Opened conversation ${resolvedConversationId || resultId} from ${sourcePage === "/" ? "Dashboard" : "Results"}.`,
+        metadata: { source_page: sourcePage, conversation_id: resolvedConversationId },
+        request_path: new URL(request.url).pathname,
+      });
+    }
 
     return json({ ok: true, recorded_at: now });
   } catch (error) {
