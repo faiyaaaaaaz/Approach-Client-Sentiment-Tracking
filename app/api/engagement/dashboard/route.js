@@ -141,19 +141,21 @@ export async function GET(request) {
     if (!roster.length) return json({ ok: true, scope: auth.canViewAllEngagement ? "all_agents" : "own", rows: [], supervisorTeams: activeSupervisorTeams, summary: {} });
 
     const emptyResult = { data: [], error: null };
-    const [sessionsResult, viewsResult, resultsResult, statesResult] = await Promise.all([
+    const [sessionsResult, viewsResult, resultsResult, statesResult, opensResult] = await Promise.all([
       emails.length ? auth.adminClient.from("user_activity_sessions").select("email,started_at,last_seen_at").in("email", emails).order("last_seen_at", { ascending: false }).limit(20000) : emptyResult,
-      emails.length ? auth.adminClient.from("system_activity_logs").select("actor_email,target_id,action_type,created_at").in("actor_email", emails).order("created_at", { ascending: false }).limit(20000) : emptyResult,
+      emails.length ? auth.adminClient.from("system_activity_logs").select("actor_email,target_id,action_type,created_at,metadata").in("actor_email", emails).in("action_type", ["session_started", "session_ended", "page_viewed", "result_opened"]).order("created_at", { ascending: false }).limit(20000) : emptyResult,
       auth.adminClient.from("audit_results").select("id,conversation_id,employee_name,employee_email,agent_name,team_name,review_sentiment,created_at,replied_at,error").order("created_at", { ascending: false }).limit(50000),
       emails.length ? auth.adminClient.from("result_engagement_state").select("actor_email,result_id,first_opened_at,last_opened_at,conversation_opened_at,open_count,is_missed_approach").in("actor_email", emails).order("last_opened_at", { ascending: false }).limit(50000) : emptyResult,
+      emails.length ? auth.adminClient.from("agent_engagement_events").select("actor_email,source_page,occurred_at,result_id").in("actor_email", emails).eq("event_type", "conversation_preview_loaded").order("occurred_at", { ascending: false }).limit(50000) : emptyResult,
     ]);
-    const firstError = sessionsResult.error || viewsResult.error || resultsResult.error || statesResult.error;
+    const firstError = sessionsResult.error || viewsResult.error || resultsResult.error || statesResult.error || opensResult.error;
     if (firstError) throw new Error(firstError.message || "Could not load engagement data.");
 
     const sessions = Array.isArray(sessionsResult.data) ? sessionsResult.data : [];
     const views = Array.isArray(viewsResult.data) ? viewsResult.data : [];
     const results = (Array.isArray(resultsResult.data) ? resultsResult.data : []).filter((row) => !row.error);
     const states = Array.isArray(statesResult.data) ? statesResult.data : [];
+    const openedEvents = Array.isArray(opensResult.data) ? opensResult.data : [];
     const weekStart = dhakaWeekStart();
     const now = new Date();
 
@@ -176,8 +178,8 @@ export async function GET(request) {
       const stateByResult = new Map(states.filter((row) => normalizeServerEmail(row.actor_email) === email).map((row) => [String(row.result_id), row]));
       const weeklyResults = agentResults.filter((row) => (toDate(row.created_at) || toDate(row.replied_at)) >= weekStart);
       const weeklyMisses = weeklyResults.filter((row) => String(row.review_sentiment || "").toLowerCase() === "missed opportunity");
-      const openedWeekly = weeklyResults.filter((row) => stateByResult.get(String(row.id))?.conversation_opened_at);
-      const openedMisses = weeklyMisses.filter((row) => stateByResult.get(String(row.id))?.conversation_opened_at);
+      const openedWeekly = weeklyResults.filter((row) => toDate(stateByResult.get(String(row.id))?.conversation_opened_at) >= weekStart);
+      const openedMisses = weeklyMisses.filter((row) => toDate(stateByResult.get(String(row.id))?.conversation_opened_at) >= weekStart);
       const unopenedResults = agentResults.filter((row) => !stateByResult.get(String(row.id))?.conversation_opened_at);
       const unopenedMisses = unopenedResults.filter((row) => String(row.review_sentiment || "").toLowerCase() === "missed opportunity");
       const delays = agentResults.map((row) => {
@@ -187,11 +189,14 @@ export async function GET(request) {
       }).filter((value) => value !== null);
       const dashboardViews = agentViews.filter((row) => row.target_id === "/");
       const resultsViews = agentViews.filter((row) => row.target_id === "/results");
+      const resultOpens = openedEvents.filter((row) => normalizeServerEmail(row.actor_email) === email);
+      const dashboardResultOpens = resultOpens.filter((row) => row.source_page === "/");
+      const resultsPageResultOpens = resultOpens.filter((row) => row.source_page === "/results");
       const lastConversationOpened = Array.from(stateByResult.values()).reduce((value, row) => latest(value, row.conversation_opened_at), null);
       const loginEvents = agentViews.filter((row) => row.action_type === "session_started");
-      const lastSessionLogin = agentSessions.reduce((value, row) => latest(value, row.started_at), null);
       const lastLoggedLogin = loginEvents.reduce((value, row) => latest(value, row.created_at), null);
-      const lastLogin = latest(lastSessionLogin, lastLoggedLogin);
+      const lastLogin = lastLoggedLogin;
+      const lastLogout = agentViews.filter((row) => row.action_type === "session_ended").reduce((value, row) => latest(value, row.created_at), null);
       const lastSessionActivity = agentSessions.reduce((value, row) => latest(value, row.last_seen_at || row.started_at), null);
       const lastLoggedActivity = agentViews.reduce((value, row) => latest(value, row.created_at), null);
       const lastActive = latest(lastSessionActivity, lastLoggedActivity);
@@ -205,7 +210,12 @@ export async function GET(request) {
         supervisor_team_names: agent.supervisor_team_names || [],
         intercom_agent_name: agent.intercom_agent_name || "",
         last_login_at: lastLogin,
+        last_logout_at: lastLogout,
         last_active_at: lastActive,
+        dashboard_result_opens: dashboardResultOpens.length,
+        results_page_result_opens: resultsPageResultOpens.length,
+        last_dashboard_result_open_at: dashboardResultOpens.reduce((value, row) => latest(value, row.occurred_at), null),
+        last_results_page_result_open_at: resultsPageResultOpens.reduce((value, row) => latest(value, row.occurred_at), null),
         last_dashboard_visit_at: dashboardViews.reduce((value, row) => latest(value, row.created_at), null),
         last_results_visit_at: resultsViews.reduce((value, row) => latest(value, row.created_at), null),
         last_conversation_opened_at: lastConversationOpened,
