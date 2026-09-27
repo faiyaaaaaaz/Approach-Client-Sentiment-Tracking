@@ -384,7 +384,18 @@ export async function GET(request) {
       return json({ ok: true, ...bundle });
     }
 
-    const { data: run, error } = await auth.adminClient
+    const { data: activeRun, error: activeError } = await auth.adminClient
+      .from("audit_workflow_runs")
+      .select("*")
+      .eq("requested_by_email", auth.email)
+      .in("status", ["fetching", "fetched", "duplicate_checking", "paused_duplicate_decision", "auditing"])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeError) throw new Error(activeError.message || "Could not load active workflow run.");
+
+    const { data: latestRun, error } = activeRun ? { data: activeRun, error: null } : await auth.adminClient
       .from("audit_workflow_runs")
       .select("*")
       .eq("requested_by_email", auth.email)
@@ -394,9 +405,9 @@ export async function GET(request) {
 
     if (error) throw new Error(error.message || "Could not load latest workflow run.");
 
-    if (!run) return json({ ok: true, run: null, queue: [], events: [] });
+    if (!latestRun) return json({ ok: true, run: null, queue: [], events: [] });
 
-    const bundle = await loadRunBundle(auth.adminClient, run.id);
+    const bundle = await loadRunBundle(auth.adminClient, latestRun.id);
     return json({ ok: true, ...bundle });
   } catch (error) {
     return json(
@@ -733,6 +744,7 @@ export async function POST(request) {
     if (action === "audit_started") {
       const queuedCount = toInt(body.queuedCount, existingRun.queued_count || 0);
       const totalBatches = toInt(body.totalBatches, existingRun.total_batches || 0);
+      const batchSize = Math.min(10, Math.max(3, toInt(body.batchSize, existingRun.batch_size || 3)));
       const duplicateMode = normalizeText(body.duplicateMode || existingRun.duplicate_mode || "none");
 
       await updateRun(auth.adminClient, runId, {
@@ -741,6 +753,7 @@ export async function POST(request) {
         status_message: `Audit started for ${queuedCount} conversation(s).`,
         queued_count: queuedCount,
         total_batches: totalBatches,
+        batch_size: batchSize,
         duplicate_mode: duplicateMode,
         progress_percent: Math.max(Number(existingRun.progress_percent || 0), 30),
       });
