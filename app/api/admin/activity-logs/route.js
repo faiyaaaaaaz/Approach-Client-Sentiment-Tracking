@@ -7,6 +7,7 @@ const MASTER_ADMIN_EMAIL = String(process.env.PLATFORM_OWNER_EMAIL || "").trim()
 const MAX_LIMIT = 1000;
 
 const ALLOWED_CLIENT_ACTIONS = new Set([
+  "session_started",
   "session_heartbeat",
   "session_ended",
   "page_viewed",
@@ -318,7 +319,7 @@ export async function GET(request) {
     if (status) logsQuery = logsQuery.eq("status", status);
     if (area) logsQuery = logsQuery.eq("area", area);
     if (!includeRoutine && !actionType) {
-      logsQuery = logsQuery.not("action_type", "in", '("page_viewed","session_ended","session_heartbeat")');
+      logsQuery = logsQuery.not("action_type", "in", '("page_viewed","session_heartbeat")');
     }
     if (startDate) logsQuery = logsQuery.gte("created_at", `${startDate}T00:00:00.000Z`);
     if (endDate) logsQuery = logsQuery.lte("created_at", `${endDate}T23:59:59.999Z`);
@@ -481,7 +482,11 @@ export async function POST(request) {
 
     let sessionId = latestSession?.id || null;
 
-    if (!latestSession) {
+    if (actionType === "session_started" && latestSession) {
+      await auth.adminClient.from("user_activity_sessions").update({ status: "ended", ended_at: nowIso, updated_at: nowIso }).eq("id", latestSession.id);
+    }
+
+    if (actionType === "session_started") {
       const { data: newSession, error: sessionError } = await auth.adminClient
         .from("user_activity_sessions")
         .insert({
@@ -504,7 +509,7 @@ export async function POST(request) {
       }
 
       sessionId = newSession.id;
-    } else if (actionType === "session_ended") {
+    } else if (actionType === "session_ended" && latestSession) {
       const durationSeconds = getDurationSeconds(latestSession.started_at, now);
 
       const { error: updateError } = await auth.adminClient
@@ -521,7 +526,7 @@ export async function POST(request) {
       if (updateError) {
         throw new Error(updateError.message || "Could not end activity session.");
       }
-    } else {
+    } else if (latestSession) {
       const { error: updateError } = await auth.adminClient
         .from("user_activity_sessions")
         .update({
@@ -542,9 +547,11 @@ export async function POST(request) {
       const pagePath = normalizePagePath(body.page || body.pathname || body.route || "/");
       const pageLabel = formatPagePath(pagePath);
       const incomingMetadata = safeJsonObject(body.metadata);
-      const label = actionType === "session_ended" ? "User Signed Out" : "Page Viewed";
+      const label = actionType === "session_started" ? "User Signed In" : actionType === "session_ended" ? "User Signed Out" : "Page Viewed";
       const description =
-        actionType === "session_ended"
+        actionType === "session_started"
+          ? `${actorName} completed an explicit Google sign-in.`
+          : actionType === "session_ended"
           ? `${actorName} signed out.`
           : `${actorName} opened ${pageLabel}.`;
 
@@ -555,10 +562,10 @@ export async function POST(request) {
         actor_role: actorRole,
         action_type: actionType,
         action_label: label,
-        area: actionType === "session_ended" ? "Authentication" : "Navigation",
-        target_type: actionType === "session_ended" ? "session" : "page",
-        target_id: actionType === "session_ended" ? sessionId : pagePath,
-        target_label: actionType === "session_ended" ? "User Session" : pageLabel,
+        area: ["session_started", "session_ended"].includes(actionType) ? "Authentication" : "Navigation",
+        target_type: ["session_started", "session_ended"].includes(actionType) ? "session" : "page",
+        target_id: ["session_started", "session_ended"].includes(actionType) ? sessionId : pagePath,
+        target_label: ["session_started", "session_ended"].includes(actionType) ? "User Session" : pageLabel,
         status: "info",
         description,
         metadata: {
