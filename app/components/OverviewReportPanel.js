@@ -608,7 +608,7 @@ export default function OverviewReportPanel({ session }) {
               <div className="summary-tile">
                 <span>Total Audited</span>
                 <strong>{formatNumber(summary.totalAudited)}</strong>
-                <small>Stored CEx result rows in range</small>
+                <small>Latest CEx result per conversation in range</small>
               </div>
               <div className="summary-tile danger">
                 <span>Missed Approaches</span>
@@ -640,6 +640,13 @@ export default function OverviewReportPanel({ session }) {
               ))}
             </div>
           ) : null}
+
+          {summary ? (
+            <div className="data-quality-note">
+              All CEx missed opportunities in this period: {formatNumber(summary.allMissedOpportunities)}. This report includes {formatNumber(summary.totalMissedPositive)} with Very Positive, Positive, or Slightly Positive sentiment; {formatNumber(Math.max(0, Number(summary.allMissedOpportunities || 0) - Number(summary.totalMissedPositive || 0)))} other sentiment misses are outside the report. Compare Dashboard and report only with the same dates, team, sentiment filters, and refreshed data.
+            </div>
+          ) : null}
+          {summary ? <div className="data-quality-note">Week-over-week growth or decline is calculated only between complete seven-day periods. A shorter final period is shown for context but excluded from direction claims.</div> : null}
 
           {summary?.excludedNonCexMissedPositiveRows ? (
             <div className="data-quality-note">
