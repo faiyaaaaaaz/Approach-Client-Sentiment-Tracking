@@ -240,10 +240,10 @@ function getAvatarUrl(profile, session) {
 async function postClientActivity(session, payload) {
   const token = session?.access_token;
 
-  if (!token) return;
+  if (!token) return false;
 
   try {
-    await fetch("/api/admin/activity-logs", {
+    const response = await fetch("/api/admin/activity-logs", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -252,8 +252,10 @@ async function postClientActivity(session, payload) {
       body: JSON.stringify(payload),
       keepalive: true,
     });
+    return response.ok;
   } catch (_error) {
     // Activity logs should never block the user experience.
+    return false;
   }
 }
 
@@ -632,6 +634,7 @@ function AppShellClientInner({ children }) {
   const sidebarRef = useRef(null);
   const authRunIdRef = useRef(0);
   const lastAuthUserIdRef = useRef("");
+  const recordedSignInRef = useRef("");
 
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -1038,10 +1041,16 @@ function AppShellClientInner({ children }) {
   useEffect(() => {
     if (!session?.access_token) return undefined;
 
-    postClientActivity(session, {
-      action_type: "page_viewed",
-      page: pathname || "/",
-    });
+    try {
+      const key = `platform-last-page:${session.user?.id || "unknown"}`;
+      const page = pathname || "/";
+      if (window.sessionStorage.getItem(key) !== page) {
+        window.sessionStorage.setItem(key, page);
+        postClientActivity(session, { action_type: "page_viewed", page });
+      }
+    } catch (_error) {
+      postClientActivity(session, { action_type: "page_viewed", page: pathname || "/" });
+    }
 
     const intervalId = window.setInterval(() => {
       postClientActivity(session, {
@@ -1053,28 +1062,61 @@ function AppShellClientInner({ children }) {
     return () => window.clearInterval(intervalId);
   }, [pathname, session?.access_token]);
 
+  useEffect(() => {
+    if (!session?.access_token || !session?.user?.id) return;
+    try {
+      const pending = JSON.parse(window.sessionStorage.getItem("platform-explicit-oauth-sign-in") || "null");
+      if (!pending || Date.now() - Number(pending.startedAt || 0) > 15 * 60 * 1000) return;
+      const returnUrl = new URL(window.location.href);
+      if (returnUrl.searchParams.get("explicitSignIn") !== pending.id || returnUrl.searchParams.has("error")) return;
+      if (recordedSignInRef.current === pending.id) return;
+      recordedSignInRef.current = pending.id;
+      postClientActivity(session, { action_type: "session_started", page: pathname || "/", metadata: { method: "google_oauth", sign_in_intent_id: pending.id } }).then((saved) => {
+        if (!saved) { recordedSignInRef.current = ""; return; }
+        window.sessionStorage.removeItem("platform-explicit-oauth-sign-in");
+        returnUrl.searchParams.delete("explicitSignIn");
+        window.history.replaceState({}, "", `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`);
+      });
+    } catch (_error) {
+      // A blocked session store cannot affect authentication.
+    }
+  }, [session?.user?.id, session?.access_token]);
+
 
   async function handleGoogleLogin() {
     setAuthMessage("");
 
+    let signInIntentId = "";
+    try {
+      signInIntentId = window.crypto.randomUUID();
+      window.sessionStorage.setItem("platform-explicit-oauth-sign-in", JSON.stringify({ id: signInIntentId, startedAt: Date.now() }));
+    } catch (_error) {}
+
     const redirectTo =
-      typeof window !== "undefined" ? `${window.location.origin}${pathname}` : undefined;
+      typeof window !== "undefined" ? `${window.location.origin}${pathname}${signInIntentId ? `?explicitSignIn=${encodeURIComponent(signInIntentId)}` : ""}` : undefined;
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo },
     });
 
-    if (error) setAuthMessage(error.message || "Google sign-in failed.");
+    if (error) {
+      try { window.sessionStorage.removeItem("platform-explicit-oauth-sign-in"); } catch (_error) {}
+      setAuthMessage(error.message || "Google sign-in failed.");
+    }
   }
 
   async function handleLogout() {
-    await postClientActivity(session, {
+    const signedOutSession = session;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setAuthMessage(error.message || "Could not sign out. Please try again.");
+      return;
+    }
+    await postClientActivity(signedOutSession, {
       action_type: "session_ended",
       page: pathname || "/",
     });
-
-    await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
     setProfileOpen(false);
