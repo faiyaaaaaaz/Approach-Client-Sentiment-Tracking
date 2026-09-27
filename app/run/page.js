@@ -7,9 +7,9 @@ import { supabase } from "../../lib/supabase";
 const PLATFORM_OWNER_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 
 const AUTO_DUPLICATE_OVERWRITE_LIMIT = 20;
-// Keep one server request to one concurrency wave. The audit function has a
-// 60-second Vercel limit and processes three conversations concurrently.
-const AUDIT_BATCH_SIZE = 3;
+const DEFAULT_AUDIT_BATCH_SIZE = 3;
+const AUDIT_BATCH_SIZE_OPTIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const AUDIT_BATCH_PREFERENCE_KEY = "ai-auditor-batch-size-v1";
 const LARGE_FETCH_LIMIT_THRESHOLD = 250;
 const LARGE_FETCH_RANGE_DAYS = 7;
 const LARGE_QUEUE_CONFIRM_THRESHOLD = 100;
@@ -973,6 +973,14 @@ function formatElapsed(startedAt) {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+function formatDuration(milliseconds) {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 function splitIntoBatches(items, size) {
   const batches = [];
 
@@ -1303,6 +1311,7 @@ function ProgressPanel({
   detail,
   percent,
   elapsed,
+  startedAt,
   handled,
   total,
   batchIndex,
@@ -1313,6 +1322,9 @@ function ProgressPanel({
   onCancel,
 }) {
   const normalizedPercent = Math.max(0, Math.min(100, percent));
+  const estimatedRemaining = startedAt && handled >= 3 && total > handled
+    ? ((Date.now() - startedAt) / handled) * (total - handled)
+    : null;
 
   return (
     <div className="progress-panel enhanced">
@@ -1369,6 +1381,12 @@ function ProgressPanel({
           <strong>{elapsed}</strong>
         </div>
       </div>
+      {type.toLowerCase().includes("audit") ? (
+        <p className="audit-progress-explainer">
+          Each batch fetches the full conversations, audits them individually, and saves their results before the next batch starts.
+          {estimatedRemaining !== null ? ` Rough time remaining: ${formatDuration(estimatedRemaining)} at the pace of completed batches. This estimate changes as batches finish.` : " Progress advances when a batch finishes; a time estimate appears after the first batch."}
+        </p>
+      ) : null}
 
       <div className="progress-bottom-row">
         <div className="progress-tip">
@@ -1406,6 +1424,34 @@ export default function RunPage() {
   const [limiterEnabled, setLimiterEnabled] = useState(true);
   const [limitCount, setLimitCount] = useState("10");
   const [autoRunAfterFetch, setAutoRunAfterFetch] = useState(false);
+  const [auditBatchSize, setAuditBatchSize] = useState(DEFAULT_AUDIT_BATCH_SIZE);
+  const [saveBatchSizeAsDefault, setSaveBatchSizeAsDefault] = useState(false);
+  const AUDIT_BATCH_SIZE = auditBatchSize;
+
+  useEffect(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(AUDIT_BATCH_PREFERENCE_KEY));
+      if (AUDIT_BATCH_SIZE_OPTIONS.includes(stored)) setAuditBatchSize(stored);
+    } catch (_error) {
+      // Browser storage is optional.
+    }
+  }, []);
+
+  function updateAuditBatchSize(value) {
+    const next = Number(value);
+    if (!AUDIT_BATCH_SIZE_OPTIONS.includes(next) || runLoading) return;
+    setAuditBatchSize(next);
+    if (saveBatchSizeAsDefault) {
+      try { window.localStorage.setItem(AUDIT_BATCH_PREFERENCE_KEY, String(next)); } catch (_error) {}
+    }
+  }
+
+  function updateBatchDefault(checked) {
+    setSaveBatchSizeAsDefault(checked);
+    if (checked) {
+      try { window.localStorage.setItem(AUDIT_BATCH_PREFERENCE_KEY, String(auditBatchSize)); } catch (_error) {}
+    }
+  }
 
   const [conversationRatings, setConversationRatings] = useState(DEFAULT_CONVERSATION_RATINGS);
   const [selectedSupervisorTeamIds, setSelectedSupervisorTeamIds] = useState([]);
@@ -1438,7 +1484,7 @@ export default function RunPage() {
   const [operationStatus, setOperationStatus] = useState("idle");
   const [executionLog, setExecutionLog] = useState([]);
   const [showAllResults, setShowAllResults] = useState(false);
-  const [queueExpanded, setQueueExpanded] = useState(false);
+  const [queueVisibleCount, setQueueVisibleCount] = useState(8);
   const [queueSearchText, setQueueSearchText] = useState("");
   const [queueView, setQueueView] = useState("remaining");
   const [selectedQueueIds, setSelectedQueueIds] = useState([]);
@@ -1541,7 +1587,7 @@ export default function RunPage() {
       0,
       Number(
         runLoading
-          ? Math.max(0, Number(auditProgress.handled || 0) - restoredWorkflowBaseHandled)
+          ? Number(auditProgress.handled || 0)
           : runData
             ? queuedConversationsForRun.length
             : 0
@@ -1599,7 +1645,7 @@ export default function RunPage() {
     return queueStatusRecords;
   }, [queueStatusRecords, queueView]);
 
-  const visibleFetchedQueue = queueExpanded ? filteredFetchedQueue : filteredFetchedQueue.slice(0, 8);
+  const visibleFetchedQueue = filteredFetchedQueue.slice(0, queueVisibleCount);
   const selectedQueueSet = useMemo(() => new Set(selectedQueueIds), [selectedQueueIds]);
   const allVisibleQueueSelected = visibleFetchedQueue.length > 0 && visibleFetchedQueue.every((item) => selectedQueueSet.has(conversationIdOf(item)));
 
@@ -2760,6 +2806,14 @@ export default function RunPage() {
 
     const queuedConversations = getQueuedConversations(sourceConversations);
     const activeWorkflowRunId = workflowRunIdOverride || workflowRunId || "";
+    const isResumingWorkflow = Boolean(activeWorkflowRunId && fetchData?.meta?.workflowRunId === activeWorkflowRunId);
+    const priorHandled = isResumingWorkflow ? Number(fetchData?.meta?.restoreHandledBase || 0) : 0;
+    const priorSaved = isResumingWorkflow ? Number(workflowRun?.saved_count || 0) : 0;
+    const priorSkipped = isResumingWorkflow ? Number(workflowRun?.skipped_count || 0) : 0;
+    const priorFailed = isResumingWorkflow ? Number(workflowRun?.error_count || 0) : 0;
+    const priorMapped = isResumingWorkflow ? Number(workflowRun?.mapped_count || 0) : 0;
+    const priorUnmapped = isResumingWorkflow ? Number(workflowRun?.unmapped_count || 0) : 0;
+    const priorStoredRunIds = isResumingWorkflow && Array.isArray(workflowRun?.latest_audit_run_ids) ? workflowRun.latest_audit_run_ids : [];
 
     if (!queuedConversations.length) {
       setRunError("Please fetch conversations first.");
@@ -2862,8 +2916,9 @@ export default function RunPage() {
           "audit_started",
           {
             run_id: activeWorkflowRunId,
-            queuedCount: queuedConversations.length,
+            queuedCount: priorHandled + queuedConversations.length,
             totalBatches: batches.length,
+            batchSize: AUDIT_BATCH_SIZE,
             duplicateMode: modeToUse || "none",
           },
           { quiet: true }
@@ -2983,13 +3038,13 @@ export default function RunPage() {
               batchIndex: batchNumber,
               totalBatches: batches.length,
               batchConversations: batch,
-              handled,
-              savedRows: allResults.length,
-              skippedRows: totalSkipped,
-              failedRows: totalFailedRows,
-              mappedCount: totalMapped,
-              unmappedCount: totalUnmapped,
-              storedRunIds,
+              handled: priorHandled + handled,
+              savedRows: priorSaved + allResults.length,
+              skippedRows: priorSkipped + totalSkipped,
+              failedRows: priorFailed + totalFailedRows,
+              mappedCount: priorMapped + totalMapped,
+              unmappedCount: priorUnmapped + totalUnmapped,
+              storedRunIds: [...priorStoredRunIds, ...storedRunIds],
             },
             { quiet: true }
           );
@@ -3001,19 +3056,19 @@ export default function RunPage() {
         message: "Batch audit completed successfully.",
         meta: {
           requestedBy: session?.user?.email || "",
-          receivedCount: queuedConversations.length,
-          handledCount: handled,
-          auditedCount: allResults.length,
-          successCount: allResults.filter((item) => !item?.error).length,
-          errorCount: allResults.filter((item) => item?.error).length,
+          receivedCount: priorHandled + queuedConversations.length,
+          handledCount: priorHandled + handled,
+          auditedCount: priorSaved + allResults.length,
+          successCount: Math.max(0, priorSaved - priorFailed) + allResults.filter((item) => !item?.error).length,
+          errorCount: priorFailed + allResults.filter((item) => item?.error).length,
           duplicateModeApplied: modeToUse || "none",
-          skippedCount: totalSkipped,
+          skippedCount: priorSkipped + totalSkipped,
           overwrittenCount: totalOverwritten,
-          mappedCount: totalMapped,
-          unmappedCount: totalUnmapped,
+          mappedCount: priorMapped + totalMapped,
+          unmappedCount: priorUnmapped + totalUnmapped,
           auditMode: "live_gpt_batch_client",
           storageStatus: "saved_to_supabase_in_batches",
-          storedRunIds,
+          storedRunIds: [...priorStoredRunIds, ...storedRunIds],
           batchSize: AUDIT_BATCH_SIZE,
           totalBatches: batches.length,
         },
@@ -3917,6 +3972,14 @@ export default function RunPage() {
           <div className="audit-command-column audit-command-column-actions">
 
             <div className="audit-toggle-stack">
+              <div className="audit-batch-control">
+                <label htmlFor="audit-batch-size">Conversations per audit batch</label>
+                <select id="audit-batch-size" value={auditBatchSize} disabled={runLoading} onChange={(event) => updateAuditBatchSize(event.target.value)}>
+                  {AUDIT_BATCH_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size} conversations</option>)}
+                </select>
+                <label className="audit-batch-default"><input type="checkbox" checked={saveBatchSizeAsDefault} onChange={(event) => updateBatchDefault(event.target.checked)} /> Use this size by default next time</label>
+                <small>Larger batches reduce request overhead. Each conversation still receives its own full AI audit.</small>
+              </div>
               <div className="audit-command-toggle">
                 <div>
                   <span className="mini-label inline-label">Limiter <HelpTip text="When enabled, only the selected number of fetched conversations is included in the audit queue. When disabled, all eligible fetched conversations are queued." /></span>
@@ -4142,6 +4205,7 @@ export default function RunPage() {
               detail={auditProgress.detail}
               percent={auditProgress.percent}
               elapsed={formatElapsed(runStartedAt)}
+              startedAt={runStartedAt}
               handled={auditProgress.handled}
               total={auditProgress.total}
               batchIndex={auditProgress.batchIndex}
@@ -4293,7 +4357,7 @@ export default function RunPage() {
                   onClick={() => {
                     setQueueView(tab.key);
                     setSelectedQueueIds([]);
-                    setQueueExpanded(false);
+                    setQueueVisibleCount(8);
                   }}
                 >
                   <span>{tab.label}</span>
@@ -4376,9 +4440,10 @@ export default function RunPage() {
 
             <div className="queue-table-footer">
               <span className="soft-copy">Showing {formatNumber(visibleFetchedQueue.length)} of {formatNumber(filteredFetchedQueue.length)} {queueViewLabelMap[queueView]?.toLowerCase() || "queue row(s)"}. {remainingQueueCount === 0 && queuedConversationCount ? "All queued conversations have been handled." : ""}</span>
-              {filteredFetchedQueue.length > 8 ? (
-                <button type="button" className="secondary-btn" onClick={() => setQueueExpanded((prev) => !prev)}>
-                  {queueExpanded ? "Show Less" : `Show More (${formatNumber(filteredFetchedQueue.length - visibleFetchedQueue.length)} more)`}
+              {queueVisibleCount > 8 ? <button type="button" className="secondary-btn" onClick={() => setQueueVisibleCount(8)}>Show Less</button> : null}
+              {filteredFetchedQueue.length > queueVisibleCount ? (
+                <button type="button" className="secondary-btn" onClick={() => setQueueVisibleCount((count) => count + 100)}>
+                  Show Next {formatNumber(Math.min(100, filteredFetchedQueue.length - visibleFetchedQueue.length))}
                 </button>
               ) : null}
             </div>
@@ -4538,6 +4603,15 @@ export default function RunPage() {
 }
 
 const runStyles = `
+  .run-page .audit-batch-control{display:grid;gap:8px;padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(255,255,255,.04)}
+  .run-page .audit-batch-control>label:first-child{font-size:15px;font-weight:800;color:#f5f7ff}
+  .run-page .audit-batch-control select{width:100%;min-height:42px;padding:8px 12px;border:1px solid #58658b;border-radius:9px;background:#151c30;color:#fff;font-size:16px}
+  .run-page .audit-batch-default{display:flex;align-items:center;gap:9px;font-size:14px;color:#e8ecfa}
+  .run-page .audit-batch-default input{width:18px;height:18px;accent-color:#7168ff}
+  .run-page .audit-batch-control small,.run-page .audit-progress-explainer{font-size:14px;line-height:1.5;color:#bdc9e8}
+  .run-page .audit-progress-explainer{margin:12px 0 0}
+  .run-page .progress-panel small,.run-page .progress-panel p,.run-page .progress-metrics-grid span{font-size:14px;line-height:1.45}
+  .run-page .progress-metrics-grid strong{font-size:16px}
   .run-page {
     min-height: 100vh;
     width: 100%;
