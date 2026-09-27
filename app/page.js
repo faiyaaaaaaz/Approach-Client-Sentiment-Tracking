@@ -1291,6 +1291,13 @@ function createWeeklyDefaultFilters() {
   return filters;
 }
 
+function createMissedInsightsDefaultFilters() {
+  const filters = createBaseFilters("past_30_days", true);
+  filters.reviewSentiments = ["Missed Opportunity"];
+  filters.clientSentiments = ["Very Positive", "Positive"];
+  return filters;
+}
+
 function detailFiltersWith(baseFilters, overrides = {}) {
   const next = cloneFilters(baseFilters, "all", false);
 
@@ -2582,6 +2589,81 @@ function DetailModal({
   );
 }
 
+function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, employees, onOpenDetail }) {
+  const [filters, setFilters] = useState(() => createMissedInsightsDefaultFilters());
+  const [timeframe, setTimeframe] = useState("weekly");
+  const missedRows = useMemo(() => filterRows(rows, { ...filters, reviewSentiments: ["Missed Opportunity"] }, supervisorLookup), [rows, filters, supervisorLookup]);
+  const previousFilters = useMemo(() => createPreviousPeriodFilters(filters), [filters]);
+  const previousMissedRows = useMemo(() => previousFilters ? filterRows(rows, { ...previousFilters, reviewSentiments: ["Missed Opportunity"] }, supervisorLookup) : [], [rows, previousFilters, supervisorLookup]);
+  const previousByLead = useMemo(() => {
+    const counts = new Map();
+    for (const row of previousMissedRows) {
+      const lead = (supervisorTeams || []).find((team) => rowMatchesSupervisorTeams(row, [team.id], supervisorLookup));
+      const key = lead?.id || "unassigned";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [previousMissedRows, supervisorTeams, supervisorLookup]);
+  const teamEntries = useMemo(() => {
+    const groups = new Map();
+    for (const row of missedRows) {
+      const lead = (supervisorTeams || []).find((team) => rowMatchesSupervisorTeams(row, [team.id], supervisorLookup));
+      const key = lead?.id || "unassigned";
+      const current = groups.get(key) || { key, label: lead?.supervisor_name || "Unassigned", rows: [] };
+      current.rows.push(row);
+      groups.set(key, current);
+    }
+    return Array.from(groups.values()).sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+  }, [missedRows, supervisorTeams, supervisorLookup]);
+  const trendEntries = useMemo(() => buildPeriodsForRange(missedRows, filters, timeframe).map((period) => ({
+    ...period,
+    rows: missedRows.filter((row) => {
+      const date = toDate(getAnalyticsDate(row));
+      return date && date >= period.start && date <= period.end;
+    }),
+  })), [missedRows, filters, timeframe]);
+  const largestTeam = Math.max(1, ...teamEntries.map((entry) => entry.rows.length));
+  const largestPeriod = Math.max(1, ...trendEntries.map((entry) => entry.rows.length));
+  const drillFilters = { ...filters, reviewSentiments: ["Missed Opportunity"] };
+
+  return (
+    <section className="panel missed-insights-panel">
+      <div className="section-title-row">
+        <div><p>Missed opportunity intelligence</p><h2>Where Positive Client Opportunities Are Missed</h2><span>One current result per conversation. Default: past 30 days, CEx, Very Positive and Positive client sentiment.</span></div>
+      </div>
+      <DashboardFilterBar
+        filters={filters} setFilters={setFilters} supervisorTeams={supervisorTeams} employees={employees}
+        reviewOptions={["Missed Opportunity"]} clientOptions={CLIENT_SENTIMENT_ORDER}
+        resolutionOptions={RESOLUTION_ORDER} resetTo={() => createMissedInsightsDefaultFilters()}
+      />
+      <div className="missed-insights-grid">
+        <article className="missed-insights-chart">
+          <div className="section-title-row"><div><h3>Misses by Team Lead</h3><span>{formatNumber(missedRows.length)} matching conversations across {formatNumber(teamEntries.length)} lead groups. {previousFilters ? `Change versus ${getRangeDisplay(previousFilters)}.` : ""}</span></div></div>
+          {teamEntries.length ? teamEntries.map((entry) => (
+            <button key={entry.key} type="button" className="missed-team-bar" onClick={() => onOpenDetail("Misses by Team Lead", entry.label, entry.rows, drillFilters)}>
+              <span>{entry.label}</span><div><i style={{ width: `${(entry.rows.length / largestTeam) * 100}%` }} /></div><strong>{formatNumber(entry.rows.length)}{previousFilters ? <small className={entry.rows.length > (previousByLead.get(entry.key) || 0) ? "bad" : "good"}> {entry.rows.length > (previousByLead.get(entry.key) || 0) ? "▲" : entry.rows.length < (previousByLead.get(entry.key) || 0) ? "▼" : "—"} {Math.abs(entry.rows.length - (previousByLead.get(entry.key) || 0))}</small> : null}</strong>
+            </button>
+          )) : <p className="muted">No missed opportunities match these filters.</p>}
+        </article>
+        <article className="missed-insights-chart">
+          <div className="section-title-row"><div><h3>Missed Opportunities Over Time</h3><span>Select a bar to inspect its conversations.</span></div>
+            <label className="missed-timeframe">Group by <select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>{TIMEFRAME_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
+          </div>
+          <div className="missed-trend-bars">
+            {trendEntries.map((entry) => (
+              <button key={entry.key} type="button" title={`${entry.label}: ${entry.rows.length} misses`} onClick={() => onOpenDetail("Missed Opportunity Trend", entry.label, entry.rows, drillFilters)}>
+                <strong>{formatNumber(entry.rows.length)}</strong><i style={{ height: `${Math.max(4, (entry.rows.length / largestPeriod) * 120)}px` }} /><span>{entry.label}</span>
+              </button>
+            ))}
+          </div>
+          {!trendEntries.length ? <p className="muted">Select a date range to see the trend.</p> : null}
+          <small>Daily and weekly charts display the latest 120 days; monthly charts display the latest 760 days. The total and lead chart use the full selected range.</small>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function WeeklyAgentTable({
   rows,
   filters,
@@ -3154,12 +3236,12 @@ export default function DashboardPage() {
   );
 
   const missedClientEntries = useMemo(
-    () => countRowsBy(missedRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER).filter((entry) => CLIENT_SENTIMENT_ORDER.includes(entry.label)),
+    () => countRowsBy(missedRows, (row) => row.client_sentiment, CLIENT_SENTIMENT_ORDER),
     [missedRows]
   );
 
   const missedResolutionEntries = useMemo(
-    () => countRowsBy(missedRows, (row) => row.resolution_status, RESOLUTION_ORDER).filter((entry) => RESOLUTION_ORDER.includes(entry.label)),
+    () => countRowsBy(missedRows, (row) => row.resolution_status, RESOLUTION_ORDER),
     [missedRows]
   );
 
@@ -3513,7 +3595,7 @@ export default function DashboardPage() {
                 title="Missed Opportunities By Client Sentiment"
                 subtitle={`${formatNumber(missedRows.length)} Missed Opportunities Grouped By Client Sentiment`}
                 larger
-                help="Shows which client sentiment groups contain missed opportunities, so supervisors can see where stronger review handling is needed."
+                help="Counts one latest result per conversation across every client sentiment, including Unknown. The Overview Report has a narrower scope: CEx misses with Very Positive, Positive, or Slightly Positive sentiment."
                 onDrill={() =>
                   openDetail(
                     "Missed Opportunities Drill In",
@@ -3541,6 +3623,14 @@ export default function DashboardPage() {
                 />
               </ChartCard>
             </section>
+
+            <MissedOpportunityInsights
+              rows={dedupedRows}
+              supervisorTeams={supervisorTeams}
+              supervisorLookup={supervisorLookup}
+              employees={employees}
+              onOpenDetail={openDetail}
+            />
 
             <section className="sentiment-resolution-grid">
               <ChartCard
@@ -3899,6 +3989,23 @@ export default function DashboardPage() {
 }
 
 const dashboardStyles = `
+  .missed-insights-panel{margin-top:16px;padding:22px}
+  .missed-insights-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .missed-insights-chart{min-width:0;padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--card)}
+  .missed-insights-chart h3{margin:0 0 4px;font-size:20px;color:var(--text)}
+  .missed-insights-chart .section-title-row{align-items:start;margin-bottom:16px}
+  .missed-team-bar{display:grid;grid-template-columns:minmax(100px,1fr) minmax(80px,2fr) auto;align-items:center;gap:12px;width:100%;margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--raised);color:var(--text);text-align:left;cursor:pointer;font-size:14px}
+  .missed-team-bar:hover,.missed-trend-bars button:hover{border-color:var(--brand)}
+  .missed-team-bar div{height:12px;overflow:hidden;border-radius:9px;background:var(--hover)}
+  .missed-team-bar i{display:block;height:100%;border-radius:9px;background:#d8a63a}
+  .missed-team-bar strong{white-space:nowrap}.missed-team-bar small{font-size:12px}.missed-team-bar .bad{color:var(--danger)}.missed-team-bar .good{color:var(--success)}
+  .missed-timeframe{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px;white-space:nowrap}
+  .missed-timeframe select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:var(--text);font-size:14px}
+  .missed-trend-bars{display:flex;align-items:end;gap:7px;min-height:185px;overflow-x:auto;padding:4px 2px 8px}
+  .missed-trend-bars button{display:flex;flex:1 0 48px;flex-direction:column;align-items:center;justify-content:end;gap:5px;min-width:48px;min-height:175px;padding:6px 4px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--text);cursor:pointer}
+  .missed-trend-bars button strong{font-size:13px}.missed-trend-bars button i{display:block;width:100%;max-width:36px;border-radius:6px 6px 0 0;background:#d8a63a}.missed-trend-bars button span{max-width:80px;color:var(--muted);font-size:11px;white-space:nowrap}
+  .missed-insights-chart>small{display:block;margin-top:8px;color:var(--muted);font-size:12px}
+  @media(max-width:1000px){.missed-insights-grid{grid-template-columns:1fr}}
   .dashboard-page {
     min-height: 100vh;
     padding: 22px 18px 76px;
