@@ -138,6 +138,13 @@ export async function GET(request) {
     if (params.get("from")) query = query.gte("audit_date", params.get("from"));
     if (params.get("to")) query = query.lte("audit_date", params.get("to"));
     const result = await query;
-    return json({ ok: true, runs: checked(result), total: result.count, page, configured: String(process.env.AUTOMATIC_AUDIT_SECRET || "").length >= 32 });
+    const secret = String(process.env.AUTOMATIC_AUDIT_SECRET || "");
+    const configured = secret.length >= 32;
+    const configurationIssue = !secret
+      ? "AUTOMATIC_AUDIT_SECRET is missing from the deployment serving this site. Add it to this Vercel project's Production environment and redeploy the Production deployment."
+      : !configured
+        ? "AUTOMATIC_AUDIT_SECRET is present, but shorter than the required 32 characters. Replace it with a random value of at least 32 characters in both Vercel and GitHub, then redeploy Production."
+        : "";
+    return json({ ok: true, runs: checked(result), total: result.count, page, configured, configurationIssue });
   } catch (error) { return json({ ok: false, error: error.message, guidance: explainAuditFailure(error) }, error.status || 500); }
 }
