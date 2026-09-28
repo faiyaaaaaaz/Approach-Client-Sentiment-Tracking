@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { decryptSecret } from "../../../../lib/secretVault";
+import { automaticWorkerIdentity } from "../../../../lib/automaticAuditAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -563,6 +564,7 @@ async function fetchChunk({
   selectedAdminAssigneeIds,
   unresolvedSelectedAgentNames,
   adminLookup,
+  maxPagesPerDate = MAX_PAGES_PER_DATE,
 }) {
   const state = normalizeFetchState(fetchState, startDate, endDate);
   const conversations = [];
@@ -579,7 +581,7 @@ async function fetchChunk({
 
     const currentDate = state.dates[state.dateIndex];
 
-    if (state.pageIndexForDate >= MAX_PAGES_PER_DATE) {
+    if (state.pageIndexForDate >= maxPagesPerDate) {
       state.dateIndex += 1;
       state.cursor = null;
       state.pageIndexForDate = 0;
@@ -598,6 +600,7 @@ async function fetchChunk({
     const pageResult = await postIntercomSearch({ intercomApiKey, body: searchBody });
     const pageItems = Array.isArray(pageResult?.data?.conversations) ? pageResult.data.conversations : [];
     const nextCursor = pageResult?.data?.pages?.next?.starting_after ?? null;
+    if (nextCursor && String(nextCursor) === String(state.cursor)) throw new Error("Intercom returned the same pagination cursor twice. Fetch stopped to avoid repeating or silently losing conversations.");
     const hasNameFallbackFilter = Array.isArray(unresolvedSelectedAgentNames) && unresolvedSelectedAgentNames.length > 0;
 
     pagesProcessedThisCall += 1;
@@ -703,10 +706,11 @@ export async function POST(request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const automaticIdentity = await automaticWorkerIdentity(request);
     const {
       data: { user },
       error: userError,
-    } = await authClient.auth.getUser(token);
+    } = automaticIdentity ? { data: { user: automaticIdentity.user }, error: null } : await authClient.auth.getUser(token);
 
     if (userError || !user) {
       return json({ ok: false, error: "Invalid or expired session." }, { status: 401 });
@@ -820,6 +824,7 @@ export async function POST(request) {
       selectedAdminAssigneeIds: useAdminAssigneeSearch ? selectedAdminResolution.ids : [],
       unresolvedSelectedAgentNames: hasSelectedAgentFilter && !useAdminAssigneeSearch ? selectedIntercomAgentNames : [],
       adminLookup,
+      maxPagesPerDate: automaticIdentity ? Number.MAX_SAFE_INTEGER : MAX_PAGES_PER_DATE,
     });
 
     const fetchedCount = alreadyFetchedCount + chunk.conversations.length;
