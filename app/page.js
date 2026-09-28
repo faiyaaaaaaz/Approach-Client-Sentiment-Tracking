@@ -2596,6 +2596,24 @@ function DetailModal({
 function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, employees, onOpenDetail }) {
   const [filters, setFilters] = useState(() => createMissedInsightsDefaultFilters());
   const [timeframe, setTimeframe] = useState("weekly");
+  const [trendSelection, setTrendSelection] = useState({ supervisorTeamIds: [], employees: [] });
+  const [trendFilterNote, setTrendFilterNote] = useState("");
+  const trendEmployees = useMemo(() => uniqueValues(rows.filter((row) => rowMatchesSupervisorTeams(row, trendSelection.supervisorTeamIds, supervisorLookup)), "employee_name"), [rows, trendSelection.supervisorTeamIds, supervisorLookup]);
+  const trendFilters = useMemo(() => ({ ...filters, supervisorTeamIds: trendSelection.supervisorTeamIds.filter((id) => supervisorLookup.has(id)), employees: trendSelection.employees.filter((name) => trendEmployees.includes(name)), reviewSentiments: ["Missed Opportunity"] }), [filters, trendSelection, trendEmployees, supervisorLookup]);
+  const trendMissedRows = useMemo(() => filterRows(rows, trendFilters, supervisorLookup), [rows, trendFilters, supervisorLookup]);
+  function changeTrendTeams(supervisorTeamIds) {
+    const allowed = new Set(uniqueValues(rows.filter((row) => rowMatchesSupervisorTeams(row, supervisorTeamIds, supervisorLookup)), "employee_name"));
+    const selectedEmployees = trendSelection.employees.filter((name) => allowed.has(name));
+    setTrendFilterNote(selectedEmployees.length < trendSelection.employees.length ? "Employees outside the selected teams were cleared. Choose an employee from these teams below." : "");
+    setTrendSelection({ supervisorTeamIds, employees: selectedEmployees });
+  }
+  useEffect(() => {
+    setTrendSelection((current) => {
+      const supervisorTeamIds = current.supervisorTeamIds.filter((id) => supervisorLookup.has(id));
+      const selectedEmployees = current.employees.filter((name) => trendEmployees.includes(name));
+      return supervisorTeamIds.length === current.supervisorTeamIds.length && selectedEmployees.length === current.employees.length ? current : { supervisorTeamIds, employees: selectedEmployees };
+    });
+  }, [supervisorLookup, trendEmployees]);
   useEffect(() => {
     const validTeams = new Set((supervisorTeams || []).map((team) => team.id));
     const validEmployees = new Set(employees || []);
@@ -2629,13 +2647,14 @@ function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, em
     }
     return Array.from(groups.values()).sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));
   }, [missedRows, supervisorTeams, supervisorLookup]);
-  const trendEntries = useMemo(() => buildPeriodsForRange(missedRows, filters, timeframe).map((period) => ({
+  const trendEntries = useMemo(() => buildPeriodsForRange(trendMissedRows, trendFilters, timeframe).map((period) => ({
     ...period,
-    rows: missedRows.filter((row) => {
+    previousCount: filterRows(rows, createPreviousPeriodFilters({ ...trendFilters, rangePreset: "custom", startDate: formatInputDate(period.start), endDate: formatInputDate(period.end) }), supervisorLookup).length,
+    rows: trendMissedRows.filter((row) => {
       const date = toDate(getAnalyticsDate(row));
       return date && date >= period.start && date <= period.end;
     }),
-  })), [missedRows, filters, timeframe]);
+  })), [rows, trendMissedRows, trendFilters, timeframe, supervisorLookup]);
   const largestTeam = Math.max(1, ...teamEntries.map((entry) => entry.rows.length));
   const largestPeriod = Math.max(1, ...trendEntries.map((entry) => entry.rows.length));
   const drillFilters = { ...filters, reviewSentiments: ["Missed Opportunity"] };
@@ -2660,13 +2679,19 @@ function MissedOpportunityInsights({ rows, supervisorTeams, supervisorLookup, em
           )) : <p className="muted">No missed opportunities match these filters.</p>}
         </article>
         <article className="missed-insights-chart">
-          <div className="section-title-row"><div><div className="title-with-help"><h3>Missed Opportunities Over Time</h3><InfoTip text="Shows matching missed conversations over the selected dates, grouped into daily, weekly, monthly, or yearly bars. The filters above apply. Select a bar to inspect its conversations." /></div><span>Select a bar to inspect its conversations.</span></div>
+          <div className="section-title-row"><div><div className="title-with-help"><h3>Missed Opportunities Over Time</h3><InfoTip text="Shows matching missed conversations over the selected dates. This chart has its own supervisor and employee filters; date, sentiment, and other filters remain shared. Arrows show the change in miss count versus the preceding period of equal length, not a change in miss rate. Select a bar to inspect its conversations." /></div><span>Select a bar to inspect its conversations.</span></div>
             <label className="missed-timeframe">Group by <InfoTip text="Changes date grouping without changing the selected range or other filters. Bars at the range edges may cover part of a week, month, or year." /><select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>{TIMEFRAME_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
           </div>
+          <div className="missed-trend-filters">
+            <MultiSelect label="Supervisor Team" options={(supervisorTeams || []).map((team) => ({ value: team.id, label: team.supervisor_name }))} selected={trendFilters.supervisorTeamIds} onChange={changeTrendTeams} placeholder="All Supervisors" />
+            <MultiSelect label="Employee" options={trendEmployees} selected={trendFilters.employees} onChange={(employees) => { setTrendFilterNote(""); setTrendSelection((current) => ({ ...current, employees })); }} placeholder="All Employees" />
+          </div>
+          <p className="missed-trend-filter-note">These team and employee choices apply only to this chart. Date and other filters above still apply. {trendFilterNote}</p>
           <div className="missed-trend-bars">
             {trendEntries.map((entry, index) => (
-              <button key={entry.key} type="button" title={`${entry.label}: ${entry.rows.length} misses`} onClick={() => onOpenDetail("Missed Opportunity Trend", entry.label, entry.rows, drillFilters)}>
+              <button key={entry.key} type="button" title={`${entry.label}: ${entry.rows.length} misses; ${entry.previousCount} in the preceding equal-length period.`} onClick={() => onOpenDetail("Missed Opportunity Trend", entry.label, entry.rows, trendFilters)}>
                 <strong>{formatNumber(entry.rows.length)}</strong><i style={{ height: `${Math.max(4, (entry.rows.length / largestPeriod) * 120)}px`, backgroundColor: missedChartColor(index) }} /><span>{entry.label}</span>
+                <small>{entry.rows.length > entry.previousCount ? "↑" : entry.rows.length < entry.previousCount ? "↓" : "—"} {formatNumber(Math.abs(entry.rows.length - entry.previousCount))}</small>
               </button>
             ))}
           </div>
@@ -4016,6 +4041,11 @@ const dashboardStyles = `
   .missed-team-bar strong{white-space:nowrap}.missed-team-bar small{font-size:12px}.missed-team-bar .bad{color:var(--danger)}.missed-team-bar .good{color:var(--success)}
   .missed-timeframe{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px;white-space:nowrap}
   .missed-timeframe select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:var(--text);font-size:14px}
+  .missed-trend-filters{position:relative;z-index:20;display:grid;grid-template-columns:1fr 1fr;gap:12px;overflow:visible}
+  .missed-trend-filter-note{font-size:12px;line-height:1.5;margin:10px 0}
+  .missed-trend-filters .multi-wrap:last-child .multi-menu{left:auto;right:0}
+  .missed-trend-bars button small{font-size:12px;white-space:nowrap}
+  @media(max-width:600px){.missed-trend-filters{grid-template-columns:1fr}.missed-trend-filters .multi-wrap:focus-within{z-index:2}}
   .missed-trend-bars{display:flex;align-items:end;gap:7px;min-height:185px;overflow-x:auto;padding:4px 2px 8px}
   .missed-trend-bars button{display:flex;flex:1 0 48px;flex-direction:column;align-items:center;justify-content:end;gap:5px;min-width:48px;min-height:175px;padding:6px 4px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--text);cursor:pointer}
   .missed-trend-bars button strong{font-size:13px}.missed-trend-bars button i{display:block;width:100%;max-width:36px;border-radius:6px 6px 0 0}.missed-trend-bars button span{max-width:80px;color:var(--muted);font-size:11px;white-space:nowrap}
@@ -8280,7 +8310,8 @@ td { color: var(--text) !important; border-bottom:1px solid var(--border) !impor
 tr:hover td { background: var(--hover) !important; }
 .sticky-col { background: var(--card) !important; }
 .bar-track, .progress-meter-shell, .progress-shell, .dashboard-loader-bar, .results-loading-bar, .import-percent, .progress-bar { background: var(--hover) !important; border-radius:999px !important; overflow:hidden; }
-.bar-fill, .progress-meter-fill, .progress-bar i, .progress-shell i, .import-percent i { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; border-radius:999px !important; }
+.bar-fill { border-radius:999px !important; }
+.progress-meter-fill, .progress-bar i, .progress-shell i, .import-percent i { background: linear-gradient(90deg,#635BFF,#A09BFF) !important; border-radius:999px !important; }
 .donut, .donut-base-ring { box-shadow:none !important; }
 .donut-hole { background: var(--card) !important; color: var(--text) !important; border:1px solid var(--border) !important; }
 .conversation-preview-backdrop, .modal-backdrop, .safety-backdrop { background: rgba(5,6,10,.72) !important; backdrop-filter: blur(12px) !important; }
