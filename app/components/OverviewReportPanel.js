@@ -13,6 +13,8 @@ const OVERVIEW_PROMPT_STORAGE_KEY = "overview-report-custom-instructions-v1";
 const DEFAULT_REPORT_INSTRUCTIONS = `Keep the report concise, practical, and suitable for ClickUp.
 Recognize the strongest likely-positive review outcomes.
 Separate likely-negative review risks from positive shoutouts.
+Include missed opportunities by team lead, using Very Positive and Positive sentiment to match the dashboard metric.
+Likely-negative review risk means a review approach was sent despite Slightly Negative, Negative, or Very Negative client sentiment.
 Prioritize actionable agent and supervisor insights.`;
 
 const HEADING_LINES = new Set([
@@ -21,6 +23,8 @@ const HEADING_LINES = new Set([
   "Overall Signal",
   "Dashboard Reference",
   "Agent Focus",
+  "Missed Opportunities by Team Lead",
+  "Likely Review Shoutouts",
   "Required Action",
   "Note:",
 ]);
@@ -531,7 +535,7 @@ export default function OverviewReportPanel({ session }) {
             <div>
               <p className="eyebrow">Report Setup</p>
               <h3>Date Range</h3>
-              <p>Select the period you want to summarize. Neutral and negative client sentiment categories are excluded from this report.</p>
+              <p>Select the period to summarize. Missed opportunities cover positive client sentiment. A separate risk section covers review approaches sent despite negative client sentiment. Team misses use Very Positive and Positive to match the dashboard.</p>
             </div>
           </div>
 
