@@ -1,0 +1,42 @@
+name: Automatic daily audit
+on:
+  schedule:
+    # 03:00 UTC = 09:00 GMT+6. Always creates the previous-day run.
+    - cron: '0 3 * * *'
+    # Recovers interrupted work and catches up if the daily trigger was delayed.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Daily starts a selected day; recover resumes waiting work.'
+        type: choice
+        options: [daily, recover]
+        default: daily
+      audit_date:
+        description: 'Optional audit day YYYY-MM-DD (GMT+6). Blank uses yesterday.'
+        required: false
+        type: string
+      retry_failed:
+        description: 'Retry failed conversations for the selected day; keep saved results.'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: automatic-audit-production
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit the saved daily queue
+        env:
+          AUDIT_SITE_URL: ${{ secrets.AUDIT_SITE_URL }}
+          AUTOMATIC_AUDIT_SECRET: ${{ secrets.AUTOMATIC_AUDIT_SECRET }}
+          AUDIT_SCHEDULE: ${{ github.event.schedule }}
+          AUDIT_MODE: ${{ inputs.mode }}
+          AUDIT_DATE: ${{ inputs.audit_date }}
+          AUDIT_RETRY: ${{ inputs.retry_failed }}
+        run: node scripts/automatic-audit-worker.mjs
