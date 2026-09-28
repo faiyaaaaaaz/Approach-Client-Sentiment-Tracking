@@ -12,6 +12,13 @@ const MAX_REPORT_ROWS = 50000;
 const OPENAI_REPORT_TIMEOUT_MS = 18000;
 const POSITIVE_MISSED_SENTIMENTS = ["Very Positive", "Positive", "Slightly Positive"];
 const CEX_TEAM_NAME = "CEx";
+const NEGATIVE_CLIENT_SENTIMENTS = ["Slightly Negative", "Negative", "Very Negative"];
+const REVIEW_REQUEST_STATUSES = ["Likely Positive Review", "Highly Likely Positive Review", "Likely Negative Review", "Highly Likely Negative Review"];
+
+function isNegativeReviewRisk(row) {
+  return NEGATIVE_CLIENT_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment)) &&
+    REVIEW_REQUEST_STATUSES.some((status) => sameText(row?.review_sentiment, status));
+}
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -581,10 +588,10 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     count: missedPositiveRows.filter((row) => sameText(row?.client_sentiment, sentiment)).length,
   }));
 
-  const buildLikelyReviewLeaders = (statuses) => {
+  const buildLikelyReviewLeaders = (statuses, predicate = () => true) => {
     const statusKeys = new Set(statuses.map(normalizeKey));
     const leaders = new Map();
-    for (const row of scopedRows.filter((item) => statusKeys.has(normalizeKey(item?.review_sentiment)))) {
+    for (const row of scopedRows.filter((item) => statusKeys.has(normalizeKey(item?.review_sentiment)) && predicate(item))) {
       const key = agentKeyFor(row);
       const current = leaders.get(key) || {
         employee: employeeNameFor(row),
@@ -592,9 +599,11 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
         team: getResolvedTeamName(row, supervisorLookup) || "-",
         total: 0,
         highlyLikely: 0,
+        veryNegative: 0,
         conversationIds: [],
       };
       current.total += 1;
+      if (sameText(row?.client_sentiment, "Very Negative")) current.veryNegative += 1;
       if (normalizeKey(row?.review_sentiment).startsWith("highly likely")) current.highlyLikely += 1;
       const conversationId = normalizeText(row?.conversation_id);
       if (conversationId && current.conversationIds.length < 3) current.conversationIds.push(conversationId);
@@ -605,8 +614,8 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
       .slice(0, 5);
   };
 
-  const likelyPositiveLeaders = buildLikelyReviewLeaders(["Likely Positive Review", "Highly Likely Positive Review"]);
-  const likelyNegativeLeaders = buildLikelyReviewLeaders(["Likely Negative Review", "Highly Likely Negative Review"]);
+  const likelyPositiveLeaders = buildLikelyReviewLeaders(["Likely Positive Review", "Highly Likely Positive Review"], (row) => POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment)));
+  const likelyNegativeLeaders = buildLikelyReviewLeaders(REVIEW_REQUEST_STATUSES, isNegativeReviewRisk);
 
   const agentMap = new Map();
   const supervisorMap = new Map();
@@ -666,6 +675,17 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     .slice(0, 8);
 
   const periods = buildWeekPeriods(startDate, endDate);
+  const teamMissMap = new Map();
+  const dashboardMissRows = missedPositiveRows.filter((row) => !sameText(row?.client_sentiment, "Slightly Positive"));
+  for (const row of dashboardMissRows) {
+    const lead = getSupervisorForRow(row, supervisorLookup);
+    const key = lead?.supervisorEmail || lead?.supervisorName || "unassigned";
+    const item = teamMissMap.get(key) || { supervisorName: lead?.supervisorName || "Unassigned", total: 0, employees: new Set() };
+    item.total += 1;
+    item.employees.add(employeeNameFor(row));
+    teamMissMap.set(key, item);
+  }
+  const teamMisses = Array.from(teamMissMap.values()).map((item) => ({ ...item, employees: Array.from(item.employees).sort(), sharePercent: formatPercent(dashboardMissRows.length ? item.total / dashboardMissRows.length * 100 : 0) })).sort((a, b) => b.total - a.total || a.supervisorName.localeCompare(b.supervisorName));
   const weeklyAgentMap = new Map();
 
   for (const row of missedPositiveRows) {
@@ -834,11 +854,14 @@ function buildReportSummary(rows, { startDate, endDate, platformUrl, supervisorL
     missedPositiveRate,
     missedPositiveRateLabel: formatPercent(missedPositiveRate),
     sentimentBreakdown,
+    teamMisses,
+    teamMissTotal: dashboardMissRows.length,
     likelyReviewShoutouts: {
       positive: likelyPositiveLeaders,
       negative: likelyNegativeLeaders,
-      positiveTotal: scopedRows.filter((row) => ["likely positive review", "highly likely positive review"].includes(normalizeKey(row?.review_sentiment))).length,
-      negativeTotal: scopedRows.filter((row) => ["likely negative review", "highly likely negative review"].includes(normalizeKey(row?.review_sentiment))).length,
+      positiveTotal: scopedRows.filter((row) => ["likely positive review", "highly likely positive review"].includes(normalizeKey(row?.review_sentiment)) && POSITIVE_MISSED_SENTIMENTS.some((sentiment) => sameText(row?.client_sentiment, sentiment))).length,
+      negativeTotal: scopedRows.filter(isNegativeReviewRisk).length,
+      negativeDefinition: "Slightly Negative, Negative, or Very Negative client sentiment with a recorded review-request verdict. Negative sentiment without a review request is excluded.",
     },
     topAgents,
     agentInsights,
@@ -928,11 +951,17 @@ function buildFallbackReport(summary) {
     if (summary.likelyReviewShoutouts.negative.length) {
       lines.push("Top negative review risks:");
       summary.likelyReviewShoutouts.negative.slice(0, 5).forEach((item) => {
-        lines.push(`• ${item.employee} - ${formatNumber(item.total)} likely negative review(s), including ${formatNumber(item.highlyLikely)} highly likely.`);
+        lines.push(`• ${item.employee} - ${formatNumber(item.total)} review approaches sent to clients with negative sentiment, including ${formatNumber(item.veryNegative)} Very Negative.`);
       });
     }
     lines.push("");
   }
+
+  lines.push("Missed Opportunities by Team Lead");
+  lines.push(`${formatNumber(summary.teamMissTotal)} misses with Very Positive or Positive client sentiment in the selected period (CEx only; current supervisor assignments). Slightly Positive is excluded from this section to match the dashboard metric.`);
+  (summary.teamMisses || []).forEach((item) => lines.push(`• ${item.supervisorName} - ${formatNumber(item.total)} misses (${item.sharePercent} of team-chart misses), across ${item.employees.length} employee(s).`));
+  if (!summary.teamMisses?.length) lines.push("• No matching team misses in this period.");
+  lines.push("");
 
   if (summary.weeklyHighlights.length) {
     lines.push("Agent Focus");
@@ -1003,6 +1032,8 @@ function buildAiFacts(summary) {
     totalMissedPositive: summary.totalMissedPositive,
     missedPositiveRateLabel: summary.missedPositiveRateLabel,
     sentimentBreakdown: summary.sentimentBreakdown,
+    teamMisses: summary.teamMisses,
+    teamMissTotal: summary.teamMissTotal,
     likelyReviewShoutouts: summary.likelyReviewShoutouts,
     topAgents: (summary.topAgents || []).slice(0, 10),
     engagementRisks: (summary.engagementRisks || []).slice(0, 12),
@@ -1040,8 +1071,9 @@ Mandatory rules:
 - Include Week-over-Week Direction only when weekOverWeekChanges contains entries. Compare only complete seven-day periods of equal length; never infer growth or decline from a partial week. State the exact date range for both periods and compare both missed count and missed rate so changes in audited volume are not misrepresented.
 - Include Likely Review Shoutouts when likelyReviewShoutouts contains entries. Recognize the agents with the strongest likely-positive review outcomes and separately flag the agents with the strongest likely-negative review risk. Never mix the two groups.
 - Rates are more important than raw counts for week-over-week direction. Do not call a trend worse merely because the count increased when the rate did not increase.
-- Do not mention Neutral, Negative, Slightly Negative, or Very Negative sentiment categories.
-- The report is only about CEx team Missed Opportunity results where Client Sentiment is Very Positive, Positive, or Slightly Positive.
+- Likely Negative Review means a recorded review-request verdict AND Slightly Negative, Negative, or Very Negative client sentiment. Negative sentiment without a review request is excluded. Describe these as review approaches sent despite negative client sentiment, not as missed opportunities. Use veryNegative for the Very Negative subset, not highlyLikely.
+- Include Missed Opportunities by Team Lead using teamMisses and teamMissTotal. State the selected report dates, CEx scope, Very Positive/Positive sentiments, current supervisor assignments, each lead's count and share, and Unassigned when present. This section excludes Slightly Positive to match the dashboard default metric. Do not mix its subtotal with the report's broader positive-side miss total.
+- Missed-opportunity sections cover CEx with Very Positive, Positive, or Slightly Positive client sentiment. The separate negative review-risk section uses the definition above.
 - Do not say audits were rerun. This report is based only on stored audit results.
 - Include a dashboard reference if platformUrl is available.
 - End with this exact plain-text note: "Note: If you disagree with the AI's verdict, you can submit a dispute from the platform. AI will then use your inputs to improve its future accuracy. Supervisors can dispute their team member's results."
@@ -1073,7 +1105,10 @@ Agent Focus
 
 Likely Review Shoutouts
 • Recognize top likely-positive review outcomes.
-• Separately flag top likely-negative review risks, including highly likely counts.
+• Separately flag review approaches sent despite negative client sentiment, including the Very Negative subset.
+
+Missed Opportunities by Team Lead
+• State each lead's Very Positive/Positive miss count, share, and employee count for the selected report dates.
 
 Results Engagement Risks
 • Name agents with no verified sign-in, no recorded result preview open, or new misses after their last result preview open.
