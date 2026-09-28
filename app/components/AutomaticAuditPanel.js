@@ -33,7 +33,8 @@ export default function AutomaticAuditPanel({ session }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [retrying, setRetrying] = useState(null);
-  const [configured, setConfigured] = useState(false);
+  const [configured, setConfigured] = useState(null);
+  const [configurationIssue, setConfigurationIssue] = useState("");
   const token = session?.access_token;
 
   const request = useCallback(async (suffix = "", body) => {
@@ -50,8 +51,8 @@ export default function AutomaticAuditPanel({ session }) {
       if (appliedDates.from) params.set("from", appliedDates.from);
       if (appliedDates.to) params.set("to", appliedDates.to);
       const data = await request("?" + params);
-      setRuns(data.runs || []); setTotal(data.total || 0); setConfigured(data.configured); setError("");
-    } catch (failure) { setError(failure.message); }
+      setRuns(data.runs || []); setTotal(data.total || 0); setConfigured(data.configured === true); setConfigurationIssue(data.configurationIssue || ""); setError("");
+    } catch (failure) { setConfigured(null); setConfigurationIssue(""); setError(failure.message); }
     finally { setBusy(false); }
   }, [page, appliedDates, request]);
   const loadDetail = useCallback(async () => {
@@ -79,7 +80,8 @@ export default function AutomaticAuditPanel({ session }) {
       <div><span className="auto-eyebrow">Daily quality coverage</span><h2>Automatic Audit Run</h2><p>A complete day’s queue. Saved progress. Clear answers when something needs attention.</p><div className="auto-policy"><span>09:00 GMT+6</span><span>Yesterday · 00:00–23:59:59</span><span>CSAT 3, 4, 5</span><span>8 per batch</span><span>GPT‑4.1 mini</span></div></div>
       <aside><small>Next scheduled trigger</small><strong>{nextSchedule()}</strong><p>Runs independently of manual audits and browser tabs. Scheduler delays are shown by the actual start time.</p></aside>
     </header>
-    {!configured && !busy ? <div className="auto-warning">The server secret is not configured. Complete the supplied setup steps to enable the scheduler.</div> : null}
+    {configured === false && !busy ? <div role="alert" className="auto-warning">{configurationIssue || "This deployment cannot find a valid AUTOMATIC_AUDIT_SECRET. The value must contain at least 32 characters."}</div> : null}
+    {error ? <div role="alert" className="auto-warning">{error}</div> : null}
     {configured ? <p className="auto-caption">Server key configured. Scheduling is handled by the GitHub workflow; a configured key alone does not confirm the workflow is enabled.</p> : null}
     <div className="auto-stats">
       <div><span>Latest day · saved</span><strong>{fmt(latest?.success_count)}</strong><small>New or recovered complete results</small></div>
@@ -89,7 +91,6 @@ export default function AutomaticAuditPanel({ session }) {
     </div>
     <div className="auto-history-head"><div><h3>Daily run history</h3><p>Open a day for progress, timestamps, failure notes, and the saved activity timeline.</p></div><button onClick={() => { refresh(); loadDetail(); }} type="button">Refresh history</button></div>
     <form className="auto-date-filter" onSubmit={(event) => { event.preventDefault(); if (dates.from && dates.to && dates.from > dates.to) { setError("The start date must be on or before the end date."); return; } setPage(0); setAppliedDates({ ...dates }); }}><label>Audit day from<input type="date" value={dates.from} onChange={(event) => setDates((current) => ({ ...current, from: event.target.value }))} /></label><label>Audit day to<input type="date" value={dates.to} onChange={(event) => setDates((current) => ({ ...current, to: event.target.value }))} /></label><button type="submit">Apply dates</button><button type="button" onClick={() => { setDates({ from: "", to: "" }); setAppliedDates({ from: "", to: "" }); setPage(0); }}>All dates</button></form>
-    {error ? <div role="alert" className="auto-warning">{error}</div> : null}
     {message ? <div role="status" className="auto-notice">{message}</div> : null}
     {busy ? <div className="auto-empty">Loading daily history…</div> : !runs.length ? <div className="auto-empty"><strong>No daily runs yet</strong><p>After setup, the 9 AM schedule will create yesterday’s run here. Manual audits do not cancel that daily run.</p></div> : runs.map((run) => {
       const handled = run.success_count + run.duplicate_count + run.failed_count;
