@@ -23,6 +23,7 @@ const ADMIN_NAV_GROUPS = [
     items: [
       { key: "overview", label: "Overview", icon: "grid", permission: "admin_overview" },
       { key: "overview-report", label: "Overview Report", icon: "results", permission: "admin_overview_report", ownerOnly: true },
+      { key: "automatic-audit", label: "Automatic Audit Run", icon: "clock", permission: "admin_overview_report", ownerOnly: true },
     ],
   },
   {
