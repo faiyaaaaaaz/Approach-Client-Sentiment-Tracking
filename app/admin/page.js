@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import CalibrationSnippetsPanel from "../components/CalibrationSnippetsPanel";
 import OverviewReportPanel from "../components/OverviewReportPanel";
+import AutomaticAuditPanel from "../components/AutomaticAuditPanel";
 
 const MASTER_ADMIN_EMAIL = String(process.env.NEXT_PUBLIC_PLATFORM_OWNER_EMAIL || "").trim().toLowerCase();
 const TIMEOUT_MS = 15000;
@@ -172,6 +173,13 @@ const ADMIN_SECTION_META = {
     title: "Overview Report",
     eyebrow: "Owner Reporting",
     description: "Generate ClickUp-ready missed review approach reports from stored audit results only.",
+    permission: "admin_overview_report",
+    ownerOnly: true,
+  },
+  "automatic-audit": {
+    title: "Automatic Audit Run",
+    eyebrow: "Daily Quality Coverage",
+    description: "Scheduled previous-day audits, saved checkpoints, duplicate skips, and actionable failure reports.",
     permission: "admin_overview_report",
     ownerOnly: true,
   },
@@ -4402,6 +4410,9 @@ function AdminPageContent() {
 
           {isOwnerNow && activeSectionKey === "overview-report" ? (
             <OverviewReportPanel session={session} />
+          ) : null}
+          {isOwnerNow && activeSectionKey === "automatic-audit" ? (
+            <AutomaticAuditPanel session={session} />
           ) : null}
 
           {(activeSectionKey === "prompt" || activeSectionKey === "api-vault") ? (
