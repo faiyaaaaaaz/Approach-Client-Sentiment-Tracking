@@ -26,8 +26,9 @@ export default function OwnerPasswordPanel({ session }) {
       }
       const { error: sendError } = await supabase.auth.reauthenticate();
       if (sendError) throw sendError;
+      setCode("");
       setCodeSent(true);
-      setSuccess(`A verification code was sent to ${OWNER_EMAIL}. Enter it below to set the password.`);
+      setSuccess(`A new verification code was sent to ${OWNER_EMAIL}. Only the newest code will work.`);
     } catch (cause) { setError(cause?.message || "Could not send the verification code."); }
     finally { setBusy(false); }
   }
@@ -36,7 +37,7 @@ export default function OwnerPasswordPanel({ session }) {
     event.preventDefault();
     if (!isOwner || busy) return;
     setError(""); setSuccess("");
-    if (!/^\d{6}$/.test(code.trim())) { setError("Enter the six-digit code sent to your email."); return; }
+    if (codeSent && !/^\d{6}$/.test(code.trim())) { setError("Enter the six-digit code from the newest email."); return; }
     const groups = [/[a-z]/,/[A-Z]/,/\d/,/[^A-Za-z0-9]/].filter((rule) => rule.test(password)).length;
     if (password.length < 16 || groups < 3) { setError("Use at least 16 characters with at least three of: lowercase, uppercase, numbers, and symbols."); return; }
     if (password !== confirmation) { setError("The passwords do not match."); return; }
@@ -46,11 +47,21 @@ export default function OwnerPasswordPanel({ session }) {
       if (authError || data?.user?.id !== session.user.id || data.user.email?.toLowerCase() !== OWNER_EMAIL) {
         throw new Error("Your owner session expired. Sign in with Google again.");
       }
-      const { error: updateError } = await supabase.auth.updateUser({ password, nonce: code.trim() });
+      const change = codeSent ? { password, nonce: code.trim() } : { password };
+      const { error: updateError } = await supabase.auth.updateUser(change);
       if (updateError) throw updateError;
       setPassword(""); setConfirmation(""); setCode(""); setCodeSent(false);
       setSuccess("Owner password saved to this same account. Sign out to test password sign-in, or keep using Google.");
-    } catch (cause) { setError(cause?.message || "Could not save the password."); }
+    } catch (cause) {
+      const authCode = String(cause?.code || "");
+      const message = String(cause?.message || "");
+      if (authCode === "reauthentication_needed" || /reauthentication needed/i.test(message)) {
+        setError("Your sign-in is no longer recent. Use ‘Email me a code’, or sign out and sign back in with Google before saving your password.");
+      } else if (authCode === "reauthentication_not_valid" || /nonce.*(expired|invalid)/i.test(message)) {
+        setCode(""); setCodeSent(false);
+        setError("That verification code was rejected or expired. Request a new code and use only the newest email. You can also sign out and sign back in with Google, then save without a code.");
+      } else setError(message || "Could not save the password.");
+    }
     finally { setBusy(false); }
   }
 
@@ -58,13 +69,13 @@ export default function OwnerPasswordPanel({ session }) {
   return <section className="owner-password-panel" aria-labelledby="owner-password-heading">
     <div className="owner-password-heading"><span>Owner account</span><h2 id="owner-password-heading">Password sign-in</h2><p>Set a password for <strong>{OWNER_EMAIL}</strong>. Google sign-in remains available, and both methods open the same owner account.</p></div>
     <div className="owner-password-grid">
-      <div className="owner-password-step"><b>1</b><div><strong>Verify your email</strong><p>Request a one-time code before changing this owner account’s password.</p><button type="button" onClick={sendCode} disabled={busy}>{busy ? "Please wait…" : codeSent ? "Send a new code" : "Email me a code"}</button></div></div>
+      <div className="owner-password-step"><b>1</b><div><strong>Confirm your session</strong><p>If you recently signed in with Google, you can save your password directly. If Supabase asks you to reauthenticate, request a code here. Each new code replaces the previous one.</p><button type="button" onClick={sendCode} disabled={busy}>{busy ? "Please wait…" : codeSent ? "Send a new code" : "Email me a code"}</button></div></div>
       <div className="owner-password-step"><b>2</b><div><strong>Set your password</strong><p>Use a unique password saved in a password manager. The password is sent only to Supabase Auth and is never stored in this app’s tables.</p>
         <form onSubmit={setOwnerPassword}>
-          <label>Six-digit email code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event)=>setCode(event.target.value)} disabled={!codeSent || busy} required /></label>
-          <label>New password<input type="password" autoComplete="new-password" minLength={16} value={password} onChange={(event)=>setPassword(event.target.value)} disabled={!codeSent || busy} required /></label>
-          <label>Confirm password<input type="password" autoComplete="new-password" minLength={16} value={confirmation} onChange={(event)=>setConfirmation(event.target.value)} disabled={!codeSent || busy} required /></label>
-          <button type="submit" disabled={!codeSent || busy}>{busy ? "Saving…" : "Save owner password"}</button>
+          {codeSent ? <label>Code from the newest email<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event)=>setCode(event.target.value)} disabled={busy} required /></label> : null}
+          <label>New password<input type="password" autoComplete="new-password" minLength={16} value={password} onChange={(event)=>setPassword(event.target.value)} disabled={busy} required /></label>
+          <label>Confirm password<input type="password" autoComplete="new-password" minLength={16} value={confirmation} onChange={(event)=>setConfirmation(event.target.value)} disabled={busy} required /></label>
+          <button type="submit" disabled={busy}>{busy ? "Saving…" : "Save owner password"}</button>
         </form>
       </div></div>
     </div>
