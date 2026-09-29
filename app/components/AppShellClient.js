@@ -3183,8 +3183,10 @@ const appShellStyles = `
 .admin-subnav a { border-radius: 10px !important; color: var(--muted) !important; min-height: 34px !important; background: transparent !important; border: 1px solid transparent !important; }
 .admin-subnav a::before { content:none !important; display:none !important; }
 .admin-subnav a.active { color: var(--text) !important; background: var(--brand-soft) !important; border-color: rgba(99,91,255,.22) !important; }
-.theme-toggle-btn, .hamburger-btn, .signout-btn { width: 40px !important; height: 40px !important; border-radius: 12px !important; background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
-.theme-toggle-btn:hover, .hamburger-btn:hover, .signout-btn:hover { background: var(--hover) !important; }
+.theme-toggle-btn, .hamburger-btn { width: 40px !important; height: 40px !important; border-radius: 12px !important; background: transparent !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+.theme-toggle-btn:hover, .hamburger-btn:hover { background: var(--hover) !important; }
+.profile-menu .signout-btn { display:flex !important; width:100% !important; min-height:48px !important; height:auto !important; padding:11px 18px !important; border-radius:12px !important; background: color-mix(in srgb, var(--danger) 10%, var(--card)) !important; color:var(--danger) !important; -webkit-text-fill-color:var(--danger) !important; border:1px solid color-mix(in srgb, var(--danger) 30%, var(--border)) !important; box-shadow:none !important; white-space:nowrap !important; }
+.profile-menu .signout-btn:hover { background:color-mix(in srgb, var(--danger) 16%, var(--card)) !important; }
 .profile-button { border: 1px solid var(--border) !important; background: var(--card) !important; border-radius: 999px !important; box-shadow: none !important; color: var(--text) !important; }
 .profile-avatar { background: linear-gradient(150deg,#635BFF,#4E36F5) !important; color: #fff !important; border: 0 !important; }
 .profile-menu, .locked-card, .launch-card, .login-card { background: var(--card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
@@ -3359,11 +3361,41 @@ html[data-theme="light"] .auth-stage {
   border: 1px solid var(--border) !important;
 }
 
-/* Keep the Google CTA legible (white text on its gradient) in both modes */
+/* The Google button has a white surface in both themes. */
 .login-google-btn {
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff !important;
+  color: #181b26 !important;
+  -webkit-text-fill-color: #181b26 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: -.01em !important;
+  box-shadow: 0 6px 20px rgba(9, 22, 48, .09) !important;
 }
+.login-google-btn:hover { background: #f8faff !important; border-color: #a7b7d0 !important; }
+
+/* A distinct, calm login surface in the light theme. */
+html[data-theme="light"] .auth-stage .login-card {
+  background: #f5f7fb !important;
+  border: 1px solid #bfcddd !important;
+  box-shadow: 0 28px 72px rgba(33, 49, 80, .13) !important;
+}
+html[data-theme="light"] .auth-stage .login-brand {
+  background: linear-gradient(155deg, #e1e8fb 0%, #edf1f8 58%, #e9edf6 100%) !important;
+  border: 0 !important;
+  border-right: 1px solid #c8d3e4 !important;
+  border-radius: 0 !important;
+}
+html[data-theme="light"] .auth-stage .login-copy {
+  background: #f9fbfd !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+html[data-theme="light"] .auth-stage .login-google-btn {
+  background: #fff !important;
+  border: 1px solid #bcc9da !important;
+}
+html[data-theme="light"] .auth-stage .owner-login-toggle { color: #3d2ab6 !important; -webkit-text-fill-color: #3d2ab6 !important; }
+html[data-theme="light"] .auth-stage .owner-login-option { border-top-color: #cbd5e1 !important; }
+@media(max-width:900px) { html[data-theme="light"] .auth-stage .login-brand { border-right:0 !important; border-bottom:1px solid #c8d3e4 !important; } }
 
 /* Auth warning banner readable in both modes */
 html[data-theme="light"] .login-warning {
