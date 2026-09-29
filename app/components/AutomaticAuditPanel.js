@@ -34,6 +34,7 @@ export default function AutomaticAuditPanel({ session }) {
   const [message, setMessage] = useState("");
   const [retrying, setRetrying] = useState(null);
   const [configured, setConfigured] = useState(null);
+  const [scheduler, setScheduler] = useState(null);
   const [configurationIssue, setConfigurationIssue] = useState("");
   const token = session?.access_token;
 
@@ -51,7 +52,7 @@ export default function AutomaticAuditPanel({ session }) {
       if (appliedDates.from) params.set("from", appliedDates.from);
       if (appliedDates.to) params.set("to", appliedDates.to);
       const data = await request("?" + params);
-      setRuns(data.runs || []); setTotal(data.total || 0); setConfigured(data.configured === true); setConfigurationIssue(data.configurationIssue || ""); setError("");
+      setScheduler(data.scheduler || null); setRuns(data.runs || []); setTotal(data.total || 0); setConfigured(data.configured === true); setConfigurationIssue(data.configurationIssue || ""); setError("");
     } catch (failure) { setConfigured(null); setConfigurationIssue(""); setError(failure.message); }
     finally { setBusy(false); }
   }, [page, appliedDates, request]);
@@ -78,11 +79,20 @@ export default function AutomaticAuditPanel({ session }) {
   return <section className="automatic-audit-panel">
     <header className="auto-hero">
       <div><span className="auto-eyebrow">Daily quality coverage</span><h2>Automatic Audit Run</h2><p>A complete day’s queue. Saved progress. Clear answers when something needs attention.</p><div className="auto-policy"><span>09:00 GMT+6</span><span>Yesterday · 00:00–23:59:59</span><span>CSAT 3, 4, 5</span><span>8 per batch</span><span>GPT‑4.1 mini</span></div></div>
-      <aside><small>Next scheduled trigger</small><strong>{nextSchedule()}</strong><p>Runs independently of manual audits and browser tabs. Scheduler delays are shown by the actual start time.</p></aside>
+      <aside><small>Next planned daily start</small><strong>{nextSchedule()}</strong><p>Supabase Cron starts yesterday’s queue at 9 AM GMT+6. Saved work continues independently of browser tabs.</p></aside>
     </header>
     {configured === false && !busy ? <div role="alert" className="auto-warning">{configurationIssue || "This deployment cannot find a valid AUTOMATIC_AUDIT_SECRET. The value must contain at least 32 characters."}</div> : null}
     {error ? <div role="alert" className="auto-warning">{error}</div> : null}
-    {configured ? <p className="auto-caption">Server key configured. Scheduling is handled by the GitHub workflow; a configured key alone does not confirm the workflow is enabled.</p> : null}
+    {configured ? <p className="auto-caption">Server key configured. Scheduler status and actual requests are shown below.</p> : null}
+    {scheduler ? <section className="auto-scheduler" aria-label="Scheduler health">
+      <div className="auto-history-head"><div><h3>Daily scheduler</h3><p>9 AM GMT+6 start · automatic continuation every 30 seconds when work remains</p></div><span className={`auto-status ${scheduler.installed && scheduler.dailyEnabled && scheduler.recoveryEnabled ? "completed" : "failed"}`}>{scheduler.installed && scheduler.dailyEnabled && scheduler.recoveryEnabled ? "Jobs enabled" : "Setup needs attention"}</span></div>
+      <div className="auto-stats">
+        <div><span>Last scheduler check</span><strong style={{fontSize:"16px"}}>{time(scheduler.lastTickAt)}</strong><small>{scheduler.lastTickAt && Date.now()-new Date(scheduler.lastTickAt).getTime()>120000 ? "Check is overdue. Review Supabase Cron history." : "Checks run in the database, even with this page closed."}</small></div>
+        <div><span>Last request to the app</span><strong style={{fontSize:"16px"}}>{time(scheduler.lastRequest?.requested_at)}</strong><small>{scheduler.lastRequest?.http_status ? `HTTP ${scheduler.lastRequest.http_status}` : scheduler.lastRequest ? "Waiting for response" : "No requests recorded yet"}</small></div>
+      </div>
+      {scheduler.error || scheduler.lastRequest?.error_note || scheduler.missedStart ? <div role="alert" className="auto-warning">{scheduler.error || scheduler.lastRequest?.error_note || "Today’s start is overdue: yesterday’s queue was not recorded by 9:05 AM GMT+6. The continuation job will keep checking. Review Supabase Cron history and the production deployment."}</div> : null}
+      <p className="auto-caption">Jobs enabled confirms the database schedules exist. A successful request and a recorded daily run confirm the app was reached. Individual conversation failures appear in the daily report.</p>
+    </section> : null}
     <div className="auto-stats">
       <div><span>Latest day · saved</span><strong>{fmt(latest?.success_count)}</strong><small>New or recovered complete results</small></div>
       <div><span>Latest day · duplicates</span><strong>{fmt(latest?.duplicate_count)}</strong><small>Complete results skipped before AI</small></div>
@@ -92,7 +102,7 @@ export default function AutomaticAuditPanel({ session }) {
     <div className="auto-history-head"><div><h3>Daily run history</h3><p>Open a day for progress, timestamps, failure notes, and the saved activity timeline.</p></div><button onClick={() => { refresh(); loadDetail(); }} type="button">Refresh history</button></div>
     <form className="auto-date-filter" onSubmit={(event) => { event.preventDefault(); if (dates.from && dates.to && dates.from > dates.to) { setError("The start date must be on or before the end date."); return; } setPage(0); setAppliedDates({ ...dates }); }}><label>Audit day from<input type="date" value={dates.from} onChange={(event) => setDates((current) => ({ ...current, from: event.target.value }))} /></label><label>Audit day to<input type="date" value={dates.to} onChange={(event) => setDates((current) => ({ ...current, to: event.target.value }))} /></label><button type="submit">Apply dates</button><button type="button" onClick={() => { setDates({ from: "", to: "" }); setAppliedDates({ from: "", to: "" }); setPage(0); }}>All dates</button></form>
     {message ? <div role="status" className="auto-notice">{message}</div> : null}
-    {busy ? <div className="auto-empty">Loading daily history…</div> : !runs.length ? <div className="auto-empty"><strong>No daily runs yet</strong><p>After setup, the 9 AM schedule will create yesterday’s run here. Manual audits do not cancel that daily run.</p></div> : runs.map((run) => {
+    {busy ? <div className="auto-empty">Loading daily history…</div> : !runs.length ? <div className="auto-empty"><strong>No daily runs yet</strong><p>Yesterday’s run appears here after the scheduler reaches the app. Use the scheduler checks above to verify the start. Manual audits do not cancel the daily run.</p></div> : runs.map((run) => {
       const handled = run.success_count + run.duplicate_count + run.failed_count;
       const percent = run.conversation_count ? Math.round(handled / run.conversation_count * 100) : 0;
       const open = expanded === run.id;
