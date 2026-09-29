@@ -1328,6 +1328,7 @@ export default function ResultsPage() {
   const importProgressTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const authenticatedUserIdRef = useRef("");
+  const resultsRequestIdRef = useRef(0);
 
   async function loadProfile(user, activeSession = null) {
     const email = user?.email?.toLowerCase() || "";
@@ -1447,7 +1448,8 @@ export default function ResultsPage() {
       }
 
       const since = options?.since || new Date(Date.now() - 10 * 86400000).toISOString();
-      const response = await fetch(`/api/results${fast ? `?fast=1&since=${encodeURIComponent(since)}` : ""}`, {
+      const requestId = ++resultsRequestIdRef.current;
+      const response = await fetch(`/api/results${fast ? `?fast=1&includeRuns=0&since=${encodeURIComponent(since)}` : ""}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -1466,28 +1468,32 @@ export default function ResultsPage() {
       const nextResults = Array.isArray(data?.results) ? data.results : [];
       const loadedSupervisorTeams = Array.isArray(data?.supervisorTeams)
         ? data.supervisorTeams
-        : await loadSupervisorTeams();
-      const activeAgentMappings = await loadActiveAgentMappings();
-      const liveMappedResults = applyAgentMappingsToRows(nextResults, activeAgentMappings);
-
-      if (merge) {
-        setRuns((current) => {
-          const byId = new Map((current || []).map((run) => [String(run.id), run]));
-          nextRuns.forEach((run) => byId.set(String(run.id), run));
-          return Array.from(byId.values());
-        });
-        setResults((current) => {
-          const byId = new Map((current || []).map((row) => [String(row.id), row]));
-          liveMappedResults.forEach((row) => byId.set(String(row.id), row));
-          return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-        });
-      } else {
-        setRuns(nextRuns);
-        setResults(liveMappedResults);
-      }
+        : [];
+      const publishResults = (rows) => {
+        if (requestId !== resultsRequestIdRef.current) return;
+        if (merge) {
+          setRuns((current) => {
+            const byId = new Map((current || []).map((run) => [String(run.id), run]));
+            nextRuns.forEach((run) => byId.set(String(run.id), run));
+            return Array.from(byId.values());
+          });
+          setResults((current) => {
+            const byId = new Map((current || []).map((row) => [String(row.id), row]));
+            rows.forEach((row) => byId.set(String(row.id), row));
+            return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          });
+        } else {
+          setRuns(nextRuns);
+          setResults(rows);
+          writeClientCache(cacheKey, { savedAt: Date.now(), runs: nextRuns, results: rows, supervisorTeams: loadedSupervisorTeams });
+        }
+      };
+      publishResults(nextResults);
       setSupervisorTeams(loadedSupervisorTeams);
       if (!preserveUi) { setSelectedIds([]); setExpandedRows({}); }
-      if (!merge) writeClientCache(cacheKey, { savedAt: Date.now(), runs: nextRuns, results: liveMappedResults, supervisorTeams: loadedSupervisorTeams });
+      loadActiveAgentMappings().then((mappings) => {
+        if (Array.isArray(mappings) && mappings.length) publishResults(applyAgentMappingsToRows(nextResults, mappings));
+      }).catch(() => null);
     } catch (error) {
       if (!preserveUi) setPageError(error instanceof Error ? error.message : "Could not load stored results.");
 
@@ -1523,13 +1529,13 @@ export default function ResultsPage() {
         }
 
         authenticatedUserIdRef.current = currentSession.user.id || "";
-        const profileResult = await loadProfile(currentSession.user, currentSession);
-
-        if (!active) return;
-
-        setProfile(profileResult.profile);
-        setAuthMessage(profileResult.message);
+        setProfile(buildFallbackProfile(currentSession.user));
         setAuthLoading(false);
+        loadProfile(currentSession.user, currentSession).then((profileResult) => {
+          if (!active) return;
+          setProfile(profileResult.profile);
+          setAuthMessage(profileResult.message);
+        }).catch(() => null);
 
         await loadStoredResults(currentSession, { fast: true });
         if (active) loadStoredResults(currentSession, { preserveUi: true });
