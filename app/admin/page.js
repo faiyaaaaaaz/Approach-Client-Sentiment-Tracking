@@ -9174,6 +9174,29 @@ html[data-theme="light"] .admin-page .impact-log-main p {
   color: #334155 !important;
   -webkit-text-fill-color: #334155 !important;
 }
+
+/* Keep the Admin loading panel readable against the light workspace. */
+html[data-theme="light"] .admin-page.admin-boot-page .admin-boot-card {
+  background: #f7f9fc !important;
+  border-color: #bcc9d9 !important;
+  color: #172033 !important;
+  box-shadow: 0 24px 62px rgba(33, 49, 80, .14) !important;
+}
+html[data-theme="light"] .admin-page.admin-boot-page .admin-boot-card h1 {
+  color: #172033 !important;
+  -webkit-text-fill-color: #172033 !important;
+}
+html[data-theme="light"] .admin-page.admin-boot-page .admin-boot-card .eyebrow {
+  color: #3d2ab6 !important;
+  -webkit-text-fill-color: #3d2ab6 !important;
+}
+html[data-theme="light"] .admin-page.admin-boot-page .admin-boot-card > p:last-of-type {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+}
+html[data-theme="light"] .admin-page.admin-boot-page .admin-boot-progress {
+  background: #dbe3ee !important;
+}
 `;
 
 export default function AdminPage() {
