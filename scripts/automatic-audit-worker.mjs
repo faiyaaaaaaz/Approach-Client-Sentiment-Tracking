@@ -29,6 +29,7 @@ while (Date.now() < deadline) {
     continue;
   }
   if (payload.run?.id) runId = payload.run.id;
+  if (payload.run?.last_error) console.error(`Daily run failure: ${JSON.stringify(payload.run.last_error)}`);
   if (payload.run) console.log(`${payload.run.audit_date}: ${payload.run.status}; fetched ${payload.run.conversation_count}, saved ${payload.run.success_count}, duplicates ${payload.run.duplicate_count}, failed ${payload.run.failed_count}, pending ${payload.run.pending_count}`);
   if (payload.done) {
     if (["failed", "completed_with_errors"].includes(payload.run?.status)) throw new Error("The daily run needs attention. Expand this day in Admin → Automatic Audit Run for the failure report and retry controls.");
