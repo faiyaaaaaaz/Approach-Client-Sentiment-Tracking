@@ -3002,28 +3002,25 @@ export default function DashboardPage() {
       setError("");
 
       try {
-        const [response, welcomeProfile] = await Promise.all([
-          fetch(`/api/results?dashboardRefresh=${Date.now()}${fast ? `&fast=1&since=${encodeURIComponent(options.since || new Date(Date.now() - 75 * 86400000).toISOString())}` : ""}`, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${activeSession.access_token}`,
-            },
-            cache: "no-store",
-          }),
-          fetchWelcomeProfile(activeSession),
-        ]);
-
-        setProfile(welcomeProfile || null);
-
-        if (welcomeProfile) {
+        fetchWelcomeProfile(activeSession).then((welcomeProfile) => {
+          if (!active || currentRequestId !== requestId) return;
+          setProfile(welcomeProfile || null);
+          if (!welcomeProfile) return;
           const enrichedWelcomeIdentity = buildWelcomeIdentity(activeSession, welcomeProfile);
-
           if (enrichedWelcomeIdentity) {
             setWelcomeIdentity(enrichedWelcomeIdentity);
             setWelcomeAlreadyShown(hasSeenDashboardWelcome(enrichedWelcomeIdentity.email));
           }
-        }
+        }).catch(() => null);
+
+        const response = await fetch(`/api/results?includeRuns=0&dashboardRefresh=${Date.now()}${fast ? `&fast=1&since=${encodeURIComponent(options.since || new Date(Date.now() - 75 * 86400000).toISOString())}` : ""}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${activeSession.access_token}`,
+          },
+          cache: "no-store",
+        });
 
         const data = await response.json().catch(() => null);
 
@@ -3037,31 +3034,38 @@ export default function DashboardPage() {
           ? data.rows
           : [];
         const loadedSupervisorTeams = Array.isArray(data.supervisorTeams) ? data.supervisorTeams : [];
-        const activeAgentMappings = await loadActiveAgentMappings();
-        const liveMappedRows = applyAgentMappingsToRows(allRows, activeAgentMappings);
-
         if (!active || currentRequestId !== requestId) return;
 
         hasLoadedFreshRows = true;
         setSupervisorTeams(loadedSupervisorTeams);
-        if (merge) {
-          setRawRows((current) => {
-            const byId = new Map((current || []).map((row) => [String(row.id), row]));
-            liveMappedRows.forEach((row) => byId.set(String(row.id), row));
-            return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-          });
-        } else {
-          setRawRows(liveMappedRows);
-          writeClientCache(dashboardCacheKey, { savedAt: Date.now(), rows: liveMappedRows, supervisorTeams: loadedSupervisorTeams });
-        }
+        setError("");
+        const publishRows = (rows) => {
+          if (!active || currentRequestId !== requestId) return;
+          if (merge) {
+            setRawRows((current) => {
+              const byId = new Map((current || []).map((row) => [String(row.id), row]));
+              rows.forEach((row) => byId.set(String(row.id), row));
+              return Array.from(byId.values()).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+            });
+          } else {
+            setRawRows(rows);
+            writeClientCache(dashboardCacheKey, { savedAt: Date.now(), rows, supervisorTeams: loadedSupervisorTeams });
+          }
+        };
+        publishRows(allRows);
+        loadActiveAgentMappings().then((mappings) => {
+          if (Array.isArray(mappings) && mappings.length) publishRows(applyAgentMappingsToRows(allRows, mappings));
+        }).catch(() => null);
       } catch (loadError) {
         if (!active || currentRequestId !== requestId) return;
 
-        if (!preserveUi && !hasLoadedFreshRows) {
-          setRawRows([]);
-          setSupervisorTeams([]);
-          setProfile(null);
-          setError(loadError instanceof Error ? loadError.message : "Could not load dashboard data.");
+        if (!preserveUi) {
+          if (!hasLoadedFreshRows) {
+            setRawRows([]);
+            setSupervisorTeams([]);
+          }
+          const reason = loadError instanceof Error ? loadError.message : "Could not load dashboard data.";
+          setError(hasLoadedFreshRows ? `Showing saved data. Live refresh failed: ${reason}` : reason);
         }
       } finally {
         if (active && currentRequestId === requestId && !preserveUi) setLoading(false);
@@ -3371,6 +3375,19 @@ export default function DashboardPage() {
       rows: rows || [],
       initialFilters: cloneFilters(initialFilters, "all", false),
     });
+  }
+
+  if (!loading && error && rawRows.length === 0) {
+    return <main className="dashboard-page">
+      <style>{dashboardStyles}</style>
+      <section className="dashboard-load-failure" role="alert">
+        <p>Dashboard connection</p>
+        <h1>Results could not be loaded</h1>
+        <span>{error}</span>
+        <small>This page has not confirmed that any stored results were removed.</small>
+        <button type="button" onClick={() => window.location.reload()}>Try loading again</button>
+      </section>
+    </main>;
   }
 
   return (
@@ -8426,4 +8443,6 @@ html[data-theme="light"] :where(.run-page,.dashboard-page,.results-page,.admin-p
   color: #475569 !important;
   -webkit-text-fill-color: #475569 !important;
 }
+.dashboard-load-failure{width:min(620px,calc(100% - 32px));margin:clamp(60px,12vh,130px) auto;padding:clamp(24px,4vw,42px);border:1px solid var(--border);border-radius:22px;background:var(--card);color:var(--text);box-shadow:0 18px 48px rgba(0,0,0,.12)}
+.dashboard-load-failure p{margin:0;color:var(--brand-hover)!important;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.13em}.dashboard-load-failure h1{margin:12px 0 18px;font-size:clamp(25px,3vw,38px)}.dashboard-load-failure span,.dashboard-load-failure small{display:block;color:var(--muted);line-height:1.55}.dashboard-load-failure small{margin-top:10px}.dashboard-load-failure button{margin-top:24px;min-height:44px;padding:0 20px;border:0;border-radius:11px;background:var(--brand);color:#fff;font-weight:800}
 `;
