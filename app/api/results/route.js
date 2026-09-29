@@ -459,6 +459,7 @@ export async function GET(request) {
     const { adminClient, email, profile, permissions } = auth;
     const requestUrl = new URL(request.url);
     const fastMode = requestUrl.searchParams.get("fast") === "1";
+    const includeRuns = requestUrl.searchParams.get("includeRuns") !== "0";
     const sinceParam = String(requestUrl.searchParams.get("since") || "").trim();
     const sinceDate = sinceParam && !Number.isNaN(new Date(sinceParam).getTime()) ? new Date(sinceParam).toISOString() : "";
 
@@ -468,8 +469,8 @@ export async function GET(request) {
 
     const [allSupervisorTeams, supervisorTeamsForActor, totalResultsCount, rawResults] = await Promise.all([
       loadSupervisorTeams(adminClient),
-      loadSupervisorTeamsForActor(adminClient, auth),
-      fastMode ? Promise.resolve(null) : countTableRows(adminClient, "audit_results"),
+      hasPermission(auth, "results_view_all") ? Promise.resolve([]) : loadSupervisorTeamsForActor(adminClient, auth),
+      fastMode || !includeRuns ? Promise.resolve(null) : countTableRows(adminClient, "audit_results"),
       fetchAllAuditResults(adminClient, { since: sinceDate }),
     ]);
 
@@ -479,7 +480,7 @@ export async function GET(request) {
     }
 
     const results = sortResultsForArchive(scoped.rows);
-    const runs = await fetchRunsForResults(adminClient, results);
+    const runs = includeRuns ? await fetchRunsForResults(adminClient, results) : [];
     const visibleSupervisorTeams = hasPermission(auth, "results_view_all") ? allSupervisorTeams : supervisorTeamsForActor;
 
     const uniqueConversationCount = uniqueValues(
@@ -509,6 +510,7 @@ export async function GET(request) {
         visibility: scoped.visibility,
         source: "server_api_results_route_permission_scoped_paginated",
         fastMode,
+        runsOmitted: !includeRuns,
         since: sinceDate || null,
       },
     });
