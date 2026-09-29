@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { decryptSecret } from "../../../../lib/secretVault";
 import crypto from "crypto";
+import { automaticWorkerIdentity, isAutomaticWorker } from "../../../../lib/automaticAuditAuth";
+import { completeResult } from "../../../../lib/automaticAuditUtils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -967,7 +969,7 @@ async function fetchExistingStoredResults(adminClient, conversationIds) {
   for (const chunk of chunkArray(ids, 500)) {
     const { data, error } = await adminClient
       .from("audit_results")
-      .select("id, run_id, conversation_id, agent_name, client_email, ai_verdict, review_sentiment, error, created_at")
+      .select("id, run_id, conversation_id, agent_name, client_email, ai_verdict, review_sentiment, client_sentiment, resolution_status, replied_at, error, created_at")
       .in("conversation_id", chunk);
 
     if (error) {
@@ -1390,6 +1392,7 @@ async function persistAuditRunAndResults({
   promptSource,
   results,
   batchInfo,
+  automaticRunId = null,
 }) {
   const runId = crypto.randomUUID();
 
@@ -1409,7 +1412,7 @@ async function persistAuditRunAndResults({
     audited_count: auditedCount,
     success_count: successCount,
     error_count: errorCount,
-    audit_mode: batchInfo?.batchMode ? "live_gpt_batch" : "live_gpt",
+    audit_mode: automaticRunId ? "automatic_gpt_batch" : batchInfo?.batchMode ? "live_gpt_batch" : "live_gpt",
     prompt_source: `${promptSource}${batchPromptSuffix}`,
   };
 
@@ -1432,6 +1435,7 @@ async function persistAuditRunAndResults({
   }
 
   const resultRows = buildResultRows(runId, results);
+  if (automaticRunId) resultRows.forEach((row) => { row.automatic_audit_run_id = automaticRunId; });
 
   if (resultRows.length) {
     for (const chunk of chunkArray(resultRows, 500)) {
@@ -1483,10 +1487,11 @@ async function authenticateRequest(request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const automaticIdentity = await automaticWorkerIdentity(request);
   const {
     data: { user },
     error: userError,
-  } = await authClient.auth.getUser(token);
+  } = automaticIdentity ? { data: { user: automaticIdentity.user }, error: null } : await authClient.auth.getUser(token);
 
   if (userError || !user) {
     return {
@@ -1616,10 +1621,13 @@ export async function POST(request) {
       )
     );
 
-    const existingStoredRows = await fetchExistingStoredResults(
+    const allExistingStoredRows = await fetchExistingStoredResults(
       adminClient,
       conversationIdsToCheck
     );
+    const existingStoredRows = isAutomaticWorker(request)
+      ? allExistingStoredRows.filter((row) => completeResult(row, startDate))
+      : allExistingStoredRows;
     const previousResultByConversation = buildPreviousResultByConversation(existingStoredRows);
 
     const duplicateConversationIds = Array.from(
@@ -1855,6 +1863,7 @@ export async function POST(request) {
       promptSource,
       results: mappedResults,
       batchInfo,
+      automaticRunId: isAutomaticWorker(request) ? body.automaticRunId || null : null,
     });
 
     const snippetImpactRows = buildSnippetImpactRows({
