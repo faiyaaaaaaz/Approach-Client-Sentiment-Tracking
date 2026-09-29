@@ -52,6 +52,7 @@ const ADMIN_NAV_GROUPS = [
     items: [
       { key: "api-vault", label: "API Vault", icon: "key", permission: "admin_api_vault" },
       { key: "activity-logs", label: "Activity Logs", icon: "clock", permission: "admin_activity_logs" },
+      { key: "owner-password", label: "Owner Password", icon: "key", permission: "admin_api_vault", ownerOnly: true },
     ],
   },
 ];
@@ -580,7 +581,17 @@ function LaunchScreen({ title = "Preparing your workspace", subtitle = "Checking
   );
 }
 
-function LoginScreen({ authMessage, onGoogleLogin }) {
+function LoginScreen({ authMessage, onGoogleLogin, onOwnerPasswordLogin }) {
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  async function submitOwnerPassword(event) {
+    event.preventDefault();
+    if (passwordBusy || !ownerPassword) return;
+    setPasswordBusy(true);
+    try { await onOwnerPasswordLogin(ownerPassword); }
+    finally { setOwnerPassword(""); setPasswordBusy(false); }
+  }
   return (
     <div className="auth-stage">
       <div className="auth-bg-grid" />
@@ -617,6 +628,14 @@ function LoginScreen({ authMessage, onGoogleLogin }) {
             Sign in with Google
           </button>
 
+          {MASTER_ADMIN_EMAIL ? <div className="owner-login-option">
+            <button type="button" className="owner-login-toggle" onClick={() => setShowOwnerPassword((current) => !current)} aria-expanded={showOwnerPassword}>Platform owner password sign-in</button>
+            {showOwnerPassword ? <form onSubmit={submitOwnerPassword} className="owner-login-form">
+              <label>Owner email<input type="email" value={MASTER_ADMIN_EMAIL} readOnly autoComplete="username" /></label>
+              <label>Password<input type="password" value={ownerPassword} onChange={(event) => setOwnerPassword(event.target.value)} autoComplete="current-password" required /></label>
+              <button type="submit" disabled={passwordBusy || !ownerPassword}>{passwordBusy ? "Signing in…" : "Sign in as owner"}</button>
+            </form> : null}
+          </div> : null}
           <small>Only nextventures.io accounts can continue.</small>
         </div>
       </section>
@@ -1107,6 +1126,22 @@ function AppShellClientInner({ children }) {
     }
   }
 
+  async function handleOwnerPasswordLogin(password) {
+    setAuthMessage("");
+    if (!MASTER_ADMIN_EMAIL || !password) { setAuthMessage("Owner password sign-in is unavailable."); return; }
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: MASTER_ADMIN_EMAIL, password });
+      if (error || !data?.session || normalizeEmail(data.user?.email) !== MASTER_ADMIN_EMAIL) {
+        if (data?.session) await supabase.auth.signOut();
+        setAuthMessage("The owner sign-in could not be completed. Check the password and try again.");
+        return;
+      }
+      await postClientActivity(data.session, { action_type: "session_started", page: pathname || "/", metadata: { method: "owner_password" } });
+    } catch (_error) {
+      setAuthMessage("The owner sign-in could not be completed. Please try again.");
+    }
+  }
+
   async function handleLogout() {
     const signedOutSession = session;
     const { error } = await supabase.auth.signOut();
@@ -1134,7 +1169,7 @@ function AppShellClientInner({ children }) {
   }
 
   if (!session?.user) {
-    return <LoginScreen authMessage={authMessage} onGoogleLogin={handleGoogleLogin} />;
+    return <LoginScreen authMessage={authMessage} onGoogleLogin={handleGoogleLogin} onOwnerPasswordLogin={handleOwnerPasswordLogin} />;
   }
 
   const SidebarContent = (
@@ -3172,6 +3207,7 @@ const appShellStyles = `
 .login-copy h2 { font-family:'Plus Jakarta Sans'; color: var(--text) !important; }
 .login-google-btn { background:#fff !important; color:#181B26 !important; border:1px solid #E3E8EF !important; border-radius:12px !important; box-shadow:none !important; width:100% !important; min-height:48px !important; }
 .login-warning { background: color-mix(in srgb, var(--danger) 12%, transparent) !important; color: var(--danger) !important; border:1px solid color-mix(in srgb, var(--danger) 25%, transparent) !important; border-radius:14px !important; }
+.owner-login-option{margin-top:22px;padding-top:18px;border-top:1px solid var(--border);display:grid;gap:14px}.owner-login-toggle{border:0;background:none;color:var(--brand-hover,#8178ff);font-weight:800;font-size:14px;text-align:left;padding:6px 0;cursor:pointer}.owner-login-form{display:grid;gap:13px}.owner-login-form label{display:grid;gap:7px;font-size:13px;font-weight:700;color:var(--text)}.owner-login-form input{box-sizing:border-box;width:100%;min-height:46px;border:1px solid var(--border);border-radius:11px;background:var(--raised);color:var(--text);font-size:16px;padding:10px 12px}.owner-login-form button{min-height:46px;border:0;border-radius:11px;background:#6258f6;color:white;font-weight:800;font-size:15px;cursor:pointer}.owner-login-form button:disabled{opacity:.55;cursor:not-allowed}.owner-login-form :is(input,button):focus-visible,.owner-login-toggle:focus-visible{outline:2px solid #8076ff;outline-offset:2px}
 @media(max-width:900px){ .desktop-sidebar{ display:none !important;} .mobile-sidebar{ position:fixed !important; inset:0 auto 0 0 !important; transform:translateX(-104%); transition:transform 250ms cubic-bezier(.4,0,.2,1); z-index:80; } .mobile-sidebar-open .mobile-sidebar{ transform:translateX(0); } .mobile-nav-overlay{ background:rgba(0,0,0,.45) !important; backdrop-filter: blur(6px); } .login-card{ grid-template-columns:1fr !important;} .login-brand{ min-height:auto; padding:32px !important;} }
 
 
